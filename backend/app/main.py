@@ -10,7 +10,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -35,20 +35,6 @@ def setup_db():
     from app.db.models import Base, engine
     Base.metadata.create_all(engine)
     return {"message": "テーブル作成完了！"}
-
-@app.post("/reset-password")
-def reset_password(email: str, new_password: str):
-    from app.db.models import SessionLocal, User
-    import bcrypt
-    db = SessionLocal()
-    user = db.query(User).filter(User.email == email).first()
-    if not user:
-        return {"error": "ユーザーが見つかりません"}
-    hashed = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
-    user.hashed_password = hashed
-    db.commit()
-    db.close()
-    return {"message": "パスワードを更新しました"}
 
 @app.get("/reset-password")
 def reset_password_get(email: str, new_password: str):
