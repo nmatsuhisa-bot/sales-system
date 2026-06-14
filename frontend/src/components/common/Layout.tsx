@@ -9,12 +9,11 @@ const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'ダッシュボード', end: true },
   { to: '/customers', icon: Users, label: '顧客管理' },
   { to: '/products', icon: Package, label: '商品管理' },
-  { to: '/quotations', icon: FileText, label: '見積管理' },
   { to: '/orders', icon: ShoppingCart, label: '受注管理' },
   { to: '/purchase-orders', icon: Truck, label: '発注・仕入管理' },
   { to: '/inventory', icon: Boxes, label: '在庫管理' },
   { to: '/projects', icon: Briefcase, label: '案件管理' },
-  { to: '/estimates', icon: FileText, label: '見積管理（新）' },
+  { to: '/estimates', icon: FileText, label: '見積管理' },
   { to: '/masters', icon: Database, label: 'マスタ管理' },
 ];
 
