@@ -432,3 +432,83 @@ CREATE INDEX idx_project_orders_status ON project_orders(status);
 CREATE INDEX idx_project_orders_customer ON project_orders(customer_code);
 CREATE INDEX idx_projects_status ON projects(status);
 CREATE INDEX idx_projects_sales_person ON projects(sales_person_code);
+
+
+-- =============================================
+-- 商社マスタ（代理店）
+-- =============================================
+CREATE TABLE agencies (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    agency_code VARCHAR(50) UNIQUE NOT NULL,   -- 代理店コード
+    agency_name VARCHAR(200) NOT NULL,          -- 代理店名
+    branch_name VARCHAR(200),                   -- 支店名
+    trade_terms VARCHAR(200),                   -- 取引条件
+    address VARCHAR(500),                       -- 住所（請求先）
+    contact_person VARCHAR(100),                -- 担当者名
+    phone VARCHAR(50),                          -- 電話番号
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- =============================================
+-- 納入先マスタ
+-- =============================================
+CREATE TABLE delivery_destinations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    customer_id VARCHAR(50) UNIQUE NOT NULL,    -- 顧客ID
+    company_name VARCHAR(200) NOT NULL,         -- 会社名
+    factory_name VARCHAR(200),                  -- 工場名
+    company_factory_name VARCHAR(300),          -- 会社名_工場名
+    address VARCHAR(500),                       -- 住所
+    prefecture VARCHAR(50),                     -- 都道府県
+    postal_code VARCHAR(20),                    -- 郵便番号
+    tel VARCHAR(50),                            -- TEL
+    fax VARCHAR(50),                            -- FAX
+    customer_rank VARCHAR(50),                  -- 顧客ランク
+    notes TEXT,                                 -- 備考
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- =============================================
+-- 従業員マスタ
+-- =============================================
+CREATE TABLE employees (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    employee_code VARCHAR(50) UNIQUE NOT NULL,  -- 従業員ID
+    employee_name VARCHAR(100) NOT NULL,        -- 従業員名
+    department VARCHAR(100),                    -- 部署
+    role VARCHAR(50) DEFAULT 'staff',           -- 役割
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 初期データ投入
+INSERT INTO agencies (agency_code, agency_name, address) VALUES
+('1001', '株式会社名古屋マシンセンター', 'テスト'),
+('1002', '株式会社タクマ', 'テスト'),
+('1003', '株式会社タカハシキカン', 'テスト'),
+('1004', '共進機械株式会社', 'テスト'),
+('1006', '朝日工業株式会社', 'テスト');
+
+INSERT INTO delivery_destinations (customer_id, company_name, factory_name, company_factory_name, address) VALUES
+('1000009', '朝日工業株式会社', 'AAAAA', '朝日工業株式会社AAAAA', 'テスト'),
+('1000008', '株式会社ケイテック', 'AAAAA', '株式会社ケイテックAAAAA', 'テスト'),
+('1000007', '共和成産株式会社', 'AAAAA', '共和成産株式会社AAAAA', 'テスト'),
+('1000006', 'セーレン株式会社', '新田事業所', 'セーレン株式会社新田事業所', 'テスト'),
+('1000005', '院庄林業株式会社', '岡山第2工場', '院庄林業株式会社岡山第2工場', 'テスト'),
+('1000004', 'リージョナルパワー株式会社1', '鹿島D2工場', 'リージョナルパワー株式会社1鹿島D2工場', 'テスト'),
+('1000003', 'ウッドリンク株式会社', '製材', 'ウッドリンク株式会社', 'テスト'),
+('1000002', 'リージョナルパワー株式会社2', '能代1号', 'リージョナルパワー株式会社2能代1号', 'テスト'),
+('1000001', '株式会社木環の杜', '四倉工場', '株式会社木環の杜', 'テスト');
+
+INSERT INTO employees (employee_code, employee_name) VALUES
+('20202', '後藤 宗人'),
+('20309', '國立 信和'),
+('10107', '井上 雄一朗');
+
+-- 見積パターン・工数マスタ（別ファイルから読込）
+\i /docker-entrypoint-initdb.d/add_estimate_masters.sql

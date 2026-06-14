@@ -114,6 +114,51 @@ export const projectApi = {
     api.post(`/projects/orders/${orderId}/link-quotation`, null, { params: { quotation_id: quotationId } }),
 };
 
+
+
+// =============================================
+// 見積管理API（新）
+// =============================================
+export const estimateApi = {
+  // パターンマスタ
+  getBfrBodies: () => api.get('/estimate-quotations/patterns/bfr-bodies'),
+  getBfrFans: (model: string) => api.get(`/estimate-quotations/patterns/bfr-fans/${model}`),
+  getBfrRvs: (model: string) => api.get(`/estimate-quotations/patterns/bfr-rvs/${model}`),
+  getScaBodies: () => api.get('/estimate-quotations/patterns/sca-bodies'),
+  getPlFans: () => api.get('/estimate-quotations/patterns/pl-fans'),
+  getCyclones: () => api.get('/estimate-quotations/patterns/cyclones'),
+  getLaborItems: () => api.get('/estimate-quotations/labor-items'),
+  // 見積CRUD
+  list: (params?: any) => api.get('/estimate-quotations', { params }),
+  get: (id: string) => api.get(`/estimate-quotations/${id}`),
+  create: (data: any) => api.post('/estimate-quotations', data),
+  update: (id: string, data: any) => api.put(`/estimate-quotations/${id}`, data),
+  delete: (id: string) => api.delete(`/estimate-quotations/${id}`),
+  // 受注票
+  issueOrderTicket: (quotationId: string) => api.post(`/estimate-quotations/${quotationId}/issue-order-ticket`),
+};
+
+// =============================================
+// マスタ管理API
+// =============================================
+export const mastersApi = {
+  // 商社
+  listAgencies: (search?: string) => api.get('/masters/agencies', { params: { search } }),
+  createAgency: (data: any) => api.post('/masters/agencies', data),
+  updateAgency: (id: string, data: any) => api.put(`/masters/agencies/${id}`, data),
+  deleteAgency: (id: string) => api.delete(`/masters/agencies/${id}`),
+  // 納入先
+  listDeliveryDestinations: (search?: string) => api.get('/masters/delivery-destinations', { params: { search } }),
+  createDeliveryDestination: (data: any) => api.post('/masters/delivery-destinations', data),
+  updateDeliveryDestination: (id: string, data: any) => api.put(`/masters/delivery-destinations/${id}`, data),
+  deleteDeliveryDestination: (id: string) => api.delete(`/masters/delivery-destinations/${id}`),
+  // 従業員
+  listEmployees: (search?: string) => api.get('/masters/employees', { params: { search } }),
+  createEmployee: (data: any) => api.post('/masters/employees', data),
+  updateEmployee: (id: string, data: any) => api.put(`/masters/employees/${id}`, data),
+  deleteEmployee: (id: string) => api.delete(`/masters/employees/${id}`),
+};
+
 // =============================================
 // 認証API
 // =============================================

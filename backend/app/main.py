@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import auth, customers, products, quotations, orders, purchase_orders, inventory, reports, projects
+from app.api import auth, customers, products, quotations, orders, purchase_orders, inventory, reports, projects, masters, estimate_quotations
 
 app = FastAPI(
     title="販売管理・見積管理システム API",
@@ -10,7 +10,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -25,27 +25,9 @@ app.include_router(purchase_orders.router, prefix="/api/purchase-orders", tags=[
 app.include_router(inventory.router, prefix="/api/inventory", tags=["在庫管理"])
 app.include_router(reports.router, prefix="/api/reports", tags=["レポート"])
 app.include_router(projects.router, prefix="/api/projects", tags=["案件管理"])
+app.include_router(masters.router, prefix="/api/masters", tags=["マスタ管理"])
+app.include_router(estimate_quotations.router, prefix="/api/estimate-quotations", tags=["見積管理（新）"])
 
 @app.get("/")
 def root():
     return {"message": "販売管理システム API v1.0"}
-
-@app.get("/setup")
-def setup_db():
-    from app.db.models import Base, engine
-    Base.metadata.create_all(engine)
-    return {"message": "テーブル作成完了！"}
-
-@app.get("/reset-password")
-def reset_password_get(email: str, new_password: str):
-    from app.db.models import SessionLocal, User
-    import bcrypt
-    db = SessionLocal()
-    user = db.query(User).filter(User.email == email).first()
-    if not user:
-        return {"error": "ユーザーが見つかりません"}
-    hashed = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
-    user.hashed_password = hashed
-    db.commit()
-    db.close()
-    return {"message": "パスワードを更新しました"}

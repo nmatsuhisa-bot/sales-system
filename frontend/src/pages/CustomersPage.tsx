@@ -99,9 +99,9 @@ export default function CustomersPage() {
       {/* モーダル */}
       {modal !== null && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[85vh] flex flex-col">
             <h2 className="text-lg font-bold text-gray-800 mb-4">{modal.id ? '顧客編集' : '新規顧客登録'}</h2>
-            <div className="space-y-3">
+            <div className="overflow-y-auto flex-1"><div className="grid grid-cols-2 gap-3">
               {[
                 ['customer_code', '顧客コード *', 'text', 'C-001'],
                 ['name', '顧客名 *', 'text', '株式会社〇〇'],
@@ -135,8 +135,8 @@ export default function CustomersPage() {
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
                 />
               </div>
-            </div>
-            <div className="flex justify-end gap-3 mt-5">
+            </div></div>
+            <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-gray-100">
               <button onClick={() => setModal(null)} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 text-sm">キャンセル</button>
               <button onClick={handleSave} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">保存</button>
             </div>

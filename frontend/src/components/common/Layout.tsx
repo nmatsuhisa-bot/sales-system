@@ -1,7 +1,7 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, FileText, ShoppingCart,
-  Truck, BarChart3, LogOut, Menu, X, Boxes, Briefcase
+  Truck, BarChart3, LogOut, Menu, X, Boxes, Briefcase, Database
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -14,6 +14,8 @@ const navItems = [
   { to: '/purchase-orders', icon: Truck, label: '発注・仕入管理' },
   { to: '/inventory', icon: Boxes, label: '在庫管理' },
   { to: '/projects', icon: Briefcase, label: '案件管理' },
+  { to: '/estimates', icon: FileText, label: '見積管理（新）' },
+  { to: '/masters', icon: Database, label: 'マスタ管理' },
 ];
 
 export default function Layout() {
