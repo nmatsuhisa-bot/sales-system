@@ -29,3 +29,9 @@ app.include_router(projects.router, prefix="/api/projects", tags=["案件管理"
 @app.get("/")
 def root():
     return {"message": "販売管理システム API v1.0"}
+
+@app.get("/setup")
+def setup_db():
+    from app.db.models import Base, engine
+    Base.metadata.create_all(engine)
+    return {"message": "テーブル作成完了！"}
