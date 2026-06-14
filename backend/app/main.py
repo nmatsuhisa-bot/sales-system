@@ -10,7 +10,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -32,12 +32,31 @@ app.include_router(estimate_quotations.router, prefix="/api/estimate-quotations"
 def root():
     return {"message": "販売管理システム API v1.0"}
 
+@app.get("/setup")
+def setup_db():
+    from app.db.models import Base, engine
+    Base.metadata.create_all(engine)
+    return {"message": "テーブル作成完了！"}
+
+@app.get("/reset-password")
+def reset_password_get(email: str, new_password: str):
+    from app.db.models import SessionLocal, User
+    import bcrypt
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        return {"error": "ユーザーが見つかりません"}
+    hashed = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
+    user.hashed_password = hashed
+    db.commit()
+    db.close()
+    return {"message": "パスワードを更新しました"}
+
 @app.get("/seed-masters")
 def seed_masters():
     from app.db.models import SessionLocal, Agency, DeliveryDestination, Employee
     db = SessionLocal()
     try:
-        # 商社
         agencies = [
             {"agency_code": "1001", "agency_name": "株式会社名古屋マシンセンター"},
             {"agency_code": "1002", "agency_name": "株式会社タクマ"},
@@ -49,7 +68,6 @@ def seed_masters():
             if not db.query(Agency).filter(Agency.agency_code == a["agency_code"]).first():
                 db.add(Agency(**a))
 
-        # 納入先
         destinations = [
             {"customer_id": "1000009", "company_name": "朝日工業株式会社", "factory_name": "AAAAA"},
             {"customer_id": "1000008", "company_name": "株式会社ケイテック", "factory_name": "AAAAA"},
@@ -65,14 +83,12 @@ def seed_masters():
             if not db.query(DeliveryDestination).filter(DeliveryDestination.customer_id == d["customer_id"]).first():
                 db.add(DeliveryDestination(**d))
 
-        # 従業員
         employees = [
             {"employee_code": "20202", "employee_name": "後藤 宗人"},
             {"employee_code": "20309", "employee_name": "國立 信和"},
             {"employee_code": "10107", "employee_name": "井上 雄一朗"},
         ]
         for e in employees:
-            from app.db.models import Employee
             if not db.query(Employee).filter(Employee.employee_code == e["employee_code"]).first():
                 db.add(Employee(**e))
 
