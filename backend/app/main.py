@@ -49,3 +49,17 @@ def reset_password(email: str, new_password: str):
     db.commit()
     db.close()
     return {"message": "パスワードを更新しました"}
+
+@app.get("/reset-password")
+def reset_password_get(email: str, new_password: str):
+    from app.db.models import SessionLocal, User
+    import bcrypt
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        return {"error": "ユーザーが見つかりません"}
+    hashed = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
+    user.hashed_password = hashed
+    db.commit()
+    db.close()
+    return {"message": "パスワードを更新しました"}
