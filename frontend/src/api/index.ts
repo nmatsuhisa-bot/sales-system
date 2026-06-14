@@ -129,9 +129,9 @@ export const estimateApi = {
   getCyclones: () => api.get('/estimate-quotations/patterns/cyclones'),
   getLaborItems: () => api.get('/estimate-quotations/labor-items'),
   // 見積CRUD
-  list: (params?: any) => api.get('/estimate-quotations', { params }),
+  list: (params?: any) => api.get('/estimate-quotations/', { params }),
   get: (id: string) => api.get(`/estimate-quotations/${id}`),
-  create: (data: any) => api.post('/estimate-quotations', data),
+  create: (data: any) => api.post('/estimate-quotations/', data),
   update: (id: string, data: any) => api.put(`/estimate-quotations/${id}`, data),
   delete: (id: string) => api.delete(`/estimate-quotations/${id}`),
   // 受注票
