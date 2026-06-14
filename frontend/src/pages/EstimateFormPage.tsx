@@ -228,8 +228,13 @@ export default function EstimateFormPage() {
   const handleSave = async () => {
     setLoading(true);
     try {
+      // 空文字のUUIDフィールドをnullに変換
+      const cleanHeader = { ...header };
+      if (!cleanHeader.project_order_id) cleanHeader.project_order_id = null as any;
+      if (!cleanHeader.child_no) cleanHeader.child_no = null as any;
+      if (!cleanHeader.valid_until) cleanHeader.valid_until = null as any;
       const payload = {
-        ...header,
+        ...cleanHeader,
         issue_date: header.issue_date || undefined,
         valid_until: header.valid_until || undefined,
         line_items: lineItems.map((i, idx) => ({ ...i, line_no: idx + 1 })),
