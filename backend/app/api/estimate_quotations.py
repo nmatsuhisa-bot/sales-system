@@ -312,7 +312,7 @@ pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
                 <td style="border:1px solid #ccc;padding:4px 8px;font-size:11px;white-space:pre-wrap">{item.spec_detail or ''}</td>
                 <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{int(item.quantity or 1)}</td>
                 <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{item.unit or '式'}</td>
-                <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">{"　" if not item.unit_price else f"¥{int(item.unit_price):,}"}</td>
+                <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">{" " if not item.unit_price else f"¥{int(item.unit_price):,}"}</td>
                 <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">¥{int(item.amount or 0):,}</td>
             </tr>"""
             line_no += 1
@@ -368,17 +368,17 @@ pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
 
 <!-- 1枚目: ヘッダー -->
 <div style="text-align:right;margin-bottom:8px">No. {q.quotation_no}</div>
-<div style="text-align:right;margin-bottom:4px">日付　{q.issue_date or '　　　　'}</div>
+<div style="text-align:right;margin-bottom:4px">日付 {q.issue_date or '    '}</div>
 
-<h1 style="text-align:center;font-size:24px;margin:10px 0;letter-spacing:8px">御　見　積　書</h1>
+<h1 style="text-align:center;font-size:24px;margin:10px 0;letter-spacing:8px">御 見 積 書</h1>
 
 <table style="width:100%;margin-bottom:15px" cellspacing="0">
   <tr>
     <td style="width:55%;vertical-align:bottom">
       <div style="font-size:18px;font-weight:bold;border-bottom:2px solid #000;padding-bottom:4px">
-        {q.customer_name or '　'} &nbsp; 殿
+        {q.customer_name or ' '} &nbsp; 殿
       </div>
-      <div style="margin-top:6px;font-size:12px">納入先: {q.delivery_name or '　'}</div>
+      <div style="margin-top:6px;font-size:12px">納入先: {q.delivery_name or ' '}</div>
     </td>
     <td style="width:45%;vertical-align:top;padding-left:20px">
       <table cellspacing="0" style="font-size:11px">
@@ -388,10 +388,10 @@ pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
         <tr><td style="color:#888">（消費税込み）</td></tr>
         <tr><td colspan="2" style="padding-top:8px">
           <table style="font-size:11px;border-collapse:collapse;width:100%">
-            <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">納入期限</td><td style="border:1px solid #ccc;padding:3px 8px">{q.delivery_terms or '　'}</td></tr>
-            <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">受渡場所</td><td style="border:1px solid #ccc;padding:3px 8px">{q.delivery_name or '　'}</td></tr>
-            <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">見積有効期限</td><td style="border:1px solid #ccc;padding:3px 8px">{q.valid_until or '　'}</td></tr>
-            <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">御支払条件</td><td style="border:1px solid #ccc;padding:3px 8px">{q.payment_terms or '　'}</td></tr>
+            <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">納入期限</td><td style="border:1px solid #ccc;padding:3px 8px">{q.delivery_terms or ' '}</td></tr>
+            <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">受渡場所</td><td style="border:1px solid #ccc;padding:3px 8px">{q.delivery_name or ' '}</td></tr>
+            <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">見積有効期限</td><td style="border:1px solid #ccc;padding:3px 8px">{q.valid_until or ' '}</td></tr>
+            <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">御支払条件</td><td style="border:1px solid #ccc;padding:3px 8px">{q.payment_terms or ' '}</td></tr>
           </table>
         </td></tr>
       </table>
@@ -401,9 +401,9 @@ pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
 
 <table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:12px">
   <tr style="border-bottom:1px solid #000">
-    <td style="width:50%;padding:4px">件名: {q.title or '　'}</td>
+    <td style="width:50%;padding:4px">件名: {q.title or ' '}</td>
     <td style="width:50%;text-align:right;padding:4px">
-      担当: {q.sales_person_name or '　'}
+      担当: {q.sales_person_name or ' '}
     </td>
   </tr>
 </table>
@@ -451,13 +451,13 @@ pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
   <div style="font-size:22px;font-weight:bold;margin-right:20px">井上電設株式会社</div>
   <div style="font-size:11px;color:#333">
     〒460-0022 名古屋市中区金山四丁目3番17号<br>
-    TEL (052) 322-5271　FAX (052) 332-5273<br>
+    TEL (052) 322-5271 FAX (052) 332-5273<br>
     E-mail: tech@inoue-d.co.jp
   </div>
   <div style="margin-left:auto;font-size:11px">
-    担当: {q.sales_person_name or '　'}<br>
-    作成: 　　　　<br>
-    検印: 　　　　
+    担当: {q.sales_person_name or ' '}<br>
+    作成:     <br>
+    検印:     
   </div>
 </div>
 </body></html>"""
@@ -538,19 +538,19 @@ pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
 <table style="margin-bottom:12px;font-size:11px" cellspacing="0">
   <tr>
     <td style="background:#eee;border:1px solid #999;padding:4px 8px;width:100px">受注日</td>
-    <td style="border:1px solid #999;padding:4px 8px">{t.order_date or '　'}</td>
+    <td style="border:1px solid #999;padding:4px 8px">{t.order_date or ' '}</td>
     <td style="background:#eee;border:1px solid #999;padding:4px 8px;width:100px">見積書No.</td>
-    <td style="border:1px solid #999;padding:4px 8px">{q.quotation_no if q else '　'}</td>
+    <td style="border:1px solid #999;padding:4px 8px">{q.quotation_no if q else ' '}</td>
   </tr>
   <tr>
     <td style="background:#eee;border:1px solid #999;padding:4px 8px">ユーザー/納入先</td>
-    <td style="border:1px solid #999;padding:4px 8px">{t.delivery_name or '　'}</td>
+    <td style="border:1px solid #999;padding:4px 8px">{t.delivery_name or ' '}</td>
     <td style="background:#eee;border:1px solid #999;padding:4px 8px">売上先</td>
-    <td style="border:1px solid #999;padding:4px 8px">{t.customer_name or '　'}</td>
+    <td style="border:1px solid #999;padding:4px 8px">{t.customer_name or ' '}</td>
   </tr>
   <tr>
     <td style="background:#eee;border:1px solid #999;padding:4px 8px">担当者</td>
-    <td style="border:1px solid #999;padding:4px 8px">{t.sales_person_name or '　'}</td>
+    <td style="border:1px solid #999;padding:4px 8px">{t.sales_person_name or ' '}</td>
     <td style="background:#eee;border:1px solid #999;padding:4px 8px">区分</td>
     <td style="border:1px solid #999;padding:4px 8px">{'工番（100万円以上）' if is_koban else '単番（100万円未満）'}</td>
   </tr>
@@ -574,14 +574,14 @@ pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
   </tfoot>
 </table>
 
-{'<div style="border:1px solid #999;padding:8px;margin-top:10px;font-size:10px"><b>前受金</b>：有 ・ 無<br>①（　月　日付）税込/税抜 ¥　　　入金済<br>②（　月　日付）税込/税抜 ¥　　　入金済</div>' if is_koban else ''}
+{'<div style="border:1px solid #999;padding:8px;margin-top:10px;font-size:10px"><b>前受金</b>：有 ・ 無<br>①（ 月 日付）税込/税抜 ¥   入金済<br>②（ 月 日付）税込/税抜 ¥   入金済</div>' if is_koban else ''}
 
 <div style="margin-top:20px;border:1px solid #999;padding:8px;font-size:10px">
   <table style="width:100%"><tr>
     <td>出荷方法: □トラック出荷 □宅配出荷 □井上納品 □引取</td>
-    <td style="text-align:right">出荷日: 　　年　　月　　日</td>
+    <td style="text-align:right">出荷日:   年  月  日</td>
   </tr></table>
-  <div style="margin-top:6px">図面: 有 ・ 無　　注文書: 有 ・ 無{'　　契約書: 有 ・ 無' if is_koban else ''}</div>
+  <div style="margin-top:6px">図面: 有 ・ 無  注文書: 有 ・ 無{'  契約書: 有 ・ 無' if is_koban else ''}</div>
 </div>
 
 <table style="margin-top:15px;font-size:10px;width:100%">
@@ -598,7 +598,7 @@ pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
 
 <div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
   <div style="font-size:16px;font-weight:bold">井上電設株式会社</div>
-  <div style="margin-left:15px;font-size:10px">〒460-0022 名古屋市中区金山4丁目3-17　TEL(052)322-5271　FAX(052)332-5273</div>
+  <div style="margin-left:15px;font-size:10px">〒460-0022 名古屋市中区金山4丁目3-17 TEL(052)322-5271 FAX(052)332-5273</div>
 </div>
 </body></html>"""
 
@@ -652,9 +652,9 @@ def fan_instruction_pdf(quotation_id: str, db: Session = Depends(get_db)):
 
 <div style="position:relative">
   <div style="float:right;text-align:right;font-size:10px;margin-bottom:5px">
-    発行日: {'　　　　　　'}<br>
+    発行日: {'      '}<br>
     <table style="font-size:10px;margin-top:4px">
-      <tr><td style="background:#f0f0f0">営業担当</td><td style="min-width:80px">{q.sales_person_name or '　'}</td></tr>
+      <tr><td style="background:#f0f0f0">営業担当</td><td style="min-width:80px">{q.sales_person_name or ' '}</td></tr>
       <tr><td style="background:#f0f0f0">作成</td><td></td></tr>
     </table>
   </div>
@@ -667,23 +667,23 @@ def fan_instruction_pdf(quotation_id: str, db: Session = Depends(get_db)):
     <td style="background:#f0f0f0;width:80px">型式</td>
     <td style="background:#ffeb3b;font-weight:bold;width:200px">{model}</td>
     <td style="background:#f0f0f0;width:80px">製造番号</td>
-    <td style="width:200px">　　F001〜　ユニークな番号</td>
+    <td style="width:200px">  F001〜 ユニークな番号</td>
   </tr>
   <tr>
     <td style="background:#f0f0f0">御注文主</td>
-    <td><strong>{q.customer_name or '　'}</strong>　殿</td>
+    <td><strong>{q.customer_name or ' '}</strong> 殿</td>
     <td style="background:#f0f0f0">受注番号</td>
     <td><strong>{q.child_no or q.quotation_no}</strong></td>
   </tr>
   <tr>
     <td style="background:#f0f0f0">納入先</td>
-    <td>{q.delivery_name or '　'}　殿</td>
+    <td>{q.delivery_name or ' '} 殿</td>
     <td style="background:#f0f0f0">用途・仕様</td>
     <td>{model}</td>
   </tr>
   <tr>
     <td style="background:#f0f0f0">出荷日</td>
-    <td>　　　年　　月　　日</td>
+    <td>   年  月  日</td>
     <td style="background:#f0f0f0">出荷方法</td>
     <td>□トラック出荷 □宅配出荷 □井上納品 □引取</td>
   </tr>
@@ -693,12 +693,12 @@ def fan_instruction_pdf(quotation_id: str, db: Session = Depends(get_db)):
   <tr>
     <th rowspan="2" style="width:60px">モータ</th>
     <td style="width:50px">{fan_kw}</td><td style="width:20px">kw</td>
-    <td style="width:20px">P</td><td style="width:30px">　</td>
-    <td style="width:20px">Hz</td><td style="width:30px">　</td>
-    <td style="width:20px">V</td><td style="width:40px">　</td>
+    <td style="width:20px">P</td><td style="width:30px"> </td>
+    <td style="width:20px">Hz</td><td style="width:30px"> </td>
+    <td style="width:20px">V</td><td style="width:40px"> </td>
     <td style="width:40px">屋内/屋外</td>
     <td style="width:40px">フランジ</td>
-    <td style="width:40px">　</td>
+    <td style="width:40px"> </td>
   </tr>
   <tr><td colspan="10">備考: IE3</td></tr>
 </table>
@@ -706,26 +706,26 @@ def fan_instruction_pdf(quotation_id: str, db: Session = Depends(get_db)):
 <table style="margin-bottom:8px">
   <tr>
     <th style="width:80px">軸受</th>
-    <td>羽根側</td><td style="min-width:150px">　</td>
-    <td>プーリー側</td><td style="min-width:150px">　</td>
+    <td>羽根側</td><td style="min-width:150px"> </td>
+    <td>プーリー側</td><td style="min-width:150px"> </td>
   </tr>
   <tr>
     <th>モータ側プーリ</th>
-    <td colspan="2">　</td>
-    <td style="color:red">Vベルト</td><td>　　本</td>
+    <td colspan="2"> </td>
+    <td style="color:red">Vベルト</td><td>  本</td>
   </tr>
   <tr>
     <th>ファン側プーリ</th>
-    <td colspan="2">　</td>
-    <td style="color:red">回転数</td><td>　　rpm</td>
+    <td colspan="2"> </td>
+    <td style="color:red">回転数</td><td>  rpm</td>
   </tr>
 </table>
 
 <table style="margin-bottom:8px">
-  <tr><th style="width:80px">カバー</th><td>　</td><th>吸口テーパ</th><td>φ　　×t</td></tr>
-  <tr><th>点検口</th><td>　</td><th>フランジ</th><td>Fφ　　×t</td></tr>
-  <tr><th>架台</th><td>　</td><th>出口角丸</th><td>φ　　H　×t</td></tr>
-  <tr><th>塗装色</th><td>　</td><th>フランジ</th><td>Fφ　　×t</td></tr>
+  <tr><th style="width:80px">カバー</th><td> </td><th>吸口テーパ</th><td>φ  ×t</td></tr>
+  <tr><th>点検口</th><td> </td><th>フランジ</th><td>Fφ  ×t</td></tr>
+  <tr><th>架台</th><td> </td><th>出口角丸</th><td>φ  H ×t</td></tr>
+  <tr><th>塗装色</th><td> </td><th>フランジ</th><td>Fφ  ×t</td></tr>
 </table>
 
 <table style="margin-bottom:8px">
@@ -738,21 +738,21 @@ def fan_instruction_pdf(quotation_id: str, db: Session = Depends(get_db)):
     <td colspan="8" style="background:#f0f0f0;font-weight:bold">出荷時チェックリスト</td>
   </tr>
   <tr>
-    <th>検査者</th><td style="min-width:80px">　</td>
-    <th>日付</th><td>　</td>
-    <th>判定</th><td>　</td>
+    <th>検査者</th><td style="min-width:80px"> </td>
+    <th>日付</th><td> </td>
+    <th>判定</th><td> </td>
     <td colspan="2"></td>
   </tr>
   <tr>
-    <th>電流値</th><td>　</td>
-    <th>外観</th><td>　</td>
-    <th>回転方向</th><td>　</td>
-    <th>異音</th><td>　</td>
+    <th>電流値</th><td> </td>
+    <th>外観</th><td> </td>
+    <th>回転方向</th><td> </td>
+    <th>異音</th><td> </td>
   </tr>
   <tr>
     <th>測定点</th><td>軸受A</td><td>軸受B</td><td>X方向</td><td>Y方向</td><td>Z方向</td><td>予備点</td><td>予備点</td>
   </tr>
-  <tr><th>振動値</th><td>　</td><td>　</td><td>　</td><td>　</td><td>　</td><td>　</td><td>　</td></tr>
+  <tr><th>振動値</th><td> </td><td> </td><td> </td><td> </td><td> </td><td> </td><td> </td></tr>
 </table>
 
 <table style="font-size:10px">
@@ -762,14 +762,14 @@ def fan_instruction_pdf(quotation_id: str, db: Session = Depends(get_db)):
     <th colspan="2">ベルトたわみ量</th>
     <td>mm</td>
   </tr>
-  <tr><td>屋内＝全閉外扇屋内型</td><th>圧力</th><td>　mmaq</td><th>たわみ荷重最小値</th><td colspan="2">　N</td></tr>
-  <tr><td>グリス＝グリス給油</td><th>風量</th><td>　m³/min</td><th>たわみ荷重最大値(新規)</th><td colspan="2">　N</td></tr>
-  <tr><td>高効率＝高効率モータ</td><th>電流</th><td>　A</td><th>たわみ荷重最大値(張りなおし)</th><td colspan="2">　N</td></tr>
+  <tr><td>屋内＝全閉外扇屋内型</td><th>圧力</th><td> mmaq</td><th>たわみ荷重最小値</th><td colspan="2"> N</td></tr>
+  <tr><td>グリス＝グリス給油</td><th>風量</th><td> m³/min</td><th>たわみ荷重最大値(新規)</th><td colspan="2"> N</td></tr>
+  <tr><td>高効率＝高効率モータ</td><th>電流</th><td> A</td><th>たわみ荷重最大値(張りなおし)</th><td colspan="2"> N</td></tr>
 </table>
 
 <div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
   <div style="font-size:16px;font-weight:bold;margin-right:15px">井上電設株式会社</div>
-  <div style="font-size:10px">〒460-0022 名古屋市中区金山四丁目3番17号　TEL(052)322-5271　FAX(052)332-5273</div>
+  <div style="font-size:10px">〒460-0022 名古屋市中区金山四丁目3番17号 TEL(052)322-5271 FAX(052)332-5273</div>
 </div>
 </body></html>"""
 
@@ -828,8 +828,8 @@ def fan_inspection_pdf(quotation_id: str, db: Session = Depends(get_db)):
 </div>
 
 <div style="float:right;font-size:10px">
-  発行日: 　　　　　
-  <table style="margin-top:4px"><tr><td style="background:#f0f0f0">営業担当</td><td style="min-width:60px">{q.sales_person_name or '　'}</td></tr>
+  発行日:      
+  <table style="margin-top:4px"><tr><td style="background:#f0f0f0">営業担当</td><td style="min-width:60px">{q.sales_person_name or ' '}</td></tr>
   <tr><td style="background:#f0f0f0">作成</td><td></td></tr></table>
 </div>
 <h2 style="font-size:18px;font-weight:bold;letter-spacing:4px">ファン 検 査 記 録 書</h2>
@@ -843,19 +843,19 @@ def fan_inspection_pdf(quotation_id: str, db: Session = Depends(get_db)):
   </tr>
   <tr>
     <td style="background:#f0f0f0">御注文主</td>
-    <td><strong>{q.customer_name or '　'}</strong>　殿</td>
+    <td><strong>{q.customer_name or ' '}</strong> 殿</td>
     <td style="background:#f0f0f0">受注番号</td>
     <td><strong>{q.child_no or q.quotation_no}</strong></td>
   </tr>
   <tr>
     <td style="background:#f0f0f0">納入先</td>
-    <td>{q.delivery_name or '　'}　殿</td>
+    <td>{q.delivery_name or ' '} 殿</td>
     <td style="background:#f0f0f0">用途・仕様</td>
     <td>{model}</td>
   </tr>
   <tr>
     <td style="background:#f0f0f0">出荷日</td>
-    <td>　　年　　月　　日</td>
+    <td>  年  月  日</td>
     <td style="background:#f0f0f0">出荷方法</td>
     <td>□トラック出荷 □宅配出荷 □井上納品 □引取</td>
   </tr>
@@ -890,7 +890,7 @@ def fan_inspection_pdf(quotation_id: str, db: Session = Depends(get_db)):
 
 <div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
   <div style="font-size:16px;font-weight:bold;margin-right:15px">井上電設株式会社</div>
-  <div style="font-size:10px">〒460-0022 名古屋市中区金山四丁目3番17号　TEL(052)322-5271　FAX(052)332-5273</div>
+  <div style="font-size:10px">〒460-0022 名古屋市中区金山四丁目3番17号 TEL(052)322-5271 FAX(052)332-5273</div>
 </div>
 </body></html>"""
 
@@ -946,10 +946,10 @@ def control_panel_pdf(quotation_id: str, db: Session = Depends(get_db)):
 <table style="width:100%;margin-bottom:8px">
   <tr>
     <td style="border:1px solid #ccc;padding:4px;width:60px;background:#f0f0f0">納入先</td>
-    <td style="border:1px solid #ccc;padding:4px" colspan="3">{q.delivery_name or '　'}</td>
+    <td style="border:1px solid #ccc;padding:4px" colspan="3">{q.delivery_name or ' '}</td>
     <td style="border:1px solid #ccc;padding:4px;width:40px;background:#f0f0f0">工場</td>
     <td style="border:1px solid #ccc;padding:4px;width:60px;background:#f0f0f0">注文主</td>
-    <td style="border:1px solid #ccc;padding:4px">{q.customer_name or '　'}</td>
+    <td style="border:1px solid #ccc;padding:4px">{q.customer_name or ' '}</td>
   </tr>
 </table>
 
@@ -987,11 +987,11 @@ def control_panel_pdf(quotation_id: str, db: Session = Depends(get_db)):
   </tr>
   <tr>
     <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">動力(V)</td>
-    <td style="border:1px solid #ccc;padding:4px" colspan="5">□AC200V　□AC380V　□AC400V　□AC415V　□AC440V</td>
+    <td style="border:1px solid #ccc;padding:4px" colspan="5">□AC200V □AC380V □AC400V □AC415V □AC440V</td>
   </tr>
   <tr>
     <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">操作回路(V)</td>
-    <td style="border:1px solid #ccc;padding:4px" colspan="5">□AC100V　□AC200V　□DC24V</td>
+    <td style="border:1px solid #ccc;padding:4px" colspan="5">□AC100V □AC200V □DC24V</td>
   </tr>
   <tr>
     <th rowspan="3" style="border:1px solid #ccc;padding:4px;background:#f0f0f0;vertical-align:middle">その他</th>
@@ -1030,7 +1030,7 @@ def control_panel_pdf(quotation_id: str, db: Session = Depends(get_db)):
 <table style="width:100%;font-size:10px">
   <tr>
     <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:30px">担当</td>
-    <td style="border:1px solid #ccc;padding:4px;width:80px">{q.sales_person_name or '　'}</td>
+    <td style="border:1px solid #ccc;padding:4px;width:80px">{q.sales_person_name or ' '}</td>
     <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:30px">確認</td>
     <td style="border:1px solid #ccc;padding:4px;width:80px"></td>
     <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:30px">打合</td>
@@ -1044,7 +1044,7 @@ def control_panel_pdf(quotation_id: str, db: Session = Depends(get_db)):
 
 <div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
   <div style="font-size:20px;font-weight:bold;margin-right:10px">INOUE 井上電設株式会社</div>
-  <div style="font-size:10px">〒460-0022 名古屋市中区金山4丁目3-17　TEL(052)322-5271　FAX(052)332-5273</div>
+  <div style="font-size:10px">〒460-0022 名古屋市中区金山4丁目3-17 TEL(052)322-5271 FAX(052)332-5273</div>
 </div>
 </body></html>"""
 
@@ -1085,33 +1085,33 @@ def crane_pdf(order_id: str, db: Session = Depends(get_db)):
 <table style="margin:10px 0">
   <tr>
     <td style="background:#f0f0f0;width:60px">現場名</td>
-    <td colspan="3">{po.customer_name or '　'}</td>
+    <td colspan="3">{po.customer_name or ' '}</td>
     <td style="background:#f0f0f0;width:40px">注番</td>
     <td style="color:red;font-weight:bold">{po.child_no or '要確認'}</td>
   </tr>
   <tr>
     <td style="background:#f0f0f0">住所</td>
-    <td colspan="5">　</td>
+    <td colspan="5"> </td>
   </tr>
   <tr>
     <td style="background:#f0f0f0">TEL</td>
-    <td colspan="2">　</td>
+    <td colspan="2"> </td>
     <td style="background:#f0f0f0">ご担当者</td>
-    <td colspan="2">　</td>
+    <td colspan="2"> </td>
   </tr>
 </table>
 
 <table style="margin-bottom:10px">
   <tr>
     <td rowspan="2" style="background:#f0f0f0;width:60px">依頼業者</td>
-    <td colspan="3">　</td>
+    <td colspan="3"> </td>
     <td colspan="2" style="text-align:right">御中</td>
   </tr>
   <tr>
     <td style="background:#f0f0f0;width:60px">ご担当者</td>
-    <td>　</td>
+    <td> </td>
     <td style="background:#f0f0f0;width:30px">TEL</td>
-    <td>　</td>
+    <td> </td>
     <td style="background:#f0f0f0;width:30px">FAX</td>
   </tr>
 </table>
@@ -1122,25 +1122,25 @@ def crane_pdf(order_id: str, db: Session = Depends(get_db)):
 <table style="margin-bottom:8px">
   <tr>
     <td style="background:#f0f0f0;width:60px">機械名</td>
-    <td style="min-width:150px">　</td>
+    <td style="min-width:150px"> </td>
     <td style="background:#f0f0f0;width:60px">使用期間</td>
-    <td>　　月　　日（　）　　時　～　　月　　日（　）　　時</td>
+    <td>  月  日（ ）  時 ～  月  日（ ）  時</td>
   </tr>
   <tr>
-    <td style="background:#f0f0f0">　</td>
-    <td>　</td>
-    <td style="background:#f0f0f0">　</td>
-    <td>　</td>
+    <td style="background:#f0f0f0"> </td>
+    <td> </td>
+    <td style="background:#f0f0f0"> </td>
+    <td> </td>
   </tr>
   <tr>
     <td style="background:#f0f0f0">納品方法</td>
-    <td>　</td>
+    <td> </td>
     <td style="background:#f0f0f0">備考</td>
-    <td rowspan="2">　</td>
+    <td rowspan="2"> </td>
   </tr>
   <tr>
     <td style="background:#f0f0f0">返却方法</td>
-    <td>　</td>
+    <td> </td>
     <td></td>
   </tr>
 </table>
@@ -1148,8 +1148,8 @@ def crane_pdf(order_id: str, db: Session = Depends(get_db)):
 
 <div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
   <div style="font-size:14px;font-weight:bold;margin-right:15px">井上電設株式会社</div>
-  <div style="font-size:10px">〒460-0022 名古屋市中区金山四丁目3番17号　TEL(052)322-5271　FAX(052)332-5273</div>
-  <div style="margin-left:auto;font-size:10px">担当: {po.sales_person_name or '　'}　　作成: 　　　　</div>
+  <div style="font-size:10px">〒460-0022 名古屋市中区金山四丁目3番17号 TEL(052)322-5271 FAX(052)332-5273</div>
+  <div style="margin-left:auto;font-size:10px">担当: {po.sales_person_name or ' '}  作成:     </div>
 </div>
 </body></html>"""
 
@@ -1187,26 +1187,26 @@ def shipping_pdf(order_id: str, db: Session = Depends(get_db)):
 <table style="margin-bottom:10px">
   <tr>
     <td style="background:#ff4444;color:#fff;font-weight:bold;width:60px">送り先</td>
-    <td style="font-weight:bold">{po.customer_name or '　'}</td>
+    <td style="font-weight:bold">{po.customer_name or ' '}</td>
   </tr>
-  <tr><td style="background:#f0f0f0">住所</td><td>　</td></tr>
+  <tr><td style="background:#f0f0f0">住所</td><td> </td></tr>
   <tr>
-    <td style="background:#f0f0f0">TEL</td><td style="width:200px">　</td>
+    <td style="background:#f0f0f0">TEL</td><td style="width:200px"> </td>
   </tr>
 </table>
 
 <table style="margin-bottom:10px">
   <tr>
     <td style="background:#f0f0f0;width:60px">運送業者</td>
-    <td style="width:150px">　</td>
+    <td style="width:150px"> </td>
     <td style="background:#f0f0f0;width:60px">ご担当者</td>
-    <td>　</td>
+    <td> </td>
     <td style="background:#f0f0f0;width:30px">TEL</td>
-    <td>　</td>
+    <td> </td>
   </tr>
   <tr>
     <td style="background:#f0f0f0">備考</td>
-    <td colspan="5">　</td>
+    <td colspan="5"> </td>
   </tr>
 </table>
 
@@ -1214,22 +1214,22 @@ def shipping_pdf(order_id: str, db: Session = Depends(get_db)):
 <table style="margin-bottom:8px">
   <tr>
     <td style="background:#f0f0f0;width:60px">車種</td>
-    <td style="background:#ff4444;color:#fff;min-width:120px">　</td>
+    <td style="background:#ff4444;color:#fff;min-width:120px"> </td>
     <td style="background:#f0f0f0;width:40px">積込</td>
-    <td style="min-width:100px">{po.sales_person_name or '　'}</td>
+    <td style="min-width:100px">{po.sales_person_name or ' '}</td>
     <td style="background:#f0f0f0;width:40px">到着</td>
-    <td style="min-width:100px">　</td>
+    <td style="min-width:100px"> </td>
   </tr>
-  <tr><td style="background:#f0f0f0">積込①</td><td>　</td><td colspan="4">　</td></tr>
-  <tr><td style="background:#f0f0f0">積込②</td><td>　</td><td colspan="4">　</td></tr>
-  <tr><td style="background:#f0f0f0">積込③</td><td>　</td><td colspan="4">　</td></tr>
+  <tr><td style="background:#f0f0f0">積込①</td><td> </td><td colspan="4"> </td></tr>
+  <tr><td style="background:#f0f0f0">積込②</td><td> </td><td colspan="4"> </td></tr>
+  <tr><td style="background:#f0f0f0">積込③</td><td> </td><td colspan="4"> </td></tr>
 </table>
 """ for _ in range(3)])}
 
 <div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
   <div style="font-size:14px;font-weight:bold;margin-right:15px">井上電設株式会社</div>
-  <div style="font-size:10px">〒460-0022 名古屋市中区金山四丁目3番17号　TEL(052)322-5271　FAX(052)332-5273</div>
-  <div style="margin-left:auto;font-size:10px">担当: {po.sales_person_name or '　'}　　作成: 　　　　</div>
+  <div style="font-size:10px">〒460-0022 名古屋市中区金山四丁目3番17号 TEL(052)322-5271 FAX(052)332-5273</div>
+  <div style="margin-left:auto;font-size:10px">担当: {po.sales_person_name or ' '}  作成:     </div>
 </div>
 </body></html>"""
 
@@ -1271,15 +1271,15 @@ def hotel_pdf(order_id: str, db: Session = Depends(get_db)):
 <table style="margin-bottom:8px">
   <tr>
     <th style="width:60px">受注番号</th>
-    <td style="font-weight:bold">{po.child_no or '　'}</td>
+    <td style="font-weight:bold">{po.child_no or ' '}</td>
     <th style="width:60px">現場</th>
-    <td>{po.customer_name or '　'}</td>
+    <td>{po.customer_name or ' '}</td>
   </tr>
   <tr>
     <th>担当者</th>
-    <td>{po.sales_person_name or '　'}</td>
+    <td>{po.sales_person_name or ' '}</td>
     <th>出荷予定日</th>
-    <td>{po.expected_shipment_date or '　'}</td>
+    <td>{po.expected_shipment_date or ' '}</td>
   </tr>
 </table>
 
@@ -1307,7 +1307,7 @@ def hotel_pdf(order_id: str, db: Session = Depends(get_db)):
 
 <div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
   <div style="font-size:14px;font-weight:bold;margin-right:15px">井上電設株式会社</div>
-  <div style="font-size:10px">〒460-0022 名古屋市中区金山四丁目3番17号　TEL(052)322-5271　FAX(052)332-5273</div>
+  <div style="font-size:10px">〒460-0022 名古屋市中区金山四丁目3番17号 TEL(052)322-5271 FAX(052)332-5273</div>
 </div>
 </body></html>"""
 
