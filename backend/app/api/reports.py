@@ -1,9 +1,9 @@
 """レポート API"""
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, extract, desc
+from sqlalchemy import func, extract
 from datetime import datetime, date
-from app.db.models import get_db, Order, Quotation, Customer
+from app.db.models import get_db, Project, ProjectOrder, QuotationHeader
 
 router = APIRouter()
 
@@ -13,50 +13,58 @@ def dashboard(db: Session = Depends(get_db)):
     year = today.year
     month = today.month
 
-    # 今月の受注
-    monthly_orders = db.query(func.count(Order.id), func.sum(Order.total_amount)).filter(
-        extract('year', Order.order_date) == year,
-        extract('month', Order.order_date) == month
-    ).first()
+    # 案件ステータス集計
+    project_statuses = db.query(Project.status, func.count(Project.id)).group_by(Project.status).all()
 
-    # 今月の見積
-    monthly_quotes = db.query(func.count(Quotation.id)).filter(
-        extract('year', Quotation.issue_date) == year,
-        extract('month', Quotation.issue_date) == month
-    ).scalar()
+    # 今月の見積件数・金額
+    monthly_quotes = db.query(func.count(QuotationHeader.id)).filter(
+        extract('year', QuotationHeader.issue_date) == year,
+        extract('month', QuotationHeader.issue_date) == month
+    ).scalar() or 0
 
-    # ステータス別受注数
-    order_statuses = db.query(Order.status, func.count(Order.id)).group_by(Order.status).all()
+    monthly_quote_amount = db.query(func.sum(QuotationHeader.total_amount)).filter(
+        extract('year', QuotationHeader.issue_date) == year,
+        extract('month', QuotationHeader.issue_date) == month
+    ).scalar() or 0
 
-    # 月別売上（今年）
-    monthly_sales = db.query(
-        extract('month', Order.order_date).label('month'),
-        func.sum(Order.total_amount).label('total')
+    # 受注件数・金額（ステータスが受注・請求済の案件）
+    order_count = db.query(func.count(Project.id)).filter(
+        Project.status.in_(['受注', '請求済'])
+    ).scalar() or 0
+
+    order_amount = db.query(func.sum(Project.final_order_amount)).filter(
+        Project.status.in_(['受注', '請求済'])
+    ).scalar() or 0
+
+    # 月別見積金額推移（今年）
+    monthly_estimates = db.query(
+        extract('month', QuotationHeader.issue_date).label('month'),
+        func.count(QuotationHeader.id).label('count'),
+        func.sum(QuotationHeader.total_amount).label('total')
     ).filter(
-        extract('year', Order.order_date) == year
+        extract('year', QuotationHeader.issue_date) == year
     ).group_by('month').order_by('month').all()
 
-    # 見積ステータス
-    quote_statuses = db.query(Quotation.status, func.count(Quotation.id)).group_by(Quotation.status).all()
-
     return {
-        "monthly_orders_count": monthly_orders[0] or 0,
-        "monthly_orders_amount": int(monthly_orders[1] or 0),
-        "monthly_quotations_count": monthly_quotes or 0,
-        "order_statuses": {s: c for s, c in order_statuses},
-        "quotation_statuses": {s: c for s, c in quote_statuses},
-        "monthly_sales": [{"month": int(m), "total": int(t or 0)} for m, t in monthly_sales],
+        "project_status_counts": {(s or "未設定"): c for s, c in project_statuses},
+        "monthly_quotations_count": monthly_quotes,
+        "monthly_quotations_amount": int(monthly_quote_amount),
+        "order_count": order_count,
+        "order_amount": int(order_amount or 0),
+        "monthly_estimates": [
+            {"month": int(m), "count": c, "total": int(t or 0)}
+            for m, c, t in monthly_estimates
+        ],
     }
 
 @router.get("/sales")
 def sales_report(year: int = Query(default=datetime.now().year), db: Session = Depends(get_db)):
     monthly = db.query(
-        extract('month', Order.order_date).label('month'),
-        func.count(Order.id).label('count'),
-        func.sum(Order.total_amount).label('total')
+        extract('month', QuotationHeader.issue_date).label('month'),
+        func.count(QuotationHeader.id).label('count'),
+        func.sum(QuotationHeader.total_amount).label('total')
     ).filter(
-        extract('year', Order.order_date) == year,
-        Order.status.not_in(['cancelled'])
+        extract('year', QuotationHeader.issue_date) == year
     ).group_by('month').order_by('month').all()
 
     return {
