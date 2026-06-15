@@ -279,14 +279,20 @@ def export_pdf(quotation_id: str, db: Session = Depends(get_db)):
     ).filter(QuotationHeader.id == quotation_id).first()
     if not q: raise HTTPException(404)
 
-    html = _build_quotation_html(q)
+    html = _build_quotation_html(q, is_draft=(q.status == 'draft'))
     return StreamingResponse(
         io.BytesIO(html.encode("utf-8")),
         media_type="text/html",
         headers={"Content-Disposition": f"inline; filename={q.quotation_no}.html"}
     )
 
-def _build_quotation_html(q: QuotationHeader) -> str:
+def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
+    draft_watermark = ""
+    if is_draft:
+        draft_watermark = '''<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-45deg);
+font-size:120px;font-weight:bold;color:rgba(200,0,0,0.08);white-space:nowrap;z-index:9999;
+pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
+
     items_html = ""
     sections = {}
     for item in sorted(q.line_items, key=lambda x: x.line_no):
@@ -356,6 +362,9 @@ def _build_quotation_html(q: QuotationHeader) -> str:
   <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px">🖨️ PDF印刷</button>
   <span style="margin-left:15px;font-size:12px;color:#555">印刷ダイアログで「PDFに保存」を選択してください</span>
 </div>
+
+<!-- ドラフト透かし（status=draftの場合のみ） -->
+{draft_watermark}
 
 <!-- 1枚目: ヘッダー -->
 <div style="text-align:right;margin-bottom:8px">No. {q.quotation_no}</div>
@@ -463,7 +472,7 @@ def issue_order_ticket(quotation_id: str, db: Session = Depends(get_db)):
     if not q: raise HTTPException(404)
 
     total = int(q.total_amount or 0)
-    ticket_type = "koban" if total >= 1000000 else "tanban"
+    ticket_type = "koban" if total >= 3000000 else "tanban"
 
     year = datetime.now().year
     prefix = f"OT{year}-"
@@ -492,6 +501,12 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
     q = t.quotation
     is_koban = t.ticket_type == "koban"
     title = "受 注 票【工番】" if is_koban else "受 注 票【単番】"
+
+    draft_watermark = ""
+    if is_draft:
+        draft_watermark = '''<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-45deg);
+font-size:120px;font-weight:bold;color:rgba(200,0,0,0.08);white-space:nowrap;z-index:9999;
+pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
 
     items_html = ""
     if q:
@@ -537,7 +552,7 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
     <td style="background:#eee;border:1px solid #999;padding:4px 8px">担当者</td>
     <td style="border:1px solid #999;padding:4px 8px">{t.sales_person_name or '　'}</td>
     <td style="background:#eee;border:1px solid #999;padding:4px 8px">区分</td>
-    <td style="border:1px solid #999;padding:4px 8px">{'工番（300万円以上）' if is_koban else '単番（300万円未満）'}</td>
+    <td style="border:1px solid #999;padding:4px 8px">{'工番（100万円以上）' if is_koban else '単番（100万円未満）'}</td>
   </tr>
 </table>
 
@@ -569,31 +584,16 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
   <div style="margin-top:6px">図面: 有 ・ 無　　注文書: 有 ・ 無{'　　契約書: 有 ・ 無' if is_koban else ''}</div>
 </div>
 
-  <table style="margin-top:15px;font-size:10px;width:100%;border-collapse:collapse">
+<table style="margin-top:15px;font-size:10px;width:100%">
   <tr>
-    <th style="border:1px solid #999;padding:3px;text-align:center">社長</th>
-    <th style="border:1px solid #999;padding:3px;text-align:center">柴田</th>
-    <th style="border:1px solid #999;padding:3px;text-align:center">後藤</th>
-    <th style="border:1px solid #999;padding:3px;text-align:center">江里口</th>
-    <th style="border:1px solid #999;padding:3px;text-align:center">国立</th>
-    <th style="border:1px solid #999;padding:3px;text-align:center">川口</th>
-    <th style="border:1px solid #999;padding:3px;text-align:center">今井</th>
-    <th style="border:1px solid #999;padding:3px;text-align:center">大西</th>
-    <th style="border:1px solid #999;padding:3px;text-align:center">伏屋</th>
-    <th style="border:1px solid #999;padding:3px;text-align:center">三輪</th>
+    <th style="border:1px solid #999;padding:4px;width:70px">社長</th>
+    <th style="border:1px solid #999;padding:4px;width:70px">柴田</th>
+    <th style="border:1px solid #999;padding:4px;width:70px">後藤</th>
+    <th style="border:1px solid #999;padding:4px;width:70px">江里口</th>
+    <th style="border:1px solid #999;padding:4px;width:70px">国立</th>
+    <th style="border:1px solid #999;padding:4px;width:70px">担当</th>
   </tr>
-  <tr>
-    <td style="border:1px solid #999;height:35px"></td>
-    <td style="border:1px solid #999"></td>
-    <td style="border:1px solid #999"></td>
-    <td style="border:1px solid #999"></td>
-    <td style="border:1px solid #999"></td>
-    <td style="border:1px solid #999"></td>
-    <td style="border:1px solid #999"></td>
-    <td style="border:1px solid #999"></td>
-    <td style="border:1px solid #999"></td>
-    <td style="border:1px solid #999"></td>
-  </tr>
+  <tr><td style="border:1px solid #999;height:30px"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td></tr>
 </table>
 
 <div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
@@ -609,38 +609,707 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
 
 
 # =============================================
-# 採用見積を子IDに反映
+# 指示書PDF出力
 # =============================================
-@router.post("/{quotation_id}/adopt")
-def adopt_quotation(quotation_id: str, db: Session = Depends(get_db)):
-    """見積を採用として子IDに反映。後から変更可能。"""
-    q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
-    if not q:
-        raise HTTPException(404, "見積が見つかりません")
-    if not q.project_order_id:
-        raise HTTPException(400, "この見積は子IDに紐付いていません")
-    po = db.query(ProjectOrder).filter(ProjectOrder.id == q.project_order_id).first()
-    if not po:
-        raise HTTPException(404, "子IDが見つかりません")
-    po.quotation_id = q.id
-    po.quotation_no = q.quotation_no
-    po.quotation_total = q.total_amount
-    po.quotation_issue_date = q.issue_date
-    po.quotation_amount = q.total_amount
-    db.commit()
-    return {"message": f"見積 {q.quotation_no} を採用しました", "quotation_no": q.quotation_no, "total_amount": int(q.total_amount or 0), "child_no": po.child_no}
 
-@router.delete("/{quotation_id}/adopt")
-def unadopt_quotation(quotation_id: str, db: Session = Depends(get_db)):
-    """採用見積を解除"""
-    q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
-    if not q or not q.project_order_id:
-        raise HTTPException(404)
-    po = db.query(ProjectOrder).filter(ProjectOrder.id == q.project_order_id).first()
-    if po and po.quotation_id == q.id:
-        po.quotation_id = None
-        po.quotation_no = None
-        po.quotation_total = None
-        po.quotation_issue_date = None
-        db.commit()
-    return {"message": "採用を解除しました"}
+@router.get("/{quotation_id}/fan-instruction-pdf")
+def fan_instruction_pdf(quotation_id: str, db: Session = Depends(get_db)):
+    """ファン作業指示書PDF"""
+    q = db.query(QuotationHeader).options(
+        joinedload(QuotationHeader.line_items)
+    ).filter(QuotationHeader.id == quotation_id).first()
+    if not q: raise HTTPException(404)
+
+    # 見積明細からBFR/ファン情報を取得
+    bfr_item = next((i for i in q.line_items if i.product_type == 'BFR' and 'バグフィルター' in (i.item_name or '')), None)
+    fan_item = next((i for i in q.line_items if 'ターボファン' in (i.item_name or '') or 'ファン' in (i.item_name or '')), None)
+
+    model = bfr_item.spec_json.get('model', '') if bfr_item and bfr_item.spec_json else ''
+    fan_model = fan_item.spec_json.get('fan_model', '') if fan_item and fan_item.spec_json else ''
+    fan_kw = ''
+    if fan_item and fan_item.item_name:
+        import re
+        kw_match = re.search(r'(\d+\.?\d*)\s*kw', fan_item.item_name, re.IGNORECASE)
+        if kw_match:
+            fan_kw = kw_match.group(1)
+
+    html = f"""<!DOCTYPE html>
+<html lang="ja"><head><meta charset="UTF-8">
+<title>ファン作業指示書</title>
+<style>
+  body {{ font-family: 'Hiragino Sans','Yu Gothic',sans-serif; font-size:11px; margin:15mm; }}
+  @media print {{ .no-print {{ display:none }} }}
+  table {{ border-collapse:collapse; width:100%; }}
+  th, td {{ border:1px solid #999; padding:4px 6px; }}
+  th {{ background:#f0f0f0; font-weight:bold; }}
+  .title {{ font-size:20px; font-weight:bold; text-align:center; letter-spacing:4px; margin:10px 0; }}
+  .header-right {{ position:absolute; top:15mm; right:15mm; text-align:center; }}
+</style></head><body>
+
+<div class="no-print" style="background:#e0f2fe;padding:8px;margin-bottom:10px;border-radius:6px">
+  <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer">🖨️ PDF印刷</button>
+</div>
+
+<div style="position:relative">
+  <div style="float:right;text-align:right;font-size:10px;margin-bottom:5px">
+    発行日: {'　　　　　　'}<br>
+    <table style="font-size:10px;margin-top:4px">
+      <tr><td style="background:#f0f0f0">営業担当</td><td style="min-width:80px">{q.sales_person_name or '　'}</td></tr>
+      <tr><td style="background:#f0f0f0">作成</td><td></td></tr>
+    </table>
+  </div>
+  <div class="title">ファン 作 業 指 示 書</div>
+  <div style="clear:both"></div>
+</div>
+
+<table style="margin-bottom:8px">
+  <tr>
+    <td style="background:#f0f0f0;width:80px">型式</td>
+    <td style="background:#ffeb3b;font-weight:bold;width:200px">{model}</td>
+    <td style="background:#f0f0f0;width:80px">製造番号</td>
+    <td style="width:200px">　　F001〜　ユニークな番号</td>
+  </tr>
+  <tr>
+    <td style="background:#f0f0f0">御注文主</td>
+    <td><strong>{q.customer_name or '　'}</strong>　殿</td>
+    <td style="background:#f0f0f0">受注番号</td>
+    <td><strong>{q.child_no or q.quotation_no}</strong></td>
+  </tr>
+  <tr>
+    <td style="background:#f0f0f0">納入先</td>
+    <td>{q.delivery_name or '　'}　殿</td>
+    <td style="background:#f0f0f0">用途・仕様</td>
+    <td>{model}</td>
+  </tr>
+  <tr>
+    <td style="background:#f0f0f0">出荷日</td>
+    <td>　　　年　　月　　日</td>
+    <td style="background:#f0f0f0">出荷方法</td>
+    <td>□トラック出荷 □宅配出荷 □井上納品 □引取</td>
+  </tr>
+</table>
+
+<table style="margin-bottom:8px">
+  <tr>
+    <th rowspan="2" style="width:60px">モータ</th>
+    <td style="width:50px">{fan_kw}</td><td style="width:20px">kw</td>
+    <td style="width:20px">P</td><td style="width:30px">　</td>
+    <td style="width:20px">Hz</td><td style="width:30px">　</td>
+    <td style="width:20px">V</td><td style="width:40px">　</td>
+    <td style="width:40px">屋内/屋外</td>
+    <td style="width:40px">フランジ</td>
+    <td style="width:40px">　</td>
+  </tr>
+  <tr><td colspan="10">備考: IE3</td></tr>
+</table>
+
+<table style="margin-bottom:8px">
+  <tr>
+    <th style="width:80px">軸受</th>
+    <td>羽根側</td><td style="min-width:150px">　</td>
+    <td>プーリー側</td><td style="min-width:150px">　</td>
+  </tr>
+  <tr>
+    <th>モータ側プーリ</th>
+    <td colspan="2">　</td>
+    <td style="color:red">Vベルト</td><td>　　本</td>
+  </tr>
+  <tr>
+    <th>ファン側プーリ</th>
+    <td colspan="2">　</td>
+    <td style="color:red">回転数</td><td>　　rpm</td>
+  </tr>
+</table>
+
+<table style="margin-bottom:8px">
+  <tr><th style="width:80px">カバー</th><td>　</td><th>吸口テーパ</th><td>φ　　×t</td></tr>
+  <tr><th>点検口</th><td>　</td><th>フランジ</th><td>Fφ　　×t</td></tr>
+  <tr><th>架台</th><td>　</td><th>出口角丸</th><td>φ　　H　×t</td></tr>
+  <tr><th>塗装色</th><td>　</td><th>フランジ</th><td>Fφ　　×t</td></tr>
+</table>
+
+<table style="margin-bottom:8px">
+  <tr><th style="width:80px">備考</th><td style="height:60px"></td><th style="width:40px">図面情報</th><td style="width:120px"></td></tr>
+</table>
+
+<!-- 出荷時チェックリスト -->
+<table style="margin-bottom:8px;font-size:10px">
+  <tr>
+    <td colspan="8" style="background:#f0f0f0;font-weight:bold">出荷時チェックリスト</td>
+  </tr>
+  <tr>
+    <th>検査者</th><td style="min-width:80px">　</td>
+    <th>日付</th><td>　</td>
+    <th>判定</th><td>　</td>
+    <td colspan="2"></td>
+  </tr>
+  <tr>
+    <th>電流値</th><td>　</td>
+    <th>外観</th><td>　</td>
+    <th>回転方向</th><td>　</td>
+    <th>異音</th><td>　</td>
+  </tr>
+  <tr>
+    <th>測定点</th><td>軸受A</td><td>軸受B</td><td>X方向</td><td>Y方向</td><td>Z方向</td><td>予備点</td><td>予備点</td>
+  </tr>
+  <tr><th>振動値</th><td>　</td><td>　</td><td>　</td><td>　</td><td>　</td><td>　</td><td>　</td></tr>
+</table>
+
+<table style="font-size:10px">
+  <tr>
+    <td>屋外＝全閉外扇屋外型</td>
+    <th colspan="2">想定性能</th>
+    <th colspan="2">ベルトたわみ量</th>
+    <td>mm</td>
+  </tr>
+  <tr><td>屋内＝全閉外扇屋内型</td><th>圧力</th><td>　mmaq</td><th>たわみ荷重最小値</th><td colspan="2">　N</td></tr>
+  <tr><td>グリス＝グリス給油</td><th>風量</th><td>　m³/min</td><th>たわみ荷重最大値(新規)</th><td colspan="2">　N</td></tr>
+  <tr><td>高効率＝高効率モータ</td><th>電流</th><td>　A</td><th>たわみ荷重最大値(張りなおし)</th><td colspan="2">　N</td></tr>
+</table>
+
+<div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
+  <div style="font-size:16px;font-weight:bold;margin-right:15px">井上電設株式会社</div>
+  <div style="font-size:10px">〒460-0022 名古屋市中区金山四丁目3番17号　TEL(052)322-5271　FAX(052)332-5273</div>
+</div>
+</body></html>"""
+
+    return StreamingResponse(
+        io.BytesIO(html.encode("utf-8")), media_type="text/html",
+        headers={"Content-Disposition": f"inline; filename=fan_instruction_{q.quotation_no}.html"}
+    )
+
+
+@router.get("/{quotation_id}/fan-inspection-pdf")
+def fan_inspection_pdf(quotation_id: str, db: Session = Depends(get_db)):
+    """ファン検査記録書PDF"""
+    q = db.query(QuotationHeader).options(
+        joinedload(QuotationHeader.line_items)
+    ).filter(QuotationHeader.id == quotation_id).first()
+    if not q: raise HTTPException(404)
+
+    bfr_item = next((i for i in q.line_items if i.product_type == 'BFR' and 'バグフィルター' in (i.item_name or '')), None)
+    model = bfr_item.spec_json.get('model', '') if bfr_item and bfr_item.spec_json else ''
+
+    inspection_items = [
+        ('切削', '羽根車ボス外形寸法'), ('切削', '羽根車ボス穴寸法'),
+        ('切削', 'シャフト羽根車側寸法'), ('切削', 'シャフトプーリ側寸法'),
+        ('切削', 'シャフト長さ'), ('切削', 'モータプーリ穴寸法'), ('切削', 'ファンプーリ穴寸法'),
+        ('製缶', '溶接及び歪外観'),
+        ('塗装', '塗装及びコーキング外観'),
+        ('組立', '羽根車穴仕上げ'), ('組立', '羽根車バランス'), ('組立', '軸受グリス封入'),
+        ('組立', '軸受ノックピン'), ('組立', 'プーリ芯出し'), ('組立', 'ベルト張力・振動・電流'),
+        ('組立', 'カバーその他付属品取付'), ('組立', 'PLシール貼付'),
+    ]
+
+    rows = ''
+    prev_category = ''
+    for cat, item in inspection_items:
+        cat_cell = f'<td rowspan="X" style="background:#f0f0f0;font-weight:bold;text-align:center;vertical-align:middle">{cat}</td>' if cat != prev_category else ''
+        rows += f"""<tr>
+            <td style="border:1px solid #ccc;padding:3px 6px;background:#fff9c4;font-weight:bold">{item}</td>
+            <td style="border:1px solid #ccc;padding:3px 6px;width:60px"></td>
+            <td style="border:1px solid #ccc;padding:3px 6px;width:60px"></td>
+            <td style="border:1px solid #ccc;padding:3px 6px;width:60px"></td>
+            <td style="border:1px solid #ccc;padding:3px 6px;width:60px"></td>
+            <td style="border:1px solid #ccc;padding:3px 6px;width:40px"></td>
+        </tr>"""
+        prev_category = cat
+
+    html = f"""<!DOCTYPE html>
+<html lang="ja"><head><meta charset="UTF-8">
+<title>ファン検査記録書</title>
+<style>
+  body {{ font-family: 'Hiragino Sans','Yu Gothic',sans-serif; font-size:11px; margin:15mm; }}
+  @media print {{ .no-print {{ display:none }} }}
+  table {{ border-collapse:collapse; width:100%; }}
+</style></head><body>
+<div class="no-print" style="background:#e0f2fe;padding:8px;margin-bottom:10px;border-radius:6px">
+  <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer">🖨️ PDF印刷</button>
+</div>
+
+<div style="float:right;font-size:10px">
+  発行日: 　　　　　
+  <table style="margin-top:4px"><tr><td style="background:#f0f0f0">営業担当</td><td style="min-width:60px">{q.sales_person_name or '　'}</td></tr>
+  <tr><td style="background:#f0f0f0">作成</td><td></td></tr></table>
+</div>
+<h2 style="font-size:18px;font-weight:bold;letter-spacing:4px">ファン 検 査 記 録 書</h2>
+<div style="clear:both"></div>
+
+<table style="margin-bottom:8px">
+  <tr>
+    <td style="background:#f0f0f0;width:60px">型式</td>
+    <td style="background:#ffeb3b;font-weight:bold;width:180px">{model}</td>
+    <td style="background:#f0f0f0;width:60px">製造番号</td><td></td>
+  </tr>
+  <tr>
+    <td style="background:#f0f0f0">御注文主</td>
+    <td><strong>{q.customer_name or '　'}</strong>　殿</td>
+    <td style="background:#f0f0f0">受注番号</td>
+    <td><strong>{q.child_no or q.quotation_no}</strong></td>
+  </tr>
+  <tr>
+    <td style="background:#f0f0f0">納入先</td>
+    <td>{q.delivery_name or '　'}　殿</td>
+    <td style="background:#f0f0f0">用途・仕様</td>
+    <td>{model}</td>
+  </tr>
+  <tr>
+    <td style="background:#f0f0f0">出荷日</td>
+    <td>　　年　　月　　日</td>
+    <td style="background:#f0f0f0">出荷方法</td>
+    <td>□トラック出荷 □宅配出荷 □井上納品 □引取</td>
+  </tr>
+</table>
+
+<table>
+  <thead>
+    <tr style="background:#2c3e50;color:#fff">
+      <th style="padding:5px;width:60px">検査工程</th>
+      <th style="padding:5px">検査項目</th>
+      <th style="padding:5px;width:60px">加工納期</th>
+      <th style="padding:5px;width:60px">加工者</th>
+      <th style="padding:5px;width:60px">加工日</th>
+      <th style="padding:5px;width:60px">検査者</th>
+      <th style="padding:5px;width:60px">検査日</th>
+      <th style="padding:5px;width:40px">良/不良</th>
+    </tr>
+  </thead>
+  <tbody>
+    {''.join([f"""<tr>
+      <td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5;font-weight:bold;text-align:center">{cat}</td>
+      <td style="border:1px solid #ccc;padding:3px 6px">{item}</td>
+      <td style="border:1px solid #ccc;padding:3px 6px"></td>
+      <td style="border:1px solid #ccc;padding:3px 6px"></td>
+      <td style="border:1px solid #ccc;padding:3px 6px"></td>
+      <td style="border:1px solid #ccc;padding:3px 6px"></td>
+      <td style="border:1px solid #ccc;padding:3px 6px"></td>
+      <td style="border:1px solid #ccc;padding:3px 6px;text-align:center"></td>
+    </tr>""" for cat, item in inspection_items])}
+  </tbody>
+</table>
+
+<div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
+  <div style="font-size:16px;font-weight:bold;margin-right:15px">井上電設株式会社</div>
+  <div style="font-size:10px">〒460-0022 名古屋市中区金山四丁目3番17号　TEL(052)322-5271　FAX(052)332-5273</div>
+</div>
+</body></html>"""
+
+    return StreamingResponse(
+        io.BytesIO(html.encode("utf-8")), media_type="text/html",
+        headers={"Content-Disposition": f"inline; filename=fan_inspection_{q.quotation_no}.html"}
+    )
+
+
+@router.get("/{quotation_id}/control-panel-pdf")
+def control_panel_pdf(quotation_id: str, db: Session = Depends(get_db)):
+    """制御盤作業指示書PDF"""
+    q = db.query(QuotationHeader).options(
+        joinedload(QuotationHeader.line_items)
+    ).filter(QuotationHeader.id == quotation_id).first()
+    if not q: raise HTTPException(404)
+
+    # 制御盤情報を見積明細から取得
+    fan_item = next((i for i in q.line_items if 'ファン' in (i.item_name or '') or 'BFR' in (i.item_name or '')), None)
+    kw = ''
+    if fan_item and fan_item.spec_json:
+        kw = fan_item.spec_json.get('kw', '')
+
+    motors = []
+    for i in q.line_items:
+        if i.spec_json and 'kw' in i.spec_json:
+            motors.append({'name': i.item_name or '', 'kw': i.spec_json.get('kw', ''), 'count': int(i.quantity or 1)})
+
+    motor_rows = ''
+    for idx, m in enumerate(motors[:15], 1):
+        motor_rows += f"<tr><td style='border:1px solid #ccc;padding:3px;text-align:center'>{idx}</td><td style='border:1px solid #ccc;padding:3px'>{m['name']}</td><td style='border:1px solid #ccc;padding:3px;text-align:center'>{m['kw']}</td><td style='border:1px solid #ccc;padding:3px;text-align:center'>{m['count']}</td><td style='border:1px solid #ccc;padding:3px'></td></tr>"
+    for idx in range(len(motors) + 1, 16):
+        motor_rows += f"<tr><td style='border:1px solid #ccc;padding:3px;text-align:center;color:#ccc'>{idx}</td><td style='border:1px solid #ccc'></td><td style='border:1px solid #ccc'></td><td style='border:1px solid #ccc'></td><td style='border:1px solid #ccc'></td></tr>"
+
+    html = f"""<!DOCTYPE html>
+<html lang="ja"><head><meta charset="UTF-8">
+<title>制御盤作業指示書</title>
+<style>
+  body {{ font-family: 'Hiragino Sans','Yu Gothic',sans-serif; font-size:11px; margin:15mm; }}
+  @media print {{ .no-print {{ display:none }} }}
+  table {{ border-collapse:collapse; }}
+  th {{ background:#f0f0f0; }}
+</style></head><body>
+<div class="no-print" style="background:#e0f2fe;padding:8px;margin-bottom:10px;border-radius:6px">
+  <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer">🖨️ PDF印刷</button>
+</div>
+
+<div style="float:right;text-align:right">
+  受No. <span style="background:#ff4444;color:#fff;padding:2px 8px;font-weight:bold">{q.child_no or q.quotation_no}</span>
+</div>
+<div style="clear:both;margin-bottom:8px"></div>
+
+<table style="width:100%;margin-bottom:8px">
+  <tr>
+    <td style="border:1px solid #ccc;padding:4px;width:60px;background:#f0f0f0">納入先</td>
+    <td style="border:1px solid #ccc;padding:4px" colspan="3">{q.delivery_name or '　'}</td>
+    <td style="border:1px solid #ccc;padding:4px;width:40px;background:#f0f0f0">工場</td>
+    <td style="border:1px solid #ccc;padding:4px;width:60px;background:#f0f0f0">注文主</td>
+    <td style="border:1px solid #ccc;padding:4px">{q.customer_name or '　'}</td>
+  </tr>
+</table>
+
+<table style="width:100%;margin-bottom:8px">
+  <tr>
+    <td style="border:1px solid #ccc;padding:4px;width:40px;background:#f0f0f0">名称</td>
+    <td style="border:1px solid #ccc;padding:4px;width:200px"></td>
+    <td style="border:1px solid #ccc;padding:4px;width:40px;background:#f0f0f0">形式</td>
+    <td style="border:1px solid #ccc;padding:4px"></td>
+  </tr>
+  <tr>
+    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">概要</td>
+    <td style="border:1px solid #ccc;padding:4px" colspan="2"></td>
+    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">電子図番</td>
+    <td style="border:1px solid #ccc;padding:4px"></td>
+  </tr>
+</table>
+
+<table style="width:100%;margin-bottom:8px">
+  <tr>
+    <th rowspan="5" style="border:1px solid #ccc;padding:4px;width:50px;vertical-align:middle">盤仕様</th>
+    <td style="border:1px solid #ccc;padding:4px;width:80px;background:#f0f0f0">仕様</td>
+    <td style="border:1px solid #ccc;padding:4px;width:80px"></td>
+    <td style="border:1px solid #ccc;padding:4px;width:60px;background:#f0f0f0">指定色</td>
+    <td style="border:1px solid #ccc;padding:4px;width:80px"></td>
+    <td style="border:1px solid #ccc;padding:4px;width:80px;background:#f0f0f0">架台・タイプ</td>
+    <td style="border:1px solid #ccc;padding:4px"></td>
+  </tr>
+  <tr>
+    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">周波数(Hz)</td>
+    <td style="border:1px solid #ccc;padding:4px"></td>
+    <td colspan="2"></td>
+    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">サイズ:W×L×H</td>
+    <td style="border:1px solid #ccc;padding:4px"></td>
+  </tr>
+  <tr>
+    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">動力(V)</td>
+    <td style="border:1px solid #ccc;padding:4px" colspan="5">□AC200V　□AC380V　□AC400V　□AC415V　□AC440V</td>
+  </tr>
+  <tr>
+    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">操作回路(V)</td>
+    <td style="border:1px solid #ccc;padding:4px" colspan="5">□AC100V　□AC200V　□DC24V</td>
+  </tr>
+  <tr>
+    <th rowspan="3" style="border:1px solid #ccc;padding:4px;background:#f0f0f0;vertical-align:middle">その他</th>
+    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">パトライト</td><td style="border:1px solid #ccc;padding:4px"></td>
+    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">操作SW</td><td style="border:1px solid #ccc;padding:4px"></td>
+    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">火花探知器</td><td style="border:1px solid #ccc;padding:4px"></td>
+  </tr>
+</table>
+
+<table style="width:100%;margin-bottom:8px;font-size:10px">
+  <thead>
+    <tr style="background:#f0f0f0">
+      <th style="border:1px solid #ccc;padding:3px;width:30px"></th>
+      <th style="border:1px solid #ccc;padding:3px">名称</th>
+      <th style="border:1px solid #ccc;padding:3px;width:70px">容量(kw)</th>
+      <th style="border:1px solid #ccc;padding:3px;width:50px">台数</th>
+      <th style="border:1px solid #ccc;padding:3px">備考</th>
+    </tr>
+  </thead>
+  <tbody>{motor_rows}</tbody>
+</table>
+
+<table style="width:100%;margin-bottom:8px;font-size:10px">
+  <tr>
+    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:40px">電子見積</td>
+    <td style="border:1px solid #ccc;padding:4px;width:80px"></td>
+    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:40px">電子仕入</td>
+    <td style="border:1px solid #ccc;padding:4px;width:80px"></td>
+    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:50px">見積金額</td>
+    <td style="border:1px solid #ccc;padding:4px;width:100px"></td>
+    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:50px">受注金額</td>
+    <td style="border:1px solid #ccc;padding:4px"></td>
+  </tr>
+</table>
+
+<table style="width:100%;font-size:10px">
+  <tr>
+    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:30px">担当</td>
+    <td style="border:1px solid #ccc;padding:4px;width:80px">{q.sales_person_name or '　'}</td>
+    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:30px">確認</td>
+    <td style="border:1px solid #ccc;padding:4px;width:80px"></td>
+    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:30px">打合</td>
+    <td style="border:1px solid #ccc;padding:4px;width:80px"></td>
+    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:30px">立会</td>
+    <td style="border:1px solid #ccc;padding:4px;width:80px"></td>
+    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:30px">出荷</td>
+    <td style="border:1px solid #ccc;padding:4px"></td>
+  </tr>
+</table>
+
+<div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
+  <div style="font-size:20px;font-weight:bold;margin-right:10px">INOUE 井上電設株式会社</div>
+  <div style="font-size:10px">〒460-0022 名古屋市中区金山4丁目3-17　TEL(052)322-5271　FAX(052)332-5273</div>
+</div>
+</body></html>"""
+
+    return StreamingResponse(
+        io.BytesIO(html.encode("utf-8")), media_type="text/html",
+        headers={"Content-Disposition": f"inline; filename=control_panel_{q.quotation_no}.html"}
+    )
+
+
+# =============================================
+# 手配書PDF（クレーン・作業車依頼書）
+# =============================================
+@router.get("/project-order/{order_id}/crane-pdf")
+def crane_pdf(order_id: str, db: Session = Depends(get_db)):
+    """クレーン・作業車等依頼書PDF"""
+    from app.db.models import ProjectOrder
+    po = db.query(ProjectOrder).filter(
+        or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)
+    ).first()
+    if not po: raise HTTPException(404)
+
+    html = f"""<!DOCTYPE html>
+<html lang="ja"><head><meta charset="UTF-8">
+<title>クレーン・作業車等依頼書</title>
+<style>
+  body {{ font-family: 'Hiragino Sans','Yu Gothic',sans-serif; font-size:11px; margin:15mm; }}
+  @media print {{ .no-print {{ display:none }} }}
+  table {{ border-collapse:collapse; width:100%; }}
+  td,th {{ border:1px solid #999; padding:4px 6px; }}
+  .title {{ font-size:16px; font-weight:bold; letter-spacing:2px; }}
+</style></head><body>
+<div class="no-print" style="background:#e0f2fe;padding:8px;margin-bottom:10px;border-radius:6px">
+  <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer">🖨️ PDF印刷</button>
+</div>
+
+<div class="title">クレーン・作業車等 依頼書</div>
+
+<table style="margin:10px 0">
+  <tr>
+    <td style="background:#f0f0f0;width:60px">現場名</td>
+    <td colspan="3">{po.customer_name or '　'}</td>
+    <td style="background:#f0f0f0;width:40px">注番</td>
+    <td style="color:red;font-weight:bold">{po.child_no or '要確認'}</td>
+  </tr>
+  <tr>
+    <td style="background:#f0f0f0">住所</td>
+    <td colspan="5">　</td>
+  </tr>
+  <tr>
+    <td style="background:#f0f0f0">TEL</td>
+    <td colspan="2">　</td>
+    <td style="background:#f0f0f0">ご担当者</td>
+    <td colspan="2">　</td>
+  </tr>
+</table>
+
+<table style="margin-bottom:10px">
+  <tr>
+    <td rowspan="2" style="background:#f0f0f0;width:60px">依頼業者</td>
+    <td colspan="3">　</td>
+    <td colspan="2" style="text-align:right">御中</td>
+  </tr>
+  <tr>
+    <td style="background:#f0f0f0;width:60px">ご担当者</td>
+    <td>　</td>
+    <td style="background:#f0f0f0;width:30px">TEL</td>
+    <td>　</td>
+    <td style="background:#f0f0f0;width:30px">FAX</td>
+  </tr>
+</table>
+
+<p style="font-size:10px">下記、手配お願い致します。※請求書には右上の注番を記入してください。</p>
+
+{''.join([f"""
+<table style="margin-bottom:8px">
+  <tr>
+    <td style="background:#f0f0f0;width:60px">機械名</td>
+    <td style="min-width:150px">　</td>
+    <td style="background:#f0f0f0;width:60px">使用期間</td>
+    <td>　　月　　日（　）　　時　～　　月　　日（　）　　時</td>
+  </tr>
+  <tr>
+    <td style="background:#f0f0f0">　</td>
+    <td>　</td>
+    <td style="background:#f0f0f0">　</td>
+    <td>　</td>
+  </tr>
+  <tr>
+    <td style="background:#f0f0f0">納品方法</td>
+    <td>　</td>
+    <td style="background:#f0f0f0">備考</td>
+    <td rowspan="2">　</td>
+  </tr>
+  <tr>
+    <td style="background:#f0f0f0">返却方法</td>
+    <td>　</td>
+    <td></td>
+  </tr>
+</table>
+""" for _ in range(3)])}
+
+<div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
+  <div style="font-size:14px;font-weight:bold;margin-right:15px">井上電設株式会社</div>
+  <div style="font-size:10px">〒460-0022 名古屋市中区金山四丁目3番17号　TEL(052)322-5271　FAX(052)332-5273</div>
+  <div style="margin-left:auto;font-size:10px">担当: {po.sales_person_name or '　'}　　作成: 　　　　</div>
+</div>
+</body></html>"""
+
+    return StreamingResponse(io.BytesIO(html.encode("utf-8")), media_type="text/html",
+        headers={"Content-Disposition": f"inline; filename=crane_{po.child_no}.html"})
+
+
+# =============================================
+# 送り状PDF
+# =============================================
+@router.get("/project-order/{order_id}/shipping-pdf")
+def shipping_pdf(order_id: str, db: Session = Depends(get_db)):
+    """送り状PDF"""
+    from app.db.models import ProjectOrder
+    po = db.query(ProjectOrder).filter(
+        or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)
+    ).first()
+    if not po: raise HTTPException(404)
+
+    html = f"""<!DOCTYPE html>
+<html lang="ja"><head><meta charset="UTF-8">
+<title>送り状</title>
+<style>
+  body {{ font-family: 'Hiragino Sans','Yu Gothic',sans-serif; font-size:11px; margin:15mm; }}
+  @media print {{ .no-print {{ display:none }} }}
+  table {{ border-collapse:collapse; width:100%; }}
+  td,th {{ border:1px solid #999; padding:4px 6px; }}
+</style></head><body>
+<div class="no-print" style="background:#e0f2fe;padding:8px;margin-bottom:10px;border-radius:6px">
+  <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer">🖨️ PDF印刷</button>
+</div>
+
+<h2 style="font-size:18px;font-weight:bold;margin-bottom:10px">送 り 状</h2>
+
+<table style="margin-bottom:10px">
+  <tr>
+    <td style="background:#ff4444;color:#fff;font-weight:bold;width:60px">送り先</td>
+    <td style="font-weight:bold">{po.customer_name or '　'}</td>
+  </tr>
+  <tr><td style="background:#f0f0f0">住所</td><td>　</td></tr>
+  <tr>
+    <td style="background:#f0f0f0">TEL</td><td style="width:200px">　</td>
+  </tr>
+</table>
+
+<table style="margin-bottom:10px">
+  <tr>
+    <td style="background:#f0f0f0;width:60px">運送業者</td>
+    <td style="width:150px">　</td>
+    <td style="background:#f0f0f0;width:60px">ご担当者</td>
+    <td>　</td>
+    <td style="background:#f0f0f0;width:30px">TEL</td>
+    <td>　</td>
+  </tr>
+  <tr>
+    <td style="background:#f0f0f0">備考</td>
+    <td colspan="5">　</td>
+  </tr>
+</table>
+
+{''.join([f"""
+<table style="margin-bottom:8px">
+  <tr>
+    <td style="background:#f0f0f0;width:60px">車種</td>
+    <td style="background:#ff4444;color:#fff;min-width:120px">　</td>
+    <td style="background:#f0f0f0;width:40px">積込</td>
+    <td style="min-width:100px">{po.sales_person_name or '　'}</td>
+    <td style="background:#f0f0f0;width:40px">到着</td>
+    <td style="min-width:100px">　</td>
+  </tr>
+  <tr><td style="background:#f0f0f0">積込①</td><td>　</td><td colspan="4">　</td></tr>
+  <tr><td style="background:#f0f0f0">積込②</td><td>　</td><td colspan="4">　</td></tr>
+  <tr><td style="background:#f0f0f0">積込③</td><td>　</td><td colspan="4">　</td></tr>
+</table>
+""" for _ in range(3)])}
+
+<div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
+  <div style="font-size:14px;font-weight:bold;margin-right:15px">井上電設株式会社</div>
+  <div style="font-size:10px">〒460-0022 名古屋市中区金山四丁目3番17号　TEL(052)322-5271　FAX(052)332-5273</div>
+  <div style="margin-left:auto;font-size:10px">担当: {po.sales_person_name or '　'}　　作成: 　　　　</div>
+</div>
+</body></html>"""
+
+    return StreamingResponse(io.BytesIO(html.encode("utf-8")), media_type="text/html",
+        headers={"Content-Disposition": f"inline; filename=shipping_{po.child_no}.html"})
+
+
+# =============================================
+# 宿泊予約票PDF
+# =============================================
+@router.get("/project-order/{order_id}/hotel-pdf")
+def hotel_pdf(order_id: str, db: Session = Depends(get_db)):
+    """宿泊予約票PDF"""
+    from app.db.models import ProjectOrder
+    po = db.query(ProjectOrder).filter(
+        or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)
+    ).first()
+    if not po: raise HTTPException(404)
+
+    html = f"""<!DOCTYPE html>
+<html lang="ja"><head><meta charset="UTF-8">
+<title>宿泊予約票</title>
+<style>
+  body {{ font-family: 'Hiragino Sans','Yu Gothic',sans-serif; font-size:11px; margin:15mm; }}
+  @media print {{ .no-print {{ display:none }} }}
+  table {{ border-collapse:collapse; width:100%; }}
+  td,th {{ border:1px solid #999; padding:4px 6px; }}
+  th {{ background:#f0f0f0; }}
+</style></head><body>
+<div class="no-print" style="background:#e0f2fe;padding:8px;margin-bottom:10px;border-radius:6px">
+  <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer">🖨️ PDF印刷</button>
+</div>
+
+<h2 style="font-size:16px;font-weight:bold;margin-bottom:4px">宿泊予約票</h2>
+<p style="font-size:9px;color:#666;margin-bottom:10px">
+  ※基本は朝食なしで！変更・キャンセルは必ず宿へ連絡！予約したら旅費の領収書を書くことを忘れずに！
+</p>
+
+<table style="margin-bottom:8px">
+  <tr>
+    <th style="width:60px">受注番号</th>
+    <td style="font-weight:bold">{po.child_no or '　'}</td>
+    <th style="width:60px">現場</th>
+    <td>{po.customer_name or '　'}</td>
+  </tr>
+  <tr>
+    <th>担当者</th>
+    <td>{po.sales_person_name or '　'}</td>
+    <th>出荷予定日</th>
+    <td>{po.expected_shipment_date or '　'}</td>
+  </tr>
+</table>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:120px">ホテル名</th>
+      <th style="width:80px">TEL</th>
+      <th style="width:80px">FAX</th>
+      <th style="width:50px">IN</th>
+      <th style="width:50px">OUT</th>
+      <th style="width:30px">泊</th>
+      <th style="width:30px">人数</th>
+      <th style="width:50px">値段/泊</th>
+      <th>宿泊者</th>
+      <th style="width:40px">カード</th>
+      <th>備考</th>
+      <th style="width:40px">駐車場</th>
+    </tr>
+  </thead>
+  <tbody>
+    {''.join([f'<tr><td style="height:25px"></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>' for _ in range(5)])}
+  </tbody>
+</table>
+
+<div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
+  <div style="font-size:14px;font-weight:bold;margin-right:15px">井上電設株式会社</div>
+  <div style="font-size:10px">〒460-0022 名古屋市中区金山四丁目3番17号　TEL(052)322-5271　FAX(052)332-5273</div>
+</div>
+</body></html>"""
+
+    return StreamingResponse(io.BytesIO(html.encode("utf-8")), media_type="text/html",
+        headers={"Content-Disposition": f"inline; filename=hotel_{po.child_no}.html"})

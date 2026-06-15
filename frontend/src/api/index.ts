@@ -108,7 +108,6 @@ export const projectApi = {
   delete: (id: string) => api.delete(`/projects/${id}`),
   stats: () => api.get('/projects/stats'),
   addOrder: (projectId: string, data: any) => api.post(`/projects/${projectId}/orders`, data),
-  getOrder: (orderId: string) => api.get(`/projects/orders/${orderId}`),
   updateOrder: (orderId: string, data: any) => api.put(`/projects/orders/${orderId}`, data),
   deleteOrder: (orderId: string) => api.delete(`/projects/orders/${orderId}`),
   linkQuotation: (orderId: string, quotationId: string) =>
@@ -130,15 +129,18 @@ export const estimateApi = {
   getCyclones: () => api.get('/estimate-quotations/patterns/cyclones'),
   getLaborItems: () => api.get('/estimate-quotations/labor-items'),
   // 見積CRUD
-  list: (params?: any) => api.get('/estimate-quotations/', { params }),
+  list: (params?: any) => api.get('/estimate-quotations', { params }),
   get: (id: string) => api.get(`/estimate-quotations/${id}`),
-  create: (data: any) => api.post('/estimate-quotations/', data),
+  create: (data: any) => api.post('/estimate-quotations', data),
   update: (id: string, data: any) => api.put(`/estimate-quotations/${id}`, data),
   delete: (id: string) => api.delete(`/estimate-quotations/${id}`),
   // 受注票
   issueOrderTicket: (quotationId: string) => api.post(`/estimate-quotations/${quotationId}/issue-order-ticket`),
   adoptQuotation: (quotationId: string) => api.post(`/estimate-quotations/${quotationId}/adopt`),
   unadoptQuotation: (quotationId: string) => api.delete(`/estimate-quotations/${quotationId}/adopt`),
+  cranePdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/estimate-quotations/project-order/${orderId}/crane-pdf`,
+  shippingPdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/estimate-quotations/project-order/${orderId}/shipping-pdf`,
+  hotelPdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/estimate-quotations/project-order/${orderId}/hotel-pdf`,
 };
 
 // =============================================
@@ -166,6 +168,10 @@ export const mastersApi = {
 // 認証API
 // =============================================
 export const authApi = {
+  listUsers: () => api.get('/auth/users'),
+  createUser: (data: any) => api.post('/auth/users', data),
+  updateUser: (id: string, data: any) => api.put(`/auth/users/${id}`, data),
+  deleteUser: (id: string) => api.delete(`/auth/users/${id}`),
   login: (email: string, password: string) => {
     const form = new URLSearchParams();
     form.append('username', email);

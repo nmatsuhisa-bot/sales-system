@@ -80,3 +80,39 @@ def create_user(data: UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
     return {"id": str(user.id), "email": user.email, "full_name": user.full_name, "role": user.role}
+
+
+# =============================================
+# ユーザー一覧・管理（管理者用）
+# =============================================
+@router.get("/users")
+def list_users(db: Session = Depends(get_db)):
+    users = db.query(User).filter(User.is_active == True).order_by(User.created_at).all()
+    return [{"id": str(u.id), "email": u.email, "full_name": u.full_name, "role": u.role,
+             "is_active": u.is_active, "created_at": u.created_at.isoformat() if u.created_at else None}
+            for u in users]
+
+class UserUpdate(BaseModel):
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    role: Optional[str] = None
+    password: Optional[str] = None
+
+@router.put("/users/{user_id}")
+def update_user(user_id: str, data: UserUpdate, db: Session = Depends(get_db)):
+    u = db.query(User).filter(User.id == user_id).first()
+    if not u: raise HTTPException(404)
+    if data.email: u.email = data.email
+    if data.full_name: u.full_name = data.full_name
+    if data.role: u.role = data.role
+    if data.password:
+        u.hashed_password = bcrypt.hashpw(data.password.encode(), bcrypt.gensalt()).decode()
+    db.commit()
+    return {"id": str(u.id), "email": u.email, "full_name": u.full_name, "role": u.role}
+
+@router.delete("/users/{user_id}", status_code=204)
+def delete_user(user_id: str, db: Session = Depends(get_db)):
+    u = db.query(User).filter(User.id == user_id).first()
+    if not u: raise HTTPException(404)
+    u.is_active = False
+    db.commit()

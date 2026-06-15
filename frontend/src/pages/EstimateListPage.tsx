@@ -21,34 +21,36 @@ export default function EstimateListPage() {
   };
   useEffect(() => { load(); }, [childNo]);
 
+  const handleAdopt = async (q: any) => {
+    if (!q.project_order_id) { alert('この見積は子IDに紐付いていません'); return; }
+    const isAdopted = q.is_adopted;
+    if (!confirm(`${isAdopted ? '採用を解除' : '採用'}しますか？\n${q.quotation_no}`)) return;
+    try {
+      if (isAdopted) { await estimateApi.unadoptQuotation(q.id); alert('採用を解除しました'); }
+      else { const r = await estimateApi.adoptQuotation(q.id); alert(`採用しました！\n子ID: ${r.data.child_no} に反映されました`); }
+      load();
+    } catch (e: any) { alert(e.response?.data?.detail || 'エラー'); }
+  };
+
   const handlePdf = (id: string) => {
     const url = `${import.meta.env.VITE_API_URL}/estimate-quotations/${id}/pdf`;
     window.open(url, '_blank');
   };
 
-  const handleAdopt = async (q: any) => {
-    if (!q.project_order_id) {
-      alert('この見積は子IDに紐付いていません。案件管理から見積を作成してください。');
-      return;
-    }
-    const action = q.is_adopted ? '採用を解除' : '採用';
-    if (!confirm(`この見積を${action}しますか？\n${q.quotation_no} ¥${(q.total_amount||0).toLocaleString()}`)) return;
-    try {
-      if (q.is_adopted) {
-        await estimateApi.unadoptQuotation(q.id);
-        alert('採用を解除しました');
-      } else {
-        const r = await estimateApi.adoptQuotation(q.id);
-        alert(`採用しました！子ID: ${r.data.child_no} に反映されました`);
-      }
-      load();
-    } catch (e: any) {
-      alert(e.response?.data?.detail || 'エラーが発生しました');
-    }
+  const handleFanInstruction = (id: string) => {
+    window.open(`${import.meta.env.VITE_API_URL}/estimate-quotations/${id}/fan-instruction-pdf`, '_blank');
+  };
+
+  const handleFanInspection = (id: string) => {
+    window.open(`${import.meta.env.VITE_API_URL}/estimate-quotations/${id}/fan-inspection-pdf`, '_blank');
+  };
+
+  const handleControlPanel = (id: string) => {
+    window.open(`${import.meta.env.VITE_API_URL}/estimate-quotations/${id}/control-panel-pdf`, '_blank');
   };
 
   const handleIssueTicket = async (id: string, total: number) => {
-    const type = total >= 3000000 ? '工番（300万円以上）' : '単番（300万円未満）';
+    const type = total >= 1000000 ? '工番（100万円以上）' : '単番（100万円未満）';
     if (!confirm(`受注票を発行します。\n種別: ${type}\nよろしいですか？`)) return;
     try {
       const r = await estimateApi.issueOrderTicket(id);
@@ -114,15 +116,31 @@ export default function EstimateListPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-center">
-                  <div className="flex items-center justify-center gap-2">
-                    <button onClick={() => handlePdf(q.id)}
-                      className="text-xs text-green-600 hover:text-green-800 flex items-center gap-1">
-                      <Printer size={12} /> PDF
-                    </button>
-                    <button onClick={() => handleIssueTicket(q.id, q.total_amount)}
-                      className="text-xs bg-purple-600 text-white px-2 py-0.5 rounded hover:bg-purple-700">
-                      受注票
-                    </button>
+                  <div className="flex flex-col gap-1 items-center">
+                    <div className="flex gap-1">
+                      <button onClick={() => handlePdf(q.id)}
+                        className="text-xs text-green-600 hover:text-green-800 flex items-center gap-1">
+                        <Printer size={12} /> 見積PDF
+                      </button>
+                      <button onClick={() => handleIssueTicket(q.id, q.total_amount)}
+                        className="text-xs bg-purple-600 text-white px-2 py-0.5 rounded hover:bg-purple-700">
+                        受注票
+                      </button>
+                    </div>
+                    <div className="flex gap-1">
+                      <button onClick={() => handleFanInstruction(q.id)}
+                        className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded hover:bg-blue-200">
+                        ファン指示書
+                      </button>
+                      <button onClick={() => handleFanInspection(q.id)}
+                        className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded hover:bg-orange-200">
+                        検査記録
+                      </button>
+                      <button onClick={() => handleControlPanel(q.id)}
+                        className="text-xs bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded hover:bg-gray-200">
+                        制御盤
+                      </button>
+                    </div>
                   </div>
                 </td>
               </tr>

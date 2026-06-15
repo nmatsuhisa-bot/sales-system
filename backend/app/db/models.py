@@ -628,5 +628,3 @@ class OrderTicket(Base):
     sales_person_name = Column(String(100))
     notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
-
-    quotation = relationship("QuotationHeader", foreign_keys=[quotation_id])
