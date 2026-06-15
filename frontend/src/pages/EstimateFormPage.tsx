@@ -110,13 +110,26 @@ export default function EstimateFormPage() {
 
     // 子IDから案件情報を自動引き継ぎ
     if (projectOrderId) {
-      projectApi.get(projectOrderId).then(r => {
+      projectApi.getOrder(projectOrderId).then(r => {
         const po = r.data;
+        // 売上先：代理店がいれば代理店名、なければ顧客名
         setCustomerName(po.agency_name || po.customer_name || '');
+        // 納入先：エンドユーザー（顧客名）
         setDeliveryName(po.customer_name || '');
+        // 営業担当
         setSalesPersonName(po.sales_person_name || '');
+        // 件名
         setTitle(po.project_name || '');
-      }).catch(() => {});
+      }).catch(() => {
+        // 子IDで取得できない場合は親案件を参照
+        projectApi.get(projectOrderId).then(r => {
+          const p = r.data;
+          setCustomerName(p.customer_name_1 || p.customer_name_2 || '');
+          setDeliveryName(p.customer_name_2 || '');
+          setSalesPersonName(p.sales_person_name || '');
+          setTitle(p.project_name || '');
+        }).catch(() => {});
+      });
     }
 
     if (isEdit) {

@@ -251,6 +251,16 @@ def add_project_order(project_id: str, data: ProjectOrderCreate, db: Session = D
     db.commit(); db.refresh(o)
     return order_to_dict(o)
 
+
+@router.get("/orders/{order_id}")
+def get_project_order(order_id: str, db: Session = Depends(get_db)):
+    o = db.query(ProjectOrder).filter(
+        or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)
+    ).first()
+    if not o:
+        raise HTTPException(404, "案件子レコードが見つかりません")
+    return order_to_dict(o)
+
 @router.put("/orders/{order_id}")
 def update_project_order(order_id: str, data: ProjectOrderCreate, db: Session = Depends(get_db)):
     o = db.query(ProjectOrder).filter(or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)).first()

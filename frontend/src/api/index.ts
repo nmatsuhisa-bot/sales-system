@@ -108,6 +108,7 @@ export const projectApi = {
   delete: (id: string) => api.delete(`/projects/${id}`),
   stats: () => api.get('/projects/stats'),
   addOrder: (projectId: string, data: any) => api.post(`/projects/${projectId}/orders`, data),
+  getOrder: (orderId: string) => api.get(`/projects/orders/${orderId}`),
   updateOrder: (orderId: string, data: any) => api.put(`/projects/orders/${orderId}`, data),
   deleteOrder: (orderId: string) => api.delete(`/projects/orders/${orderId}`),
   linkQuotation: (orderId: string, quotationId: string) =>
