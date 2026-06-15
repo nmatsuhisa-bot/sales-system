@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { projectApi, mastersApi } from '../api';
-import { Plus, ChevronDown, ChevronRight, Edit2, Trash2 } from 'lucide-react';
+import { Plus, ChevronDown, ChevronRight, Edit2, Trash2, FileText } from 'lucide-react';
 
 const STATUS_OPTIONS = ['営業中', '見積発行', '受注', '失注', '請求済'];
 const DIST_OPTIONS = ['直接', '代理店'];
@@ -87,6 +88,7 @@ function SelectField({ label, name, options, form, setForm }: any) {
 
 // ===== メインページ =====
 export default function ProjectsPage() {
+  const navigate = useNavigate();
   const [items, setItems] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
@@ -284,7 +286,7 @@ export default function ProjectsPage() {
                     style={{ gridTemplateColumns: '140px 1fr 160px 100px 110px 110px 120px 60px' }}>
                     <span>子ID</span><span>案件名</span><span>納入先</span>
                     <span>担当者</span><span>受注予定日</span><span>出荷予定日</span>
-                    <span>見積金額</span><span></span>
+                    <span>見積金額</span><span>操作</span>
                   </div>
                   {(p.orders || []).map((o: any) => (
                     <div key={o.id} className="grid items-center px-10 py-2 text-sm border-b border-gray-100 hover:bg-blue-50"
@@ -299,6 +301,16 @@ export default function ProjectsPage() {
                         {o.quotation_amount != null ? `¥${Number(o.quotation_amount).toLocaleString()}` : '—'}
                       </span>
                       <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => navigate(`/estimates/new?child_no=${o.child_no}&project_order_id=${o.id}`)}
+                          className="text-green-500 hover:text-green-700 p-0.5" title="見積作成">
+                          <FileText size={12} />
+                        </button>
+                        <button
+                          onClick={() => navigate(`/estimates?child_no=${o.child_no}`)}
+                          className="text-purple-400 hover:text-purple-600 p-0.5 text-xs" title="見積一覧">
+                          一覧
+                        </button>
                         <button onClick={() => openOrderEdit(p, o)} className="text-blue-400 hover:text-blue-600 p-0.5"><Edit2 size={12} /></button>
                         <button onClick={() => handleDeleteOrder(o.id)} className="text-red-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>
                       </div>
