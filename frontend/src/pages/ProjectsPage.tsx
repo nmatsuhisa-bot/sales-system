@@ -348,12 +348,48 @@ export default function ProjectsPage() {
                 <F label="担当者名（自動入力）" name="sales_person_name" formSetter={setForm} formState={form} />
 
                 {/* 金額 */}
-                <F label="予算金額" name="budget_amount" type="number" formSetter={setForm} formState={form} />
-                <F label="見込売上合計（仕切りベース）" name="estimated_sales_total" type="number" formSetter={setForm} formState={form} />
-                <F label="最終受注金額" name="final_order_amount" type="number" formSetter={setForm} formState={form} />
-                <F label="案件原価" name="cost_price" type="number" formSetter={setForm} formState={form} />
-                <F label="利益額" name="profit_amount" type="number" formSetter={setForm} formState={form} />
-                <F label="利益率" name="profit_rate" type="number" formSetter={setForm} formState={form} placeholder="例: 0.25" />
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">予算金額（円）</label>
+                  <input type="number" value={form.budget_amount || ''} placeholder="例: 5000000"
+                    onChange={e => setForm((f: any) => ({ ...f, budget_amount: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+                  {form.budget_amount && <p className="text-xs text-gray-400 mt-0.5 text-right">¥{Number(form.budget_amount).toLocaleString()}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">見込売上合計・仕切りベース（円）</label>
+                  <input type="number" value={form.estimated_sales_total || ''} placeholder="例: 10000000"
+                    onChange={e => setForm((f: any) => ({ ...f, estimated_sales_total: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+                  {form.estimated_sales_total && <p className="text-xs text-gray-400 mt-0.5 text-right">¥{Number(form.estimated_sales_total).toLocaleString()}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">最終受注金額（円）</label>
+                  <input type="number" value={form.final_order_amount || ''} placeholder="例: 18986000"
+                    onChange={e => setForm((f: any) => ({ ...f, final_order_amount: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+                  {form.final_order_amount && <p className="text-xs text-gray-400 mt-0.5 text-right">¥{Number(form.final_order_amount).toLocaleString()}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">案件原価（円）</label>
+                  <input type="number" value={form.cost_price || ''} placeholder="例: 12000000"
+                    onChange={e => setForm((f: any) => ({ ...f, cost_price: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+                  {form.cost_price && <p className="text-xs text-gray-400 mt-0.5 text-right">¥{Number(form.cost_price).toLocaleString()}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">利益額（円）</label>
+                  <input type="number" value={form.profit_amount || ''} placeholder="例: 6986000"
+                    onChange={e => setForm((f: any) => ({ ...f, profit_amount: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+                  {form.profit_amount && <p className="text-xs text-gray-400 mt-0.5 text-right">¥{Number(form.profit_amount).toLocaleString()}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">利益率（%）</label>
+                  <input type="number" step="0.1" value={form.profit_rate || ''} placeholder="例: 36.8"
+                    onChange={e => setForm((f: any) => ({ ...f, profit_rate: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+                  {form.profit_rate && <p className="text-xs text-gray-400 mt-0.5 text-right">{Number(form.profit_rate).toFixed(1)}%</p>}
+                </div>
 
                 {/* 日程 */}
                 <F label="引き合い日" name="inquiry_date" type="date" formSetter={setForm} formState={form} />
@@ -448,8 +484,20 @@ export default function ProjectsPage() {
                 <F label="担当者名（自動入力）" name="sales_person_name" formSetter={setOrderForm} formState={orderForm} />
 
                 {/* 金額・日程 */}
-                <F label="見積金額" name="quotation_amount" type="number" formSetter={setOrderForm} formState={orderForm} />
-                <F label="予算金額" name="budget_amount" type="number" formSetter={setOrderForm} formState={orderForm} />
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">見積金額（円）</label>
+                  <input type="number" value={orderForm.quotation_amount || ''} placeholder="例: 18986000"
+                    onChange={e => setOrderForm((f: any) => ({ ...f, quotation_amount: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+                  {orderForm.quotation_amount && <p className="text-xs text-gray-400 mt-0.5 text-right">¥{Number(orderForm.quotation_amount).toLocaleString()}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">予算金額（円）</label>
+                  <input type="number" value={orderForm.budget_amount || ''} placeholder="例: 5000000"
+                    onChange={e => setOrderForm((f: any) => ({ ...f, budget_amount: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+                  {orderForm.budget_amount && <p className="text-xs text-gray-400 mt-0.5 text-right">¥{Number(orderForm.budget_amount).toLocaleString()}</p>}
+                </div>
                 <F label="引き合い日" name="inquiry_date" type="date" formSetter={setOrderForm} formState={orderForm} />
                 <F label="顧客納期/売上計上日" name="sales_date" type="date" formSetter={setOrderForm} formState={orderForm} />
                 <F label="受注日" name="order_date" type="date" formSetter={setOrderForm} formState={orderForm} />
