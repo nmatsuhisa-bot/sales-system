@@ -151,11 +151,27 @@ export default function ProjectsPage() {
       return isNaN(seq) ? max : Math.max(max, seq);
     }, 0);
     const childNo = `${project.project_no}_${maxSeq + 1}`;
+    // 親の情報を子に引き継ぐ
     setOrderForm({
       child_no: childNo,
       status: project.status,
+      project_name: project.project_name,
+      // 営業担当
       sales_person_name: project.sales_person_name,
       sales_person_code: project.sales_person_code,
+      // 納入先（親の顧客2＝エンドユーザー）
+      customer_code: project.customer_code_2,
+      customer_name: project.customer_name_2,
+      // 代理店（親の顧客1）
+      agency_code: project.customer_code_1,
+      agency_name: project.customer_name_1,
+      // 日程（親から引き継ぎ）
+      inquiry_date: project.inquiry_date,
+      sales_date: project.sales_date,
+      expected_order_date: project.expected_order_date,
+      expected_shipment_date: project.expected_shipment_date,
+      // 予算金額
+      budget_amount: project.budget_amount,
     });
     setOrderModal({ project, order: null });
   };
