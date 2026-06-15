@@ -876,16 +876,19 @@ def fan_inspection_pdf(quotation_id: str, db: Session = Depends(get_db)):
     </tr>
   </thead>
   <tbody>
-    {''.join([f"""<tr>
-      <td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5;font-weight:bold;text-align:center">{cat}</td>
-      <td style="border:1px solid #ccc;padding:3px 6px">{item}</td>
-      <td style="border:1px solid #ccc;padding:3px 6px"></td>
-      <td style="border:1px solid #ccc;padding:3px 6px"></td>
-      <td style="border:1px solid #ccc;padding:3px 6px"></td>
-      <td style="border:1px solid #ccc;padding:3px 6px"></td>
-      <td style="border:1px solid #ccc;padding:3px 6px"></td>
-      <td style="border:1px solid #ccc;padding:3px 6px;text-align:center"></td>
-    </tr>""" for cat, item in inspection_items])}
+    {chr(10).join(
+        '<tr>'
+        + '<td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5;font-weight:bold;text-align:center">' + cat + '</td>'
+        + '<td style="border:1px solid #ccc;padding:3px 6px">' + item + '</td>'
+        + '<td style="border:1px solid #ccc;padding:3px 6px"></td>'
+        + '<td style="border:1px solid #ccc;padding:3px 6px"></td>'
+        + '<td style="border:1px solid #ccc;padding:3px 6px"></td>'
+        + '<td style="border:1px solid #ccc;padding:3px 6px"></td>'
+        + '<td style="border:1px solid #ccc;padding:3px 6px"></td>'
+        + '<td style="border:1px solid #ccc;padding:3px 6px;text-align:center"></td>'
+        + '</tr>'
+        for cat, item in inspection_items
+    )}
   </tbody>
 </table>
 
