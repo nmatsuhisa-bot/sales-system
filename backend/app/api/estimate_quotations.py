@@ -490,7 +490,6 @@ def issue_order_ticket(quotation_id: str, db: Session = Depends(get_db)):
     if q.project_order_id:
         po = db.query(ProjectOrder).filter(ProjectOrder.id == q.project_order_id).first()
         if po:
-            po.quotation_id = q.id
             po.quotation_no = q.quotation_no
             po.quotation_total = q.total_amount
             po.quotation_amount = q.total_amount
