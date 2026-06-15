@@ -50,7 +50,7 @@ export default function EstimateListPage() {
   };
 
   const handleIssueTicket = async (id: string, total: number) => {
-    const type = total >= 1000000 ? '工番（100万円以上）' : '単番（100万円未満）';
+    const type = total >= 3000000 ? '工番（300万円以上）' : '単番（300万円未満）';
     if (!confirm(`受注票を発行します。\n種別: ${type}\nよろしいですか？`)) return;
     try {
       const r = await estimateApi.issueOrderTicket(id);
@@ -106,8 +106,8 @@ export default function EstimateListPage() {
                 <td className="px-4 py-3 text-gray-500">{q.issue_date || '—'}</td>
                 <td className="px-4 py-3 text-right font-bold text-gray-800">
                   ¥{(q.total_amount || 0).toLocaleString()}
-                  <span className={`ml-2 text-xs ${q.total_amount >= 1000000 ? 'text-purple-600' : 'text-orange-600'}`}>
-                    {q.total_amount >= 1000000 ? '工番' : '単番'}
+                  <span className={`ml-2 text-xs ${q.total_amount >= 3000000 ? 'text-purple-600' : 'text-orange-600'}`}>
+                    {q.total_amount >= 3000000 ? '工番' : '単番'}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-center">
