@@ -158,7 +158,7 @@ export default function ProjectsPage() {
   const Sel = ({ label, name, options, formSetter, formState }: any) => (
     <div>
       <label className="block text-xs text-gray-500 mb-1">{label}</label>
-      <select value={formState[name] || ''} onChange={e => formSetter((f: any) => ({ ...f, [name]: e.target.value }))}
+      <select value={formState[name] || ''} onChange={e => { const v = e.target.value; formSetter((f: any) => ({ ...f, [name]: v })); }}
         className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
         <option value="">—</option>
         {options.map((o: string) => <option key={o} value={o}>{o}</option>)}
