@@ -283,14 +283,14 @@ export default function ProjectsPage() {
               {expanded && (
                 <div className="bg-gray-50">
                   <div className="grid text-xs text-gray-400 px-10 py-1.5 border-b border-gray-100 font-medium"
-                    style={{ gridTemplateColumns: '140px 1fr 160px 100px 110px 110px 120px 60px' }}>
+                    style={{ gridTemplateColumns: '140px 1fr 160px 100px 110px 110px 120px 160px 60px' }}>
                     <span>子ID</span><span>案件名</span><span>納入先</span>
                     <span>担当者</span><span>受注予定日</span><span>出荷予定日</span>
-                    <span>見積金額</span><span>操作</span>
+                    <span>見積金額</span><span>採用見積</span><span>操作</span>
                   </div>
                   {(p.orders || []).map((o: any) => (
                     <div key={o.id} className="grid items-center px-10 py-2 text-sm border-b border-gray-100 hover:bg-blue-50"
-                      style={{ gridTemplateColumns: '140px 1fr 160px 100px 110px 110px 120px 60px' }}>
+                      style={{ gridTemplateColumns: '140px 1fr 160px 100px 110px 110px 120px 160px 60px' }}>
                       <span className="font-mono text-xs text-blue-600 font-bold">{o.child_no}</span>
                       <span className="truncate text-gray-700 text-xs">{o.project_name || p.project_name || '—'}</span>
                       <span className="truncate text-gray-500 text-xs">{o.customer_name || o.agency_name || '—'}</span>
@@ -300,6 +300,16 @@ export default function ProjectsPage() {
                       <span className="text-gray-700 font-medium text-xs">
                         {o.quotation_amount != null ? `¥${Number(o.quotation_amount).toLocaleString()}` : '—'}
                       </span>
+                      <div className="text-xs">
+                        {o.quotation_no ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-green-600 font-medium">✓ {o.quotation_no}</span>
+                            {o.quotation_total && <span className="text-gray-500">¥{Number(o.quotation_total).toLocaleString()}</span>}
+                          </div>
+                        ) : (
+                          <span className="text-gray-300">未採用</span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => navigate(`/estimates/new?child_no=${o.child_no}&project_order_id=${o.id}`)}
