@@ -591,3 +591,41 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
         io.BytesIO(html.encode("utf-8")), media_type="text/html",
         headers={"Content-Disposition": f"inline; filename={t.ticket_no}.html"}
     )
+
+
+# =============================================
+# 採用見積を子IDに反映
+# =============================================
+@router.post("/{quotation_id}/adopt")
+def adopt_quotation(quotation_id: str, db: Session = Depends(get_db)):
+    """見積を採用として子IDに反映。後から変更可能。"""
+    q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
+    if not q:
+        raise HTTPException(404, "見積が見つかりません")
+    if not q.project_order_id:
+        raise HTTPException(400, "この見積は子IDに紐付いていません")
+    po = db.query(ProjectOrder).filter(ProjectOrder.id == q.project_order_id).first()
+    if not po:
+        raise HTTPException(404, "子IDが見つかりません")
+    po.quotation_id = q.id
+    po.quotation_no = q.quotation_no
+    po.quotation_total = q.total_amount
+    po.quotation_issue_date = q.issue_date
+    po.quotation_amount = q.total_amount
+    db.commit()
+    return {"message": f"見積 {q.quotation_no} を採用しました", "quotation_no": q.quotation_no, "total_amount": int(q.total_amount or 0), "child_no": po.child_no}
+
+@router.delete("/{quotation_id}/adopt")
+def unadopt_quotation(quotation_id: str, db: Session = Depends(get_db)):
+    """採用見積を解除"""
+    q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
+    if not q or not q.project_order_id:
+        raise HTTPException(404)
+    po = db.query(ProjectOrder).filter(ProjectOrder.id == q.project_order_id).first()
+    if po and po.quotation_id == q.id:
+        po.quotation_id = None
+        po.quotation_no = None
+        po.quotation_total = None
+        po.quotation_issue_date = None
+        db.commit()
+    return {"message": "採用を解除しました"}

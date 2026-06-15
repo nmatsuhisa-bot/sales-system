@@ -28,6 +28,11 @@ app.include_router(projects.router, prefix="/api/projects", tags=["案件管理"
 app.include_router(masters.router, prefix="/api/masters", tags=["マスタ管理"])
 app.include_router(estimate_quotations.router, prefix="/api/estimate-quotations", tags=["見積管理（新）"])
 
+@app.on_event("startup")
+async def startup_event():
+    from app.db.models import Base, engine
+    Base.metadata.create_all(engine)
+
 @app.get("/")
 def root():
     return {"message": "販売管理システム API v1.0"}

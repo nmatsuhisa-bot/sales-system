@@ -26,6 +26,27 @@ export default function EstimateListPage() {
     window.open(url, '_blank');
   };
 
+  const handleAdopt = async (q: any) => {
+    if (!q.project_order_id) {
+      alert('この見積は子IDに紐付いていません。案件管理から見積を作成してください。');
+      return;
+    }
+    const action = q.is_adopted ? '採用を解除' : '採用';
+    if (!confirm(`この見積を${action}しますか？\n${q.quotation_no} ¥${(q.total_amount||0).toLocaleString()}`)) return;
+    try {
+      if (q.is_adopted) {
+        await estimateApi.unadoptQuotation(q.id);
+        alert('採用を解除しました');
+      } else {
+        const r = await estimateApi.adoptQuotation(q.id);
+        alert(`採用しました！子ID: ${r.data.child_no} に反映されました`);
+      }
+      load();
+    } catch (e: any) {
+      alert(e.response?.data?.detail || 'エラーが発生しました');
+    }
+  };
+
   const handleIssueTicket = async (id: string, total: number) => {
     const type = total >= 1000000 ? '工番（100万円以上）' : '単番（100万円未満）';
     if (!confirm(`受注票を発行します。\n種別: ${type}\nよろしいですか？`)) return;
