@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { projectApi, mastersApi } from '../api';
-import { Plus, ChevronDown, ChevronRight, Edit2, Trash2, FileText } from 'lucide-react';
+import { Plus, ChevronDown, ChevronRight, Edit2, Trash2 } from 'lucide-react';
 
 const STATUS_OPTIONS = ['営業中', '見積発行', '受注', '失注', '請求済'];
 const DIST_OPTIONS = ['直接', '代理店'];
@@ -12,6 +12,80 @@ const STATUS_COLORS: Record<string, string> = {
   '請求済': 'bg-green-100 text-green-700',
 };
 
+// ===== トップレベルコンポーネント（再レンダリングで再定義されない）=====
+function TextField({ label, name, form, setForm, cols = 1, type = 'text', placeholder = '' }: any) {
+  return (
+    <div className={cols === 2 ? 'md:col-span-2' : ''}>
+      <label className="block text-xs text-gray-500 mb-1">{label}</label>
+      <input
+        type={type}
+        placeholder={placeholder}
+        defaultValue={form[name] || ''}
+        key={`${name}_${form.id || form.project_no || 'new'}`}
+        onChange={e => {
+          const v = e.target.value;
+          setForm((f: any) => ({ ...f, [name]: v }));
+        }}
+        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+      />
+    </div>
+  );
+}
+
+function NumberField({ label, name, form, setForm }: any) {
+  return (
+    <div>
+      <label className="block text-xs text-gray-500 mb-1">{label}（円）</label>
+      <input
+        type="number"
+        defaultValue={form[name] || ''}
+        key={`${name}_${form.id || 'new'}`}
+        onChange={e => {
+          const v = e.target.value;
+          setForm((f: any) => ({ ...f, [name]: v }));
+        }}
+        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none"
+      />
+      {form[name] && <p className="text-xs text-gray-400 mt-0.5 text-right">¥{Number(form[name]).toLocaleString()}</p>}
+    </div>
+  );
+}
+
+function DateField({ label, name, form, setForm }: any) {
+  return (
+    <div>
+      <label className="block text-xs text-gray-500 mb-1">{label}</label>
+      <input
+        type="date"
+        defaultValue={form[name] || ''}
+        key={`${name}_${form.id || 'new'}`}
+        onChange={e => {
+          const v = e.target.value;
+          setForm((f: any) => ({ ...f, [name]: v }));
+        }}
+        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+      />
+    </div>
+  );
+}
+
+function SelectField({ label, name, options, form, setForm }: any) {
+  return (
+    <div>
+      <label className="block text-xs text-gray-500 mb-1">{label}</label>
+      <select
+        value={form[name] || ''}
+        onChange={e => { const v = e.target.value; setForm((f: any) => ({ ...f, [name]: v })); }}
+        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+      >
+        <option value="">—</option>
+        {options.map((o: string) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+}
+
+// ===== メインページ =====
 export default function ProjectsPage() {
   const [items, setItems] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
@@ -25,7 +99,6 @@ export default function ProjectsPage() {
   const [agencies, setAgencies] = useState<any[]>([]);
   const [destinations, setDestinations] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
-  const [nextProjectNo, setNextProjectNo] = useState('');
 
   const load = () => {
     projectApi.list({ search: search || undefined, status: statusFilter || undefined, per_page: 50 })
@@ -39,7 +112,6 @@ export default function ProjectsPage() {
     mastersApi.listEmployees().then(r => setEmployees(r.data || []));
   }, [search, statusFilter]);
 
-  // 次の親IDを自動採番
   const generateNextProjectNo = (existingItems: any[]) => {
     const year = new Date().getFullYear();
     const prefix = `${year}-`;
@@ -62,14 +134,16 @@ export default function ProjectsPage() {
 
   const openProjectNew = () => {
     const newNo = generateNextProjectNo(items);
-    setForm({ status: '営業中', project_no: newNo });
+    setForm({ status: '営業中', project_no: newNo, distribution_type: '直接' });
     setProjectModal({ isNew: true });
   };
 
-  const openProjectEdit = (p: any) => { setForm({ ...p }); setProjectModal({ isNew: false }); };
+  const openProjectEdit = (p: any) => {
+    setForm({ ...p });
+    setProjectModal({ isNew: false });
+  };
 
   const openOrderNew = (project: any) => {
-    // 子IDの自動採番
     const existingOrders = project.orders || [];
     const maxSeq = existingOrders.reduce((max: number, o: any) => {
       const parts = (o.child_no || '').split('_');
@@ -95,12 +169,8 @@ export default function ProjectsPage() {
     try {
       const payload = { ...form };
       Object.keys(payload).forEach(k => { if (payload[k] === '') payload[k] = null; });
-      if (payload.budget_amount) payload.budget_amount = Number(payload.budget_amount);
-      if (payload.estimated_sales_total) payload.estimated_sales_total = Number(payload.estimated_sales_total);
-      if (payload.final_order_amount) payload.final_order_amount = Number(payload.final_order_amount);
-      if (payload.cost_price) payload.cost_price = Number(payload.cost_price);
-      if (payload.profit_amount) payload.profit_amount = Number(payload.profit_amount);
-      if (payload.profit_rate) payload.profit_rate = Number(payload.profit_rate);
+      ['budget_amount','estimated_sales_total','final_order_amount','cost_price','profit_amount','profit_rate']
+        .forEach(k => { if (payload[k]) payload[k] = Number(payload[k]); });
       if (projectModal.isNew) {
         await projectApi.create({ ...payload, orders: [] });
       } else {
@@ -117,8 +187,7 @@ export default function ProjectsPage() {
     try {
       const payload = { ...orderForm };
       Object.keys(payload).forEach(k => { if (payload[k] === '') payload[k] = null; });
-      if (payload.quotation_amount) payload.quotation_amount = Number(payload.quotation_amount);
-      if (payload.budget_amount) payload.budget_amount = Number(payload.budget_amount);
+      ['quotation_amount','budget_amount'].forEach(k => { if (payload[k]) payload[k] = Number(payload[k]); });
       if (orderModal.order?.id) {
         await projectApi.updateOrder(orderModal.order.id, payload);
       } else {
@@ -143,29 +212,6 @@ export default function ProjectsPage() {
     load();
   };
 
-  // 商流判定で代理店/直接を切り替え
-  const isAgency = (f: any) => f.distribution_type === '代理店';
-
-  const F = ({ label, name, type = 'text', formSetter, formState, cols = 1, placeholder = '' }: any) => (
-    <div className={cols === 2 ? 'md:col-span-2' : ''}>
-      <label className="block text-xs text-gray-500 mb-1">{label}</label>
-      <input type={type} value={formState[name] || ''} placeholder={placeholder}
-        onChange={e => formSetter((f: any) => ({ ...f, [name]: e.target.value }))}
-        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-    </div>
-  );
-
-  const Sel = ({ label, name, options, formSetter, formState }: any) => (
-    <div>
-      <label className="block text-xs text-gray-500 mb-1">{label}</label>
-      <select value={formState[name] || ''} onChange={e => { const v = e.target.value; formSetter((f: any) => ({ ...f, [name]: v })); }}
-        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
-        <option value="">—</option>
-        {options.map((o: string) => <option key={o} value={o}>{o}</option>)}
-      </select>
-    </div>
-  );
-
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
@@ -179,7 +225,6 @@ export default function ProjectsPage() {
         </button>
       </div>
 
-      {/* フィルタ */}
       <div className="bg-white rounded-xl shadow-sm p-3 mb-4 flex gap-3">
         <input placeholder="案件ID・案件名・顧客名で検索" value={search}
           onChange={e => setSearch(e.target.value)}
@@ -191,13 +236,11 @@ export default function ProjectsPage() {
         </select>
       </div>
 
-      {/* 案件一覧 */}
       <div className="space-y-2">
         {items.map(p => {
           const expanded = expandedIds.has(p.id);
           return (
             <div key={p.id} className="bg-white rounded-xl shadow-sm overflow-hidden">
-              {/* 親行 */}
               <div className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 border-b border-gray-50"
                 onClick={() => toggleExpand(p.id)}>
                 <span className="text-gray-400 shrink-0">
@@ -205,13 +248,9 @@ export default function ProjectsPage() {
                 </span>
                 <span className="font-bold text-blue-700 w-32 shrink-0 text-sm font-mono">{p.project_no}</span>
                 <span className="flex-1 font-medium text-gray-800 text-sm truncate">{p.project_name || '（案件名未設定）'}</span>
-                <span className="text-xs text-gray-500 w-40 truncate hidden md:block">
-                  {p.customer_name_2 || p.customer_name_1 || '—'}
-                </span>
+                <span className="text-xs text-gray-500 w-40 truncate hidden md:block">{p.customer_name_2 || p.customer_name_1 || '—'}</span>
                 <span className="text-xs text-gray-500 w-20 hidden lg:block">{p.sales_person_name || '—'}</span>
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium shrink-0 ${STATUS_COLORS[p.status] || 'bg-gray-100'}`}>
-                  {p.status}
-                </span>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium shrink-0 ${STATUS_COLORS[p.status] || 'bg-gray-100'}`}>{p.status}</span>
                 <span className="text-xs text-gray-400 w-16 text-center shrink-0">{p.distribution_type || '直接'}</span>
                 <span className="text-sm font-bold text-gray-700 w-32 text-right shrink-0">
                   {p.final_order_amount != null ? `¥${Number(p.final_order_amount).toLocaleString()}` : '—'}
@@ -223,7 +262,6 @@ export default function ProjectsPage() {
                 </div>
               </div>
 
-              {/* 子一覧 */}
               {expanded && (
                 <div className="bg-gray-50">
                   <div className="grid text-xs text-gray-400 px-10 py-1.5 border-b border-gray-100 font-medium"
@@ -251,7 +289,7 @@ export default function ProjectsPage() {
                     </div>
                   ))}
                   <div className="px-10 py-2">
-                    <button onClick={() => { toggleExpand(p.id); openOrderNew(p); }}
+                    <button onClick={() => openOrderNew(p)}
                       className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1">
                       <Plus size={12} /> 子ID追加
                     </button>
@@ -274,12 +312,8 @@ export default function ProjectsPage() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
             <div className="p-5 border-b border-gray-100">
-              <h2 className="text-lg font-bold text-gray-800">
-                {projectModal.isNew ? '新規案件登録' : '案件編集'}
-              </h2>
-              {projectModal.isNew && (
-                <p className="text-xs text-blue-600 mt-1">親ID: <strong>{form.project_no}</strong>（自動採番）</p>
-              )}
+              <h2 className="text-lg font-bold text-gray-800">{projectModal.isNew ? '新規案件登録' : '案件編集'}</h2>
+              {projectModal.isNew && <p className="text-xs text-blue-600 mt-1">親ID: <strong>{form.project_no}</strong>（自動採番）</p>}
             </div>
             <div className="overflow-y-auto flex-1 p-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -288,120 +322,82 @@ export default function ProjectsPage() {
                   <input value={form.project_no || ''} readOnly
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-gray-50 font-mono font-bold text-blue-700" />
                 </div>
-                <Sel label="案件ステータス" name="status" options={STATUS_OPTIONS} formSetter={setForm} formState={form} />
-                <F label="案件名" name="project_name" formSetter={setForm} formState={form} cols={2} />
-                <F label="案件概要" name="project_summary" formSetter={setForm} formState={form} cols={2} />
-
-                {/* 商流判定 */}
-                <Sel label="商流判定" name="distribution_type" options={DIST_OPTIONS} formSetter={setForm} formState={form} />
-                <div className="flex items-end">
-                  <p className="text-xs text-gray-400 pb-2">
-                    {isAgency(form) ? '代理店経由：商社＋納入先を選択' : '直接取引：納入先のみ選択'}
-                  </p>
+                <SelectField label="案件ステータス" name="status" options={STATUS_OPTIONS} form={form} setForm={setForm} />
+                <TextField label="案件名" name="project_name" form={form} setForm={setForm} cols={2} />
+                <TextField label="案件概要" name="project_summary" form={form} setForm={setForm} cols={2} />
+                <SelectField label="商流判定" name="distribution_type" options={DIST_OPTIONS} form={form} setForm={setForm} />
+                <div className="flex items-end pb-1">
+                  <p className="text-xs text-gray-400">{form.distribution_type === '代理店' ? '代理店経由：商社＋納入先を選択' : '直接取引：納入先のみ選択'}</p>
                 </div>
 
-                {/* 代理店の場合のみ商社を表示 */}
-                {isAgency(form) && (<>
+                {form.distribution_type === '代理店' && (<>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">商社（代理店）</label>
                     <select value={form.customer_code_1 || ''}
-                      onChange={e => {
-                        const a = agencies.find(a => a.agency_code === e.target.value);
-                        setForm((f: any) => ({ ...f, customer_code_1: e.target.value, customer_name_1: a?.agency_name || '' }));
-                      }}
+                      onChange={e => { const a = agencies.find(a => a.agency_code === e.target.value); setForm((f: any) => ({ ...f, customer_code_1: e.target.value, customer_name_1: a?.agency_name || '' })); }}
                       className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
                       <option value="">選択</option>
                       {agencies.map(a => <option key={a.id} value={a.agency_code}>{a.agency_name}</option>)}
                     </select>
                   </div>
-                  <F label="商社名（自動入力）" name="customer_name_1" formSetter={setForm} formState={form} />
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">商社名</label>
+                    <input value={form.customer_name_1 || ''} readOnly className="w-full border border-gray-100 rounded-lg px-3 py-1.5 text-sm bg-gray-50" />
+                  </div>
                 </>)}
 
-                {/* 納入先 */}
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">納入先（エンドユーザー）</label>
                   <select value={form.customer_code_2 || ''}
-                    onChange={e => {
-                      const d = destinations.find(d => d.customer_id === e.target.value);
-                      setForm((f: any) => ({ ...f, customer_code_2: e.target.value, customer_name_2: d ? `${d.company_name}${d.factory_name ? ' ' + d.factory_name : ''}` : '' }));
-                    }}
+                    onChange={e => { const d = destinations.find(d => d.customer_id === e.target.value); setForm((f: any) => ({ ...f, customer_code_2: e.target.value, customer_name_2: d ? `${d.company_name}${d.factory_name ? ' ' + d.factory_name : ''}` : '' })); }}
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
                     <option value="">選択</option>
                     {destinations.map(d => <option key={d.id} value={d.customer_id}>{d.company_name}{d.factory_name ? ` ${d.factory_name}` : ''}</option>)}
                   </select>
                 </div>
-                <F label="納入先名（自動入力）" name="customer_name_2" formSetter={setForm} formState={form} />
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">納入先名</label>
+                  <input value={form.customer_name_2 || ''} readOnly className="w-full border border-gray-100 rounded-lg px-3 py-1.5 text-sm bg-gray-50" />
+                </div>
 
-                {/* 営業担当 */}
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">自社営業担当</label>
                   <select value={form.sales_person_code || ''}
-                    onChange={e => {
-                      const emp = employees.find(emp => emp.employee_code === e.target.value);
-                      setForm((f: any) => ({ ...f, sales_person_code: e.target.value, sales_person_name: emp?.employee_name || '' }));
-                    }}
+                    onChange={e => { const emp = employees.find(emp => emp.employee_code === e.target.value); setForm((f: any) => ({ ...f, sales_person_code: e.target.value, sales_person_name: emp?.employee_name || '' })); }}
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
                     <option value="">選択</option>
                     {employees.map(e => <option key={e.id} value={e.employee_code}>{e.employee_name}</option>)}
                   </select>
                 </div>
-                <F label="担当者名（自動入力）" name="sales_person_name" formSetter={setForm} formState={form} />
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">担当者名</label>
+                  <input value={form.sales_person_name || ''} readOnly className="w-full border border-gray-100 rounded-lg px-3 py-1.5 text-sm bg-gray-50" />
+                </div>
 
-                {/* 金額 */}
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">予算金額（円）</label>
-                  <input type="number" value={form.budget_amount || ''} placeholder="例: 5000000"
-                    onChange={e => setForm((f: any) => ({ ...f, budget_amount: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-                  {form.budget_amount && <p className="text-xs text-gray-400 mt-0.5 text-right">¥{Number(form.budget_amount).toLocaleString()}</p>}
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">見込売上合計・仕切りベース（円）</label>
-                  <input type="number" value={form.estimated_sales_total || ''} placeholder="例: 10000000"
-                    onChange={e => setForm((f: any) => ({ ...f, estimated_sales_total: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-                  {form.estimated_sales_total && <p className="text-xs text-gray-400 mt-0.5 text-right">¥{Number(form.estimated_sales_total).toLocaleString()}</p>}
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">最終受注金額（円）</label>
-                  <input type="number" value={form.final_order_amount || ''} placeholder="例: 18986000"
-                    onChange={e => setForm((f: any) => ({ ...f, final_order_amount: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-                  {form.final_order_amount && <p className="text-xs text-gray-400 mt-0.5 text-right">¥{Number(form.final_order_amount).toLocaleString()}</p>}
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">案件原価（円）</label>
-                  <input type="number" value={form.cost_price || ''} placeholder="例: 12000000"
-                    onChange={e => setForm((f: any) => ({ ...f, cost_price: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-                  {form.cost_price && <p className="text-xs text-gray-400 mt-0.5 text-right">¥{Number(form.cost_price).toLocaleString()}</p>}
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">利益額（円）</label>
-                  <input type="number" value={form.profit_amount || ''} placeholder="例: 6986000"
-                    onChange={e => setForm((f: any) => ({ ...f, profit_amount: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-                  {form.profit_amount && <p className="text-xs text-gray-400 mt-0.5 text-right">¥{Number(form.profit_amount).toLocaleString()}</p>}
-                </div>
+                <NumberField label="予算金額" name="budget_amount" form={form} setForm={setForm} />
+                <NumberField label="見込売上合計（仕切りベース）" name="estimated_sales_total" form={form} setForm={setForm} />
+                <NumberField label="最終受注金額" name="final_order_amount" form={form} setForm={setForm} />
+                <NumberField label="案件原価" name="cost_price" form={form} setForm={setForm} />
+                <NumberField label="利益額" name="profit_amount" form={form} setForm={setForm} />
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">利益率（%）</label>
-                  <input type="number" step="0.1" value={form.profit_rate || ''} placeholder="例: 36.8"
-                    onChange={e => setForm((f: any) => ({ ...f, profit_rate: e.target.value }))}
+                  <input type="number" step="0.1" defaultValue={form.profit_rate || ''}
+                    key={`profit_rate_${form.id || 'new'}`}
+                    onChange={e => { const v = e.target.value; setForm((f: any) => ({ ...f, profit_rate: v })); }}
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-                  {form.profit_rate && <p className="text-xs text-gray-400 mt-0.5 text-right">{Number(form.profit_rate).toFixed(1)}%</p>}
                 </div>
 
-                {/* 日程 */}
-                <F label="引き合い日" name="inquiry_date" type="date" formSetter={setForm} formState={form} />
-                <F label="顧客納期/売上計上日" name="sales_date" type="date" formSetter={setForm} formState={form} />
-                <F label="社内出図希望日" name="drawing_request_date" type="date" formSetter={setForm} formState={form} />
-                <F label="受注日" name="order_date" type="date" formSetter={setForm} formState={form} />
-                <F label="受注予定日" name="expected_order_date" type="date" formSetter={setForm} formState={form} />
-                <F label="出荷予定日" name="expected_shipment_date" type="date" formSetter={setForm} formState={form} />
+                <DateField label="引き合い日" name="inquiry_date" form={form} setForm={setForm} />
+                <DateField label="顧客納期/売上計上日" name="sales_date" form={form} setForm={setForm} />
+                <DateField label="社内出図希望日" name="drawing_request_date" form={form} setForm={setForm} />
+                <DateField label="受注日" name="order_date" form={form} setForm={setForm} />
+                <DateField label="受注予定日" name="expected_order_date" form={form} setForm={setForm} />
+                <DateField label="出荷予定日" name="expected_shipment_date" form={form} setForm={setForm} />
                 <div className="md:col-span-2">
                   <label className="block text-xs text-gray-500 mb-1">備考</label>
-                  <textarea value={form.notes || ''} rows={2}
-                    onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))}
+                  <textarea defaultValue={form.notes || ''} rows={2}
+                    key={`notes_${form.id || 'new'}`}
+                    onChange={e => { const v = e.target.value; setForm((f: any) => ({ ...f, notes: v })); }}
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
                 </div>
               </div>
@@ -419,13 +415,10 @@ export default function ProjectsPage() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
             <div className="p-5 border-b border-gray-100">
-              <h2 className="text-lg font-bold text-gray-800">
-                {orderModal.order ? '子ID編集' : '子ID追加'}
-              </h2>
+              <h2 className="text-lg font-bold text-gray-800">{orderModal.order ? '子ID編集' : '子ID追加'}</h2>
               <p className="text-xs text-gray-500 mt-1">
-                親案件: <strong className="text-blue-700">{orderModal.project.project_no}</strong>
-                {' → '}
-                子ID: <strong className="text-green-700">{orderForm.child_no}</strong>（自動採番）
+                親: <strong className="text-blue-700">{orderModal.project.project_no}</strong>
+                {' → '}子ID: <strong className="text-green-700">{orderForm.child_no}</strong>
               </p>
             </div>
             <div className="overflow-y-auto flex-1 p-5">
@@ -435,81 +428,66 @@ export default function ProjectsPage() {
                   <input value={orderForm.child_no || ''} readOnly
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-gray-50 font-mono font-bold text-green-700" />
                 </div>
-                <Sel label="ステータス" name="status" options={STATUS_OPTIONS} formSetter={setOrderForm} formState={orderForm} />
-                <F label="案件名" name="project_name" formSetter={setOrderForm} formState={orderForm} cols={2} />
+                <SelectField label="ステータス" name="status" options={STATUS_OPTIONS} form={orderForm} setForm={setOrderForm} />
+                <TextField label="案件名" name="project_name" form={orderForm} setForm={setOrderForm} cols={2} />
 
-                {/* 納入先 */}
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">納入先（エンドユーザー）</label>
                   <select value={orderForm.customer_code || ''}
-                    onChange={e => {
-                      const d = destinations.find(d => d.customer_id === e.target.value);
-                      setOrderForm((f: any) => ({ ...f, customer_code: e.target.value, customer_name: d ? `${d.company_name}${d.factory_name ? ' ' + d.factory_name : ''}` : '' }));
-                    }}
+                    onChange={e => { const d = destinations.find(d => d.customer_id === e.target.value); setOrderForm((f: any) => ({ ...f, customer_code: e.target.value, customer_name: d ? `${d.company_name}${d.factory_name ? ' ' + d.factory_name : ''}` : '' })); }}
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
                     <option value="">選択</option>
                     {destinations.map(d => <option key={d.id} value={d.customer_id}>{d.company_name}{d.factory_name ? ` ${d.factory_name}` : ''}</option>)}
                   </select>
                 </div>
-                <F label="納入先名（自動入力）" name="customer_name" formSetter={setOrderForm} formState={orderForm} />
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">納入先名</label>
+                  <input value={orderForm.customer_name || ''} readOnly className="w-full border border-gray-100 rounded-lg px-3 py-1.5 text-sm bg-gray-50" />
+                </div>
 
-                {/* 代理店 */}
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">代理店（商社）</label>
                   <select value={orderForm.agency_code || ''}
-                    onChange={e => {
-                      const a = agencies.find(a => a.agency_code === e.target.value);
-                      setOrderForm((f: any) => ({ ...f, agency_code: e.target.value, agency_name: a?.agency_name || '' }));
-                    }}
+                    onChange={e => { const a = agencies.find(a => a.agency_code === e.target.value); setOrderForm((f: any) => ({ ...f, agency_code: e.target.value, agency_name: a?.agency_name || '' })); }}
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
                     <option value="">直接取引（なし）</option>
                     {agencies.map(a => <option key={a.id} value={a.agency_code}>{a.agency_name}</option>)}
                   </select>
                 </div>
-                <F label="代理店名（自動入力）" name="agency_name" formSetter={setOrderForm} formState={orderForm} />
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">代理店名</label>
+                  <input value={orderForm.agency_name || ''} readOnly className="w-full border border-gray-100 rounded-lg px-3 py-1.5 text-sm bg-gray-50" />
+                </div>
 
-                {/* 営業担当 */}
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">自社営業担当</label>
                   <select value={orderForm.sales_person_code || ''}
-                    onChange={e => {
-                      const emp = employees.find(emp => emp.employee_code === e.target.value);
-                      setOrderForm((f: any) => ({ ...f, sales_person_code: e.target.value, sales_person_name: emp?.employee_name || '' }));
-                    }}
+                    onChange={e => { const emp = employees.find(emp => emp.employee_code === e.target.value); setOrderForm((f: any) => ({ ...f, sales_person_code: e.target.value, sales_person_name: emp?.employee_name || '' })); }}
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
                     <option value="">選択</option>
                     {employees.map(e => <option key={e.id} value={e.employee_code}>{e.employee_name}</option>)}
                   </select>
                 </div>
-                <F label="担当者名（自動入力）" name="sales_person_name" formSetter={setOrderForm} formState={orderForm} />
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">担当者名</label>
+                  <input value={orderForm.sales_person_name || ''} readOnly className="w-full border border-gray-100 rounded-lg px-3 py-1.5 text-sm bg-gray-50" />
+                </div>
 
-                {/* 金額・日程 */}
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">見積金額（円）</label>
-                  <input type="number" value={orderForm.quotation_amount || ''} placeholder="例: 18986000"
-                    onChange={e => setOrderForm((f: any) => ({ ...f, quotation_amount: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-                  {orderForm.quotation_amount && <p className="text-xs text-gray-400 mt-0.5 text-right">¥{Number(orderForm.quotation_amount).toLocaleString()}</p>}
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">予算金額（円）</label>
-                  <input type="number" value={orderForm.budget_amount || ''} placeholder="例: 5000000"
-                    onChange={e => setOrderForm((f: any) => ({ ...f, budget_amount: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-                  {orderForm.budget_amount && <p className="text-xs text-gray-400 mt-0.5 text-right">¥{Number(orderForm.budget_amount).toLocaleString()}</p>}
-                </div>
-                <F label="引き合い日" name="inquiry_date" type="date" formSetter={setOrderForm} formState={orderForm} />
-                <F label="顧客納期/売上計上日" name="sales_date" type="date" formSetter={setOrderForm} formState={orderForm} />
-                <F label="受注日" name="order_date" type="date" formSetter={setOrderForm} formState={orderForm} />
-                <F label="受注予定日" name="expected_order_date" type="date" formSetter={setOrderForm} formState={orderForm} />
-                <F label="出荷日" name="shipment_date" type="date" formSetter={setOrderForm} formState={orderForm} />
-                <F label="出荷予定日" name="expected_shipment_date" type="date" formSetter={setOrderForm} formState={orderForm} />
-                <F label="見積NO" name="quotation_no" formSetter={setOrderForm} formState={orderForm} />
-                <F label="見積発行日" name="quotation_issue_date" type="date" formSetter={setOrderForm} formState={orderForm} />
+                <NumberField label="見積金額" name="quotation_amount" form={orderForm} setForm={setOrderForm} />
+                <NumberField label="予算金額" name="budget_amount" form={orderForm} setForm={setOrderForm} />
+                <DateField label="引き合い日" name="inquiry_date" form={orderForm} setForm={setOrderForm} />
+                <DateField label="顧客納期/売上計上日" name="sales_date" form={orderForm} setForm={setOrderForm} />
+                <DateField label="受注日" name="order_date" form={orderForm} setForm={setOrderForm} />
+                <DateField label="受注予定日" name="expected_order_date" form={orderForm} setForm={setOrderForm} />
+                <DateField label="出荷日" name="shipment_date" form={orderForm} setForm={setOrderForm} />
+                <DateField label="出荷予定日" name="expected_shipment_date" form={orderForm} setForm={setOrderForm} />
+                <TextField label="見積NO" name="quotation_no" form={orderForm} setForm={setOrderForm} />
+                <DateField label="見積発行日" name="quotation_issue_date" form={orderForm} setForm={setOrderForm} />
                 <div className="md:col-span-2">
                   <label className="block text-xs text-gray-500 mb-1">備考</label>
-                  <textarea value={orderForm.notes || ''} rows={2}
-                    onChange={e => setOrderForm((f: any) => ({ ...f, notes: e.target.value }))}
+                  <textarea defaultValue={orderForm.notes || ''} rows={2}
+                    key={`order_notes_${orderForm.id || 'new'}`}
+                    onChange={e => { const v = e.target.value; setOrderForm((f: any) => ({ ...f, notes: v })); }}
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
                 </div>
               </div>
