@@ -270,7 +270,7 @@ def delete_quotation(quotation_id: str, db: Session = Depends(get_db)):
     db.delete(q); db.commit()
 
 # =============================================
-# PDF出力（ケイテック形式）
+# PDF出力(ケイテック形式)
 # =============================================
 @router.get("/{quotation_id}/pdf")
 def export_pdf(quotation_id: str, db: Session = Depends(get_db)):
@@ -360,10 +360,10 @@ pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
 </head><body>
 <div class="no-print" style="background:#e0f2fe;padding:10px;margin-bottom:15px;border-radius:6px">
   <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px">🖨️ PDF印刷</button>
-  <span style="margin-left:15px;font-size:12px;color:#555">印刷ダイアログで「PDFに保存」を選択してください</span>
+  <span style="margin-left:15px;font-size:12px;color:#555">印刷ダイアログで"PDFに保存"を選択してください</span>
 </div>
 
-<!-- ドラフト透かし（status=draftの場合のみ） -->
+<!-- ドラフト透かし(status=draftの場合のみ) -->
 {draft_watermark}
 
 <!-- 1枚目: ヘッダー -->
@@ -385,7 +385,7 @@ pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
         <tr><td colspan="2" style="font-size:18px;font-weight:bold">合計金額 ￥&nbsp;
           <span style="font-size:22px">{int(q.total_amount or 0):,}</span>
         </td></tr>
-        <tr><td style="color:#888">（消費税込み）</td></tr>
+        <tr><td style="color:#888">(消費税込み)</td></tr>
         <tr><td colspan="2" style="padding-top:8px">
           <table style="font-size:11px;border-collapse:collapse;width:100%">
             <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">納入期限</td><td style="border:1px solid #ccc;padding:3px 8px">{q.delivery_terms or ' '}</td></tr>
@@ -408,12 +408,12 @@ pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
   </tr>
 </table>
 
-<!-- 金額サマリ（1枚目） -->
+<!-- 金額サマリ(1枚目) -->
 <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px">
 <thead>
   <tr style="background:#2c3e50;color:#fff">
     <th style="border:1px solid #ccc;padding:5px 8px;text-align:center;width:40px">番号</th>
-    <th style="border:1px solid #ccc;padding:5px 8px;text-align:left">品名・仕様</th>
+    <th style="border:1px solid #ccc;padding:5px 8px;text-align:left">品名.仕様</th>
     <th style="border:1px solid #ccc;padding:5px 8px;text-align:left;width:200px">詳細</th>
     <th style="border:1px solid #ccc;padding:5px 8px;text-align:center;width:50px">数量</th>
     <th style="border:1px solid #ccc;padding:5px 8px;text-align:center;width:40px">単位</th>
@@ -434,7 +434,7 @@ pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
     <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.labor_total or 0):,}</td>
   </tr>
   <tr style="font-weight:bold">
-    <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">消費税（{int(q.tax_rate or 10)}%）</td>
+    <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">消費税({int(q.tax_rate or 10)}%)</td>
     <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.tax_amount or 0):,}</td>
   </tr>
   <tr style="font-weight:bold;background:#fff9c4;font-size:14px">
@@ -552,13 +552,13 @@ pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
     <td style="background:#eee;border:1px solid #999;padding:4px 8px">担当者</td>
     <td style="border:1px solid #999;padding:4px 8px">{t.sales_person_name or ' '}</td>
     <td style="background:#eee;border:1px solid #999;padding:4px 8px">区分</td>
-    <td style="border:1px solid #999;padding:4px 8px">{'工番（100万円以上）' if is_koban else '単番（100万円未満）'}</td>
+    <td style="border:1px solid #999;padding:4px 8px">{'工番(100万円以上)' if is_koban else '単番(100万円未満)'}</td>
   </tr>
 </table>
 
 <table style="margin-bottom:12px;font-size:11px">
   <thead><tr>
-    <th style="width:200px">品名・仕様</th>
+    <th style="width:200px">品名.仕様</th>
     <th>詳細</th>
     <th style="width:50px">数量</th>
     <th style="width:40px">単位</th>
@@ -574,14 +574,14 @@ pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
   </tfoot>
 </table>
 
-{'<div style="border:1px solid #999;padding:8px;margin-top:10px;font-size:10px"><b>前受金</b>：有 ・ 無<br>①（ 月 日付）税込/税抜 ¥   入金済<br>②（ 月 日付）税込/税抜 ¥   入金済</div>' if is_koban else ''}
+{'<div style="border:1px solid #999;padding:8px;margin-top:10px;font-size:10px"><b>前受金</b>:有 . 無<br>①( 月 日付)税込/税抜 ¥   入金済<br>②( 月 日付)税込/税抜 ¥   入金済</div>' if is_koban else ''}
 
 <div style="margin-top:20px;border:1px solid #999;padding:8px;font-size:10px">
   <table style="width:100%"><tr>
     <td>出荷方法: □トラック出荷 □宅配出荷 □井上納品 □引取</td>
     <td style="text-align:right">出荷日:   年  月  日</td>
   </tr></table>
-  <div style="margin-top:6px">図面: 有 ・ 無  注文書: 有 ・ 無{'  契約書: 有 ・ 無' if is_koban else ''}</div>
+  <div style="margin-top:6px">図面: 有 . 無  注文書: 有 . 無{'  契約書: 有 . 無' if is_koban else ''}</div>
 </div>
 
 <table style="margin-top:15px;font-size:10px;width:100%">
@@ -678,7 +678,7 @@ def fan_instruction_pdf(quotation_id: str, db: Session = Depends(get_db)):
   <tr>
     <td style="background:#f0f0f0">納入先</td>
     <td>{q.delivery_name or ' '} 殿</td>
-    <td style="background:#f0f0f0">用途・仕様</td>
+    <td style="background:#f0f0f0">用途.仕様</td>
     <td>{model}</td>
   </tr>
   <tr>
@@ -797,7 +797,7 @@ def fan_inspection_pdf(quotation_id: str, db: Session = Depends(get_db)):
         ('製缶', '溶接及び歪外観'),
         ('塗装', '塗装及びコーキング外観'),
         ('組立', '羽根車穴仕上げ'), ('組立', '羽根車バランス'), ('組立', '軸受グリス封入'),
-        ('組立', '軸受ノックピン'), ('組立', 'プーリ芯出し'), ('組立', 'ベルト張力・振動・電流'),
+        ('組立', '軸受ノックピン'), ('組立', 'プーリ芯出し'), ('組立', 'ベルト張力.振動.電流'),
         ('組立', 'カバーその他付属品取付'), ('組立', 'PLシール貼付'),
     ]
 
@@ -850,7 +850,7 @@ def fan_inspection_pdf(quotation_id: str, db: Session = Depends(get_db)):
   <tr>
     <td style="background:#f0f0f0">納入先</td>
     <td>{q.delivery_name or ' '} 殿</td>
-    <td style="background:#f0f0f0">用途・仕様</td>
+    <td style="background:#f0f0f0">用途.仕様</td>
     <td>{model}</td>
   </tr>
   <tr>
@@ -975,7 +975,7 @@ def control_panel_pdf(quotation_id: str, db: Session = Depends(get_db)):
     <td style="border:1px solid #ccc;padding:4px;width:80px"></td>
     <td style="border:1px solid #ccc;padding:4px;width:60px;background:#f0f0f0">指定色</td>
     <td style="border:1px solid #ccc;padding:4px;width:80px"></td>
-    <td style="border:1px solid #ccc;padding:4px;width:80px;background:#f0f0f0">架台・タイプ</td>
+    <td style="border:1px solid #ccc;padding:4px;width:80px;background:#f0f0f0">架台.タイプ</td>
     <td style="border:1px solid #ccc;padding:4px"></td>
   </tr>
   <tr>
@@ -1055,11 +1055,11 @@ def control_panel_pdf(quotation_id: str, db: Session = Depends(get_db)):
 
 
 # =============================================
-# 手配書PDF（クレーン・作業車依頼書）
+# 手配書PDF(クレーン.作業車依頼書)
 # =============================================
 @router.get("/project-order/{order_id}/crane-pdf")
 def crane_pdf(order_id: str, db: Session = Depends(get_db)):
-    """クレーン・作業車等依頼書PDF"""
+    """クレーン.作業車等依頼書PDF"""
     from app.db.models import ProjectOrder
     po = db.query(ProjectOrder).filter(
         or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)
@@ -1068,7 +1068,7 @@ def crane_pdf(order_id: str, db: Session = Depends(get_db)):
 
     html = f"""<!DOCTYPE html>
 <html lang="ja"><head><meta charset="UTF-8">
-<title>クレーン・作業車等依頼書</title>
+<title>クレーン.作業車等依頼書</title>
 <style>
   body {{ font-family: 'Hiragino Sans','Yu Gothic',sans-serif; font-size:11px; margin:15mm; }}
   @media print {{ .no-print {{ display:none }} }}
@@ -1080,7 +1080,7 @@ def crane_pdf(order_id: str, db: Session = Depends(get_db)):
   <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer">🖨️ PDF印刷</button>
 </div>
 
-<div class="title">クレーン・作業車等 依頼書</div>
+<div class="title">クレーン.作業車等 依頼書</div>
 
 <table style="margin:10px 0">
   <tr>
@@ -1124,7 +1124,7 @@ def crane_pdf(order_id: str, db: Session = Depends(get_db)):
     <td style="background:#f0f0f0;width:60px">機械名</td>
     <td style="min-width:150px"> </td>
     <td style="background:#f0f0f0;width:60px">使用期間</td>
-    <td>  月  日（ ）  時 ～  月  日（ ）  時</td>
+    <td>  月  日( )  時 ~  月  日( )  時</td>
   </tr>
   <tr>
     <td style="background:#f0f0f0"> </td>
@@ -1265,7 +1265,7 @@ def hotel_pdf(order_id: str, db: Session = Depends(get_db)):
 
 <h2 style="font-size:16px;font-weight:bold;margin-bottom:4px">宿泊予約票</h2>
 <p style="font-size:9px;color:#666;margin-bottom:10px">
-  ※基本は朝食なしで！変更・キャンセルは必ず宿へ連絡！予約したら旅費の領収書を書くことを忘れずに！
+  ※基本は朝食なしで!変更.キャンセルは必ず宿へ連絡!予約したら旅費の領収書を書くことを忘れずに!
 </p>
 
 <table style="margin-bottom:8px">
