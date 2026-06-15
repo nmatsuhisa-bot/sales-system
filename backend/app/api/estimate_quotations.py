@@ -876,19 +876,7 @@ def fan_inspection_pdf(quotation_id: str, db: Session = Depends(get_db)):
     </tr>
   </thead>
   <tbody>
-    {chr(10).join(
-        '<tr>'
-        + '<td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5;font-weight:bold;text-align:center">' + cat + '</td>'
-        + '<td style="border:1px solid #ccc;padding:3px 6px">' + item + '</td>'
-        + '<td style="border:1px solid #ccc;padding:3px 6px"></td>'
-        + '<td style="border:1px solid #ccc;padding:3px 6px"></td>'
-        + '<td style="border:1px solid #ccc;padding:3px 6px"></td>'
-        + '<td style="border:1px solid #ccc;padding:3px 6px"></td>'
-        + '<td style="border:1px solid #ccc;padding:3px 6px"></td>'
-        + '<td style="border:1px solid #ccc;padding:3px 6px;text-align:center"></td>'
-        + '</tr>'
-        for cat, item in inspection_items
-    )}
+    {rows}
   </tbody>
 </table>
 
@@ -1070,6 +1058,21 @@ def crane_pdf(order_id: str, db: Session = Depends(get_db)):
     ).first()
     if not po: raise HTTPException(404)
 
+    crane_one = (
+        '<table style="margin-bottom:8px">'
+        '<tr><td style="background:#f0f0f0;width:60px">機械名</td>'
+        '<td style="min-width:150px"> </td>'
+        '<td style="background:#f0f0f0;width:60px">使用期間</td>'
+        '<td>  月  日( )  時 ~  月  日( )  時</td></tr>'
+        '<tr><td style="background:#f0f0f0"> </td><td> </td>'
+        '<td style="background:#f0f0f0"> </td><td> </td></tr>'
+        '<tr><td style="background:#f0f0f0">納品方法</td><td> </td>'
+        '<td style="background:#f0f0f0">備考</td><td rowspan="2"> </td></tr>'
+        '<tr><td style="background:#f0f0f0">返却方法</td><td> </td><td></td></tr>'
+        '</table>'
+    )
+    crane_tables = crane_one * 3
+
     html = f"""<!DOCTYPE html>
 <html lang="ja"><head><meta charset="UTF-8">
 <title>クレーン.作業車等依頼書</title>
@@ -1122,33 +1125,7 @@ def crane_pdf(order_id: str, db: Session = Depends(get_db)):
 
 <p style="font-size:10px">下記、手配お願い致します。※請求書には右上の注番を記入してください。</p>
 
-{''.join([f"""
-<table style="margin-bottom:8px">
-  <tr>
-    <td style="background:#f0f0f0;width:60px">機械名</td>
-    <td style="min-width:150px"> </td>
-    <td style="background:#f0f0f0;width:60px">使用期間</td>
-    <td>  月  日( )  時 ~  月  日( )  時</td>
-  </tr>
-  <tr>
-    <td style="background:#f0f0f0"> </td>
-    <td> </td>
-    <td style="background:#f0f0f0"> </td>
-    <td> </td>
-  </tr>
-  <tr>
-    <td style="background:#f0f0f0">納品方法</td>
-    <td> </td>
-    <td style="background:#f0f0f0">備考</td>
-    <td rowspan="2"> </td>
-  </tr>
-  <tr>
-    <td style="background:#f0f0f0">返却方法</td>
-    <td> </td>
-    <td></td>
-  </tr>
-</table>
-""" for _ in range(3)])}
+{crane_tables}
 
 <div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
   <div style="font-size:14px;font-weight:bold;margin-right:15px">井上電設株式会社</div>
@@ -1172,6 +1149,21 @@ def shipping_pdf(order_id: str, db: Session = Depends(get_db)):
         or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)
     ).first()
     if not po: raise HTTPException(404)
+
+    ship_one = (
+        '<table style="margin-bottom:8px">'
+        '<tr><td style="background:#f0f0f0;width:60px">車種</td>'
+        '<td style="background:#ff4444;color:#fff;min-width:120px"> </td>'
+        '<td style="background:#f0f0f0;width:40px">積込</td>'
+        '<td style="min-width:100px"> </td>'
+        '<td style="background:#f0f0f0;width:40px">到着</td>'
+        '<td style="min-width:100px"> </td></tr>'
+        '<tr><td style="background:#f0f0f0">積込1.</td><td> </td><td colspan="4"> </td></tr>'
+        '<tr><td style="background:#f0f0f0">積込2.</td><td> </td><td colspan="4"> </td></tr>'
+        '<tr><td style="background:#f0f0f0">積込3.</td><td> </td><td colspan="4"> </td></tr>'
+        '</table>'
+    )
+    shipping_tables = ship_one * 3
 
     html = f"""<!DOCTYPE html>
 <html lang="ja"><head><meta charset="UTF-8">
@@ -1214,21 +1206,7 @@ def shipping_pdf(order_id: str, db: Session = Depends(get_db)):
   </tr>
 </table>
 
-{''.join([f"""
-<table style="margin-bottom:8px">
-  <tr>
-    <td style="background:#f0f0f0;width:60px">車種</td>
-    <td style="background:#ff4444;color:#fff;min-width:120px"> </td>
-    <td style="background:#f0f0f0;width:40px">積込</td>
-    <td style="min-width:100px">{po.sales_person_name or ' '}</td>
-    <td style="background:#f0f0f0;width:40px">到着</td>
-    <td style="min-width:100px"> </td>
-  </tr>
-  <tr><td style="background:#f0f0f0">積込1.</td><td> </td><td colspan="4"> </td></tr>
-  <tr><td style="background:#f0f0f0">積込2.</td><td> </td><td colspan="4"> </td></tr>
-  <tr><td style="background:#f0f0f0">積込3.</td><td> </td><td colspan="4"> </td></tr>
-</table>
-""" for _ in range(3)])}
+{shipping_tables}
 
 <div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
   <div style="font-size:14px;font-weight:bold;margin-right:15px">井上電設株式会社</div>
@@ -1252,6 +1230,9 @@ def hotel_pdf(order_id: str, db: Session = Depends(get_db)):
         or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)
     ).first()
     if not po: raise HTTPException(404)
+
+    hotel_one = '<tr>' + '<td style="height:25px"></td>' + '<td></td>' * 11 + '</tr>'
+    hotel_rows = hotel_one * 5
 
     html = f"""<!DOCTYPE html>
 <html lang="ja"><head><meta charset="UTF-8">
@@ -1305,7 +1286,7 @@ def hotel_pdf(order_id: str, db: Session = Depends(get_db)):
     </tr>
   </thead>
   <tbody>
-    {''.join([f'<tr><td style="height:25px"></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>' for _ in range(5)])}
+    {hotel_rows}
   </tbody>
 </table>
 
