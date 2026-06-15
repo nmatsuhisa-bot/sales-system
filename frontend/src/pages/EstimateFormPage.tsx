@@ -1,11 +1,38 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { estimateApi, projectApi, mastersApi } from '../api';
-import { Plus, Trash2, Save, FileText, ArrowLeft, Calculator } from 'lucide-react';
+import { Plus, Trash2, Save, FileText, ArrowLeft } from 'lucide-react';
 
-// =============================================
-// 型定義
-// =============================================
+// ===== トップレベルコンポーネント（再レンダリングで再定義されない）=====
+function TextField({ label, value, onChange, cols = 1, placeholder = '', type = 'text' }: any) {
+  return (
+    <div className={cols === 2 ? 'md:col-span-2' : ''}>
+      <label className="block text-xs text-gray-500 mb-1">{label}</label>
+      <input
+        type={type}
+        placeholder={placeholder}
+        value={value || ''}
+        onChange={e => onChange(e.target.value)}
+        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+      />
+    </div>
+  );
+}
+
+function TextAreaField({ label, value, onChange, cols = 1, rows = 2 }: any) {
+  return (
+    <div className={cols === 2 ? 'md:col-span-2' : ''}>
+      <label className="block text-xs text-gray-500 mb-1">{label}</label>
+      <textarea
+        value={value || ''}
+        rows={rows}
+        onChange={e => onChange(e.target.value)}
+        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+      />
+    </div>
+  );
+}
+
 interface LineItem {
   line_no: number;
   section: string;
@@ -38,7 +65,6 @@ export default function EstimateFormPage() {
   const projectOrderId = searchParams.get('project_order_id') || '';
   const isEdit = !!id;
 
-  // マスタデータ
   const [bfrBodies, setBfrBodies] = useState<any[]>([]);
   const [scaBodies, setScaBodies] = useState<any[]>([]);
   const [plFans, setPlFans] = useState<any[]>([]);
@@ -46,21 +72,21 @@ export default function EstimateFormPage() {
   const [laborMaster, setLaborMaster] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
 
-  // フォーム
-  const [header, setHeader] = useState({
-    project_order_id: projectOrderId,
-    child_no: childNo,
-    customer_name: '', delivery_name: '', title: '',
-    delivery_terms: '受注後　　ヶ月', payment_terms: '納品後30日以内',
-    valid_until: '', issue_date: new Date().toISOString().split('T')[0],
-    sales_person_name: '', notes: '', internal_notes: '',
-  });
+  const [title, setTitle] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [deliveryName, setDeliveryName] = useState('');
+  const [salesPersonName, setSalesPersonName] = useState('');
+  const [issueDate, setIssueDate] = useState(new Date().toISOString().split('T')[0]);
+  const [validUntil, setValidUntil] = useState('');
+  const [deliveryTerms, setDeliveryTerms] = useState('受注後　　ヶ月');
+  const [paymentTerms, setPaymentTerms] = useState('納品後30日以内');
+  const [notes, setNotes] = useState('');
+  const [internalNotes, setInternalNotes] = useState('');
+
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [laborDetails, setLaborDetails] = useState<LaborDetail[]>([]);
   const [activeTab, setActiveTab] = useState<'items' | 'labor'>('items');
   const [loading, setLoading] = useState(false);
-
-  // パターン選択用
   const [showBfrPattern, setShowBfrPattern] = useState(false);
   const [showScaPattern, setShowScaPattern] = useState(false);
   const [bfrFans, setBfrFans] = useState<any[]>([]);
@@ -68,7 +94,6 @@ export default function EstimateFormPage() {
   const [bfrSel, setBfrSel] = useState({ body: '', filterType: '', fan: '', rv: '', hasPurgeCircuit: false });
   const [scaSel, setScaSel] = useState({ body: '', hasPl: false, pl: '', hasCyclone: false, cyclone: '' });
 
-  // 合計計算
   const itemsTotal = lineItems.reduce((s, i) => s + i.unit_price * i.quantity, 0);
   const laborTotal = laborDetails.reduce((s, l) => s + l.unit_price * l.quantity, 0);
   const subtotal = itemsTotal + laborTotal;
@@ -83,33 +108,36 @@ export default function EstimateFormPage() {
     estimateApi.getLaborItems().then(r => setLaborMaster(r.data));
     mastersApi.listEmployees().then(r => setEmployees(r.data));
 
+    // 子IDから案件情報を自動引き継ぎ
     if (projectOrderId) {
-      projectApi.get(projectOrderId).catch(() => {});
+      projectApi.get(projectOrderId).then(r => {
+        const po = r.data;
+        setCustomerName(po.agency_name || po.customer_name || '');
+        setDeliveryName(po.customer_name || '');
+        setSalesPersonName(po.sales_person_name || '');
+        setTitle(po.project_name || '');
+      }).catch(() => {});
     }
+
     if (isEdit) {
       estimateApi.get(id!).then(r => {
         const q = r.data;
-        setHeader({
-          project_order_id: q.project_order_id || '',
-          child_no: q.child_no || '',
-          customer_name: q.customer_name || '',
-          delivery_name: q.delivery_name || '',
-          title: q.title || '',
-          delivery_terms: q.delivery_terms || '',
-          payment_terms: q.payment_terms || '',
-          valid_until: q.valid_until || '',
-          issue_date: q.issue_date || '',
-          sales_person_name: q.sales_person_name || '',
-          notes: q.notes || '',
-          internal_notes: q.internal_notes || '',
-        });
+        setTitle(q.title || '');
+        setCustomerName(q.customer_name || '');
+        setDeliveryName(q.delivery_name || '');
+        setSalesPersonName(q.sales_person_name || '');
+        setIssueDate(q.issue_date || '');
+        setValidUntil(q.valid_until || '');
+        setDeliveryTerms(q.delivery_terms || '');
+        setPaymentTerms(q.payment_terms || '');
+        setNotes(q.notes || '');
+        setInternalNotes(q.internal_notes || '');
         setLineItems(q.line_items || []);
         setLaborDetails(q.labor_details || []);
       });
     }
   }, []);
 
-  // BFR型式選択時にファン・RVを読み込む
   const onBfrBodySelect = async (modelCode: string) => {
     setBfrSel(s => ({ ...s, body: modelCode, fan: '', rv: '' }));
     if (modelCode) {
@@ -122,65 +150,44 @@ export default function EstimateFormPage() {
     }
   };
 
-  // BFRパターンを明細に追加
   const addBfrToItems = () => {
     const body = bfrBodies.find(b => b.model_code === bfrSel.body);
     if (!body) return;
     const variant = body.variants.find((v: any) => v.filter_type === bfrSel.filterType) || body.variants[0];
     const fan = bfrFans.find(f => f.fan_model === bfrSel.fan);
     const rv = bfrRvs.find(r => r.rv_model === bfrSel.rv);
-
     const items: LineItem[] = [];
     const nextNo = lineItems.length + 1;
-
-    // 本体
     const filterDetail = `フィルター: ${variant.filter_type} ${body.filter_length} × ${variant.filter_count}本\n処理風量: ${body.airflow}㎥/min`;
     items.push({
-      line_no: nextNo,
-      section: `集塵装置:BFR`,
-      sub_section: `BFR本体`,
+      line_no: nextNo, section: '集塵装置:BFR', sub_section: 'BFR本体',
       item_name: `バグフィルター集塵機 ${bfrSel.body}`,
-      spec_detail: filterDetail,
-      quantity: 1, unit: '式',
+      spec_detail: filterDetail, quantity: 1, unit: '式',
       unit_price: parseInt(variant.base_price) + (parseInt(variant.filter_price) * parseInt(variant.filter_count)),
       product_type: 'BFR',
       spec_json: { model: bfrSel.body, filter_type: bfrSel.filterType, airflow: body.airflow }
     });
-
-    if (fan) {
-      items.push({
-        line_no: nextNo + 1,
-        section: `集塵装置:BFR`, sub_section: `ターボファン`,
-        item_name: `ターボファン ${fan.fan_model}`,
-        spec_detail: '', quantity: fan.quantity, unit: '台',
-        unit_price: fan.price, product_type: 'BFR',
-        spec_json: { fan_model: fan.fan_model }
-      });
-    }
-    if (rv) {
-      items.push({
-        line_no: nextNo + 2,
-        section: `集塵装置:BFR`, sub_section: `ロータリーバルブ`,
-        item_name: `ロータリーバルブ ${rv.rv_model} ${rv.kw}kW`,
-        spec_detail: '', quantity: rv.quantity, unit: '台',
-        unit_price: rv.price, product_type: 'BFR',
-        spec_json: { rv_model: rv.rv_model, kw: rv.kw }
-      });
-    }
-    if (bfrSel.hasPurgeCircuit) {
-      items.push({
-        line_no: nextNo + 3,
-        section: `集塵装置:BFR`, sub_section: `排気循環ダクト`,
-        item_name: `排気循環ダクト`,
-        spec_detail: '亜鉛引きスパイラルダクト', quantity: 1, unit: '式',
-        unit_price: 300000, product_type: 'BFR', spec_json: {}
-      });
-    }
+    if (fan) items.push({
+      line_no: nextNo + 1, section: '集塵装置:BFR', sub_section: 'ターボファン',
+      item_name: `ターボファン ${fan.fan_model}`, spec_detail: '',
+      quantity: fan.quantity, unit: '台', unit_price: fan.price, product_type: 'BFR',
+      spec_json: { fan_model: fan.fan_model }
+    });
+    if (rv) items.push({
+      line_no: nextNo + 2, section: '集塵装置:BFR', sub_section: 'ロータリーバルブ',
+      item_name: `ロータリーバルブ ${rv.rv_model} ${rv.kw}kW`, spec_detail: '',
+      quantity: rv.quantity, unit: '台', unit_price: rv.price, product_type: 'BFR',
+      spec_json: { rv_model: rv.rv_model, kw: rv.kw }
+    });
+    if (bfrSel.hasPurgeCircuit) items.push({
+      line_no: nextNo + 3, section: '集塵装置:BFR', sub_section: '排気循環ダクト',
+      item_name: '排気循環ダクト', spec_detail: '亜鉛引きスパイラルダクト',
+      quantity: 1, unit: '式', unit_price: 300000, product_type: 'BFR', spec_json: {}
+    });
     setLineItems(prev => [...prev, ...items]);
     setShowBfrPattern(false);
   };
 
-  // SCAパターンを明細に追加
   const addScaToItems = () => {
     const body = scaBodies.find(b => b.model_code === scaSel.body);
     if (!body) return;
@@ -190,12 +197,11 @@ export default function EstimateFormPage() {
     items.push({
       line_no: nextNo, section: '定量排出装置', sub_section: 'SCA本体',
       item_name: `定量排出装置 ${body.model_code}`,
-      spec_detail: scDetail, quantity: 1, unit: '式',
-      unit_price: body.base_price, product_type: 'SCA',
-      spec_json: { model: body.model_code, diameter: body.diameter }
+      spec_detail: scDetail, quantity: 1, unit: '式', unit_price: body.base_price,
+      product_type: 'SCA', spec_json: { model: body.model_code, diameter: body.diameter }
     });
     if (scaSel.hasPl) {
-      const pl = plFans.find(f => `${f.model_code}_${f.kw}` === scaSel.pl) || plFans.find(f => f.model_code === scaSel.pl);
+      const pl = plFans.find(f => `${f.model_code}_${f.kw}` === scaSel.pl);
       if (pl) items.push({
         line_no: nextNo + 1, section: '空気輸送装置', sub_section: 'プレートファン',
         item_name: `プレートファン ${pl.model_code} ${pl.kw}kW`, spec_detail: '屋外仕様',
@@ -216,27 +222,29 @@ export default function EstimateFormPage() {
     setShowScaPattern(false);
   };
 
-  // 工数マスタから追加
   const addLaborFromMaster = (item: any) => {
     setLaborDetails(prev => [...prev, {
       labor_item_id: item.id, item_name: item.item_name,
-      quantity: 0, unit: item.unit, unit_price: item.unit_price,
-      sort_order: prev.length
+      quantity: 0, unit: item.unit, unit_price: item.unit_price, sort_order: prev.length
     }]);
   };
 
   const handleSave = async () => {
     setLoading(true);
     try {
-      // 空文字のUUIDフィールドをnullに変換
-      const cleanHeader = { ...header };
-      if (!cleanHeader.project_order_id) cleanHeader.project_order_id = null as any;
-      if (!cleanHeader.child_no) cleanHeader.child_no = null as any;
-      if (!cleanHeader.valid_until) cleanHeader.valid_until = null as any;
       const payload = {
-        ...cleanHeader,
-        issue_date: header.issue_date || undefined,
-        valid_until: header.valid_until || undefined,
+        project_order_id: projectOrderId || null,
+        child_no: childNo || null,
+        customer_name: customerName,
+        delivery_name: deliveryName,
+        title,
+        delivery_terms: deliveryTerms,
+        payment_terms: paymentTerms,
+        valid_until: validUntil || null,
+        issue_date: issueDate || null,
+        sales_person_name: salesPersonName,
+        notes,
+        internal_notes: internalNotes,
         line_items: lineItems.map((i, idx) => ({ ...i, line_no: idx + 1 })),
         labor_details: laborDetails.map((l, idx) => ({ ...l, sort_order: idx })),
       };
@@ -255,18 +263,8 @@ export default function EstimateFormPage() {
 
   const handlePdf = async () => {
     if (!id) { alert('先に保存してください'); return; }
-    const url = `${import.meta.env.VITE_API_URL}/estimate-quotations/${id}/pdf`;
-    window.open(url, '_blank');
+    window.open(`${import.meta.env.VITE_API_URL}/estimate-quotations/${id}/pdf`, '_blank');
   };
-
-  const F = ({ label, name, type = 'text', cols = 1 }: any) => (
-    <div className={cols === 2 ? 'md:col-span-2' : ''}>
-      <label className="block text-xs text-gray-500 mb-1">{label}</label>
-      <input type={type} value={(header as any)[name] || ''}
-        onChange={e => setHeader(h => ({ ...h, [name]: e.target.value }))}
-        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-    </div>
-  );
 
   return (
     <div className="p-4 max-w-6xl mx-auto">
@@ -292,24 +290,59 @@ export default function EstimateFormPage() {
       <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
         <h2 className="text-sm font-semibold text-gray-700 mb-3">基本情報</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <F label="件名" name="title" cols={2} />
+          <div className="md:col-span-2">
+            <label className="block text-xs text-gray-500 mb-1">件名</label>
+            <input value={title} onChange={e => setTitle(e.target.value)} placeholder="例：集塵装置 BFQ-5 一式"
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+          </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">営業担当</label>
-            <select value={header.sales_person_name}
-              onChange={e => setHeader(h => ({ ...h, sales_person_name: e.target.value }))}
+            <select value={salesPersonName} onChange={e => setSalesPersonName(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
               <option value="">選択</option>
               {employees.map(e => <option key={e.id} value={e.employee_name}>{e.employee_name}</option>)}
             </select>
           </div>
-          <F label="顧客名（売上先）" name="customer_name" />
-          <F label="納入先" name="delivery_name" />
-          <F label="見積日" name="issue_date" type="date" />
-          <F label="有効期限" name="valid_until" type="date" />
-          <F label="納期" name="delivery_terms" />
-          <F label="支払条件" name="payment_terms" />
-          <F label="備考" name="notes" cols={2} />
-          <F label="社内メモ" name="internal_notes" />
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">顧客名（売上先）</label>
+            <input value={customerName} onChange={e => setCustomerName(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">納入先</label>
+            <input value={deliveryName} onChange={e => setDeliveryName(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">見積日</label>
+            <input type="date" value={issueDate} onChange={e => setIssueDate(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">有効期限</label>
+            <input type="date" value={validUntil} onChange={e => setValidUntil(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">納期</label>
+            <input value={deliveryTerms} onChange={e => setDeliveryTerms(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">支払条件</label>
+            <input value={paymentTerms} onChange={e => setPaymentTerms(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-xs text-gray-500 mb-1">備考（顧客向け）</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">社内メモ</label>
+            <textarea value={internalNotes} onChange={e => setInternalNotes(e.target.value)} rows={2}
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+          </div>
         </div>
       </div>
 
@@ -325,10 +358,9 @@ export default function EstimateFormPage() {
         </button>
       </div>
 
-      {/* 見積明細タブ */}
+      {/* 見積明細 */}
       {activeTab === 'items' && (
         <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
-          {/* パターン追加ボタン */}
           <div className="flex flex-wrap gap-2 mb-4">
             <button onClick={() => setShowBfrPattern(true)}
               className="bg-blue-50 border border-blue-300 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-blue-100">
@@ -346,8 +378,6 @@ export default function EstimateFormPage() {
               + 手動追加
             </button>
           </div>
-
-          {/* 明細テーブル */}
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead className="bg-gray-50">
@@ -368,27 +398,29 @@ export default function EstimateFormPage() {
                   <tr key={idx} className="hover:bg-gray-50">
                     <td className="px-2 py-1.5 text-gray-400">{idx + 1}</td>
                     <td className="px-2 py-1.5">
-                      <input value={item.section} onChange={e => setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, section: e.target.value } : i))}
+                      <input value={item.section}
+                        onChange={e => { const v = e.target.value; setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, section: v } : i)); }}
                         className="w-full border-0 outline-none text-xs bg-transparent" placeholder="大分類" />
                     </td>
                     <td className="px-2 py-1.5">
-                      <input value={item.item_name} onChange={e => setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, item_name: e.target.value } : i))}
+                      <input value={item.item_name}
+                        onChange={e => { const v = e.target.value; setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, item_name: v } : i)); }}
                         className="w-full border border-gray-200 rounded px-2 py-1 text-xs" placeholder="品名" />
                     </td>
                     <td className="px-2 py-1.5">
                       <textarea value={item.spec_detail} rows={2}
-                        onChange={e => setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, spec_detail: e.target.value } : i))}
+                        onChange={e => { const v = e.target.value; setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, spec_detail: v } : i)); }}
                         className="w-full border border-gray-200 rounded px-2 py-1 text-xs resize-none" placeholder="仕様詳細" />
                     </td>
                     <td className="px-2 py-1.5">
                       <input type="number" value={item.quantity}
-                        onChange={e => setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, quantity: Number(e.target.value) } : i))}
+                        onChange={e => { const v = Number(e.target.value); setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, quantity: v } : i)); }}
                         className="w-full border border-gray-200 rounded px-1 py-1 text-xs text-right" />
                     </td>
                     <td className="px-2 py-1.5 text-center text-gray-600">{item.unit}</td>
                     <td className="px-2 py-1.5">
                       <input type="number" value={item.unit_price}
-                        onChange={e => setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, unit_price: Number(e.target.value) } : i))}
+                        onChange={e => { const v = Number(e.target.value); setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, unit_price: v } : i)); }}
                         className="w-full border border-gray-200 rounded px-1 py-1 text-xs text-right" />
                     </td>
                     <td className="px-2 py-1.5 text-right font-medium text-gray-700">
@@ -408,7 +440,7 @@ export default function EstimateFormPage() {
         </div>
       )}
 
-      {/* 社内工数タブ */}
+      {/* 社内工数 */}
       {activeTab === 'labor' && (
         <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
           <div className="flex gap-2 mb-4 flex-wrap">
@@ -435,23 +467,24 @@ export default function EstimateFormPage() {
               {laborDetails.map((l, idx) => (
                 <tr key={idx} className="hover:bg-gray-50">
                   <td className="px-2 py-1.5">
-                    <input value={l.item_name} onChange={e => setLaborDetails(prev => prev.map((i, j) => j === idx ? { ...i, item_name: e.target.value } : i))}
+                    <input value={l.item_name}
+                      onChange={e => { const v = e.target.value; setLaborDetails(prev => prev.map((i, j) => j === idx ? { ...i, item_name: v } : i)); }}
                       className="w-full border border-gray-200 rounded px-2 py-1 text-xs" />
                   </td>
                   <td className="px-2 py-1.5">
-                    <input value={l.crane_type || ''} placeholder="レッカー種別等"
-                      onChange={e => setLaborDetails(prev => prev.map((i, j) => j === idx ? { ...i, crane_type: e.target.value } : i))}
+                    <input value={l.crane_type || ''} placeholder="種別"
+                      onChange={e => { const v = e.target.value; setLaborDetails(prev => prev.map((i, j) => j === idx ? { ...i, crane_type: v } : i)); }}
                       className="w-full border border-gray-200 rounded px-1 py-1 text-xs" />
                   </td>
                   <td className="px-2 py-1.5">
                     <input type="number" step="0.5" value={l.quantity}
-                      onChange={e => setLaborDetails(prev => prev.map((i, j) => j === idx ? { ...i, quantity: Number(e.target.value) } : i))}
+                      onChange={e => { const v = Number(e.target.value); setLaborDetails(prev => prev.map((i, j) => j === idx ? { ...i, quantity: v } : i)); }}
                       className="w-full border border-gray-200 rounded px-1 py-1 text-xs text-right" />
                   </td>
                   <td className="px-2 py-1.5 text-center text-gray-600">{l.unit}</td>
                   <td className="px-2 py-1.5">
                     <input type="number" value={l.unit_price}
-                      onChange={e => setLaborDetails(prev => prev.map((i, j) => j === idx ? { ...i, unit_price: Number(e.target.value) } : i))}
+                      onChange={e => { const v = Number(e.target.value); setLaborDetails(prev => prev.map((i, j) => j === idx ? { ...i, unit_price: v } : i)); }}
                       className="w-full border border-gray-200 rounded px-1 py-1 text-xs text-right" />
                   </td>
                   <td className="px-2 py-1.5 text-right font-medium text-gray-700">¥{(l.unit_price * l.quantity).toLocaleString()}</td>
