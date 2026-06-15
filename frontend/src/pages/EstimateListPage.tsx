@@ -48,7 +48,7 @@ export default function EstimateListPage() {
   };
 
   const handleIssueTicket = async (id: string, total: number) => {
-    const type = total >= 1000000 ? '工番（100万円以上）' : '単番（100万円未満）';
+    const type = total >= 3000000 ? '工番（300万円以上）' : '単番（300万円未満）';
     if (!confirm(`受注票を発行します。\n種別: ${type}\nよろしいですか？`)) return;
     try {
       const r = await estimateApi.issueOrderTicket(id);
