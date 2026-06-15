@@ -13,10 +13,8 @@ def dashboard(db: Session = Depends(get_db)):
     year = today.year
     month = today.month
 
-    # 案件ステータス集計
     project_statuses = db.query(Project.status, func.count(Project.id)).group_by(Project.status).all()
 
-    # 今月の見積件数・金額
     monthly_quotes = db.query(func.count(QuotationHeader.id)).filter(
         extract('year', QuotationHeader.issue_date) == year,
         extract('month', QuotationHeader.issue_date) == month
@@ -27,7 +25,6 @@ def dashboard(db: Session = Depends(get_db)):
         extract('month', QuotationHeader.issue_date) == month
     ).scalar() or 0
 
-    # 受注件数・金額（ステータスが受注・請求済の案件）
     order_count = db.query(func.count(Project.id)).filter(
         Project.status.in_(['受注', '請求済'])
     ).scalar() or 0
@@ -36,7 +33,6 @@ def dashboard(db: Session = Depends(get_db)):
         Project.status.in_(['受注', '請求済'])
     ).scalar() or 0
 
-    # 月別見積金額推移（今年）
     monthly_estimates = db.query(
         extract('month', QuotationHeader.issue_date).label('month'),
         func.count(QuotationHeader.id).label('count'),
