@@ -537,7 +537,7 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
     <td style="background:#eee;border:1px solid #999;padding:4px 8px">担当者</td>
     <td style="border:1px solid #999;padding:4px 8px">{t.sales_person_name or '　'}</td>
     <td style="background:#eee;border:1px solid #999;padding:4px 8px">区分</td>
-    <td style="border:1px solid #999;padding:4px 8px">{'工番（100万円以上）' if is_koban else '単番（100万円未満）'}</td>
+    <td style="border:1px solid #999;padding:4px 8px">{'工番（300万円以上）' if is_koban else '単番（300万円未満）'}</td>
   </tr>
 </table>
 
