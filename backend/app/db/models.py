@@ -628,3 +628,61 @@ class OrderTicket(Base):
     sales_person_name = Column(String(100))
     notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
+
+
+# =============================================
+# 手配書（子IDに紐づく）
+# =============================================
+class CraneArrangement(Base):
+    """クレーン・作業車等 手配書"""
+    __tablename__ = "crane_arrangements"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_order_id = Column(UUID(as_uuid=True), ForeignKey("project_orders.id"))
+    child_no = Column(String(100))
+    site_name = Column(String(300))       # 現場名
+    site_address = Column(String(500))    # 住所
+    site_tel = Column(String(50))         # TEL
+    site_contact = Column(String(100))    # 現場ご担当者
+    vendor_name = Column(String(200))     # 依頼業者
+    vendor_branch = Column(String(100))   # 営業所
+    vendor_contact = Column(String(100))  # 業者担当
+    vendor_tel = Column(String(50))
+    vendor_fax = Column(String(50))
+    order_no = Column(String(100))        # 注番
+    items_json = Column(JSON)             # 明細行リスト
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class ShippingArrangement(Base):
+    """送り状（トラック手配）"""
+    __tablename__ = "shipping_arrangements"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_order_id = Column(UUID(as_uuid=True), ForeignKey("project_orders.id"))
+    child_no = Column(String(100))
+    dest_name = Column(String(300))       # 送り先
+    dest_address = Column(String(500))
+    dest_tel = Column(String(50))
+    carrier_name = Column(String(200))    # 運送業者
+    carrier_contact = Column(String(100))
+    carrier_tel = Column(String(50))
+    order_no = Column(String(100))
+    items_json = Column(JSON)             # 明細行リスト
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class HotelArrangement(Base):
+    """宿泊予約票"""
+    __tablename__ = "hotel_arrangements"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_order_id = Column(UUID(as_uuid=True), ForeignKey("project_orders.id"))
+    child_no = Column(String(100))
+    site_name = Column(String(300))       # 現場
+    site_address = Column(String(500))
+    items_json = Column(JSON)             # 明細行リスト（ホテルごと）
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

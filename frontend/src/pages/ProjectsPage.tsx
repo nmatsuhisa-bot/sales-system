@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { projectApi, mastersApi, estimateApi } from '../api';
+import { projectApi, mastersApi } from '../api';
 import { Plus, ChevronDown, ChevronRight, Edit2, Trash2, FileText } from 'lucide-react';
+import ArrangementModal from '../components/ArrangementModal';
 
 const STATUS_OPTIONS = ['営業中', '見積発行', '受注', '失注', '請求済'];
 const DIST_OPTIONS = ['直接', '代理店'];
@@ -71,6 +72,7 @@ export default function ProjectsPage() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [projectModal, setProjectModal] = useState<any>(null);
   const [orderModal, setOrderModal] = useState<any>(null);
+  const [arrangeModal, setArrangeModal] = useState<any>(null);
   const [form, setForm] = useState<any>({});
   const [orderForm, setOrderForm] = useState<any>({});
   const [agencies, setAgencies] = useState<any[]>([]);
@@ -297,11 +299,11 @@ export default function ProjectsPage() {
                           <button onClick={() => handleDeleteOrder(o.id)} className="text-red-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>
                         </div>
                         <div className="flex items-center gap-1">
-                          <button onClick={() => window.open(estimateApi.cranePdf(o.id), '_blank')}
+                          <button onClick={() => setArrangeModal({ type: 'crane', orderId: o.id, childNo: o.child_no })}
                             className="text-xs bg-orange-100 text-orange-700 px-1 py-0.5 rounded hover:bg-orange-200">クレーン</button>
-                          <button onClick={() => window.open(estimateApi.shippingPdf(o.id), '_blank')}
+                          <button onClick={() => setArrangeModal({ type: 'shipping', orderId: o.id, childNo: o.child_no })}
                             className="text-xs bg-blue-100 text-blue-700 px-1 py-0.5 rounded hover:bg-blue-200">送り状</button>
-                          <button onClick={() => window.open(estimateApi.hotelPdf(o.id), '_blank')}
+                          <button onClick={() => setArrangeModal({ type: 'hotel', orderId: o.id, childNo: o.child_no })}
                             className="text-xs bg-green-100 text-green-700 px-1 py-0.5 rounded hover:bg-green-200">宿泊</button>
                         </div>
                       </div>
@@ -421,6 +423,16 @@ export default function ProjectsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ===== 手配書編集モーダル ===== */}
+      {arrangeModal && (
+        <ArrangementModal
+          type={arrangeModal.type}
+          orderId={arrangeModal.orderId}
+          childNo={arrangeModal.childNo}
+          onClose={() => setArrangeModal(null)}
+        />
       )}
 
       {/* ===== 子案件モーダル ===== */}

@@ -119,6 +119,18 @@ export const projectApi = {
 // =============================================
 // 見積管理API（新）
 // =============================================
+export const arrangementApi = {
+  getCrane: (orderId: string) => api.get(`/arrangements/crane/${orderId}`),
+  saveCrane: (orderId: string, data: any) => api.put(`/arrangements/crane/${orderId}`, data),
+  getShipping: (orderId: string) => api.get(`/arrangements/shipping/${orderId}`),
+  saveShipping: (orderId: string, data: any) => api.put(`/arrangements/shipping/${orderId}`, data),
+  getHotel: (orderId: string) => api.get(`/arrangements/hotel/${orderId}`),
+  saveHotel: (orderId: string, data: any) => api.put(`/arrangements/hotel/${orderId}`, data),
+  cranePdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/arrangements/crane/${orderId}/pdf`,
+  shippingPdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/arrangements/shipping/${orderId}/pdf`,
+  hotelPdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/arrangements/hotel/${orderId}/pdf`,
+};
+
 export const estimateApi = {
   // パターンマスタ
   getBfrBodies: () => api.get('/estimate-quotations/patterns/bfr-bodies'),
@@ -138,9 +150,9 @@ export const estimateApi = {
   issueOrderTicket: (quotationId: string) => api.post(`/estimate-quotations/${quotationId}/issue-order-ticket`),
   adoptQuotation: (quotationId: string) => api.post(`/estimate-quotations/${quotationId}/adopt`),
   unadoptQuotation: (quotationId: string) => api.delete(`/estimate-quotations/${quotationId}/adopt`),
-  cranePdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/estimate-quotations/project-order/${orderId}/crane-pdf`,
-  shippingPdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/estimate-quotations/project-order/${orderId}/shipping-pdf`,
-  hotelPdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/estimate-quotations/project-order/${orderId}/hotel-pdf`,
+  cranePdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/arrangements/crane/${orderId}/pdf`,
+  shippingPdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/arrangements/shipping/${orderId}/pdf`,
+  hotelPdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/arrangements/hotel/${orderId}/pdf`,
 };
 
 // =============================================
