@@ -13,59 +13,36 @@ const STATUS_COLORS: Record<string, string> = {
   '請求済': 'bg-green-100 text-green-700',
 };
 
-// ===== トップレベルコンポーネント（再レンダリングで再定義されない）=====
-function TextField({ label, name, form, setForm, cols = 1, type = 'text', placeholder = '' }: any) {
+function TextField({ label, value, onChange, cols = 1, placeholder = '', type = 'text' }: any) {
   return (
     <div className={cols === 2 ? 'md:col-span-2' : ''}>
       <label className="block text-xs text-gray-500 mb-1">{label}</label>
-      <input
-        type={type}
-        placeholder={placeholder}
-        defaultValue={form[name] || ''}
-        key={`${name}_${form.id || form.project_no || 'new'}`}
-        onChange={e => {
-          const v = e.target.value;
-          setForm((f: any) => ({ ...f, [name]: v }));
-        }}
-        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-      />
+      <input type={type} placeholder={placeholder} value={value || ''}
+        onChange={e => onChange(e.target.value)}
+        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
     </div>
   );
 }
 
-function NumberField({ label, name, form, setForm }: any) {
+function NumberField({ label, value, onChange }: any) {
   return (
     <div>
       <label className="block text-xs text-gray-500 mb-1">{label}（円）</label>
-      <input
-        type="number"
-        defaultValue={form[name] || ''}
-        key={`${name}_${form.id || 'new'}`}
-        onChange={e => {
-          const v = e.target.value;
-          setForm((f: any) => ({ ...f, [name]: v }));
-        }}
-        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none"
-      />
-      {form[name] && <p className="text-xs text-gray-400 mt-0.5 text-right">¥{Number(form[name]).toLocaleString()}</p>}
+      <input type="number" value={value || ''}
+        onChange={e => onChange(e.target.value)}
+        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+      {value && <p className="text-xs text-gray-400 mt-0.5 text-right">¥{Number(value).toLocaleString()}</p>}
     </div>
   );
 }
 
-function DateField({ label, name, form, setForm }: any) {
+function DateField({ label, value, onChange }: any) {
   return (
     <div>
       <label className="block text-xs text-gray-500 mb-1">{label}</label>
-      <input
-        type="date"
-        defaultValue={form[name] || ''}
-        key={`${name}_${form.id || 'new'}`}
-        onChange={e => {
-          const v = e.target.value;
-          setForm((f: any) => ({ ...f, [name]: v }));
-        }}
-        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-      />
+      <input type="date" value={value || ''}
+        onChange={e => onChange(e.target.value)}
+        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
     </div>
   );
 }
@@ -74,11 +51,9 @@ function SelectField({ label, name, options, form, setForm }: any) {
   return (
     <div>
       <label className="block text-xs text-gray-500 mb-1">{label}</label>
-      <select
-        value={form[name] || ''}
+      <select value={form[name] || ''}
         onChange={e => { const v = e.target.value; setForm((f: any) => ({ ...f, [name]: v })); }}
-        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-      >
+        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
         <option value="">—</option>
         {options.map((o: string) => <option key={o} value={o}>{o}</option>)}
       </select>
@@ -86,7 +61,6 @@ function SelectField({ label, name, options, form, setForm }: any) {
   );
 }
 
-// ===== メインページ =====
 export default function ProjectsPage() {
   const navigate = useNavigate();
   const [items, setItems] = useState<any[]>([]);
@@ -135,15 +109,11 @@ export default function ProjectsPage() {
   };
 
   const openProjectNew = () => {
-    const newNo = generateNextProjectNo(items);
-    setForm({ status: '営業中', project_no: newNo, distribution_type: '直接' });
+    setForm({ status: '営業中', project_no: generateNextProjectNo(items), distribution_type: '直接' });
     setProjectModal({ isNew: true });
   };
 
-  const openProjectEdit = (p: any) => {
-    setForm({ ...p });
-    setProjectModal({ isNew: false });
-  };
+  const openProjectEdit = (p: any) => { setForm({ ...p }); setProjectModal({ isNew: false }); };
 
   const openOrderNew = (project: any) => {
     const existingOrders = project.orders || [];
@@ -153,26 +123,20 @@ export default function ProjectsPage() {
       return isNaN(seq) ? max : Math.max(max, seq);
     }, 0);
     const childNo = `${project.project_no}_${maxSeq + 1}`;
-    // 親の情報を子に引き継ぐ
     setOrderForm({
       child_no: childNo,
       status: project.status,
       project_name: project.project_name,
-      // 営業担当
       sales_person_name: project.sales_person_name,
       sales_person_code: project.sales_person_code,
-      // 納入先（親の顧客2＝エンドユーザー）
       customer_code: project.customer_code_2,
       customer_name: project.customer_name_2,
-      // 代理店（親の顧客1）
       agency_code: project.customer_code_1,
       agency_name: project.customer_name_1,
-      // 日程（親から引き継ぎ）
       inquiry_date: project.inquiry_date,
       sales_date: project.sales_date,
       expected_order_date: project.expected_order_date,
       expected_shipment_date: project.expected_shipment_date,
-      // 予算金額
       budget_amount: project.budget_amount,
     });
     setOrderModal({ project, order: null });
@@ -261,9 +225,7 @@ export default function ProjectsPage() {
             <div key={p.id} className="bg-white rounded-xl shadow-sm overflow-hidden">
               <div className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 border-b border-gray-50"
                 onClick={() => toggleExpand(p.id)}>
-                <span className="text-gray-400 shrink-0">
-                  {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                </span>
+                <span className="text-gray-400 shrink-0">{expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span>
                 <span className="font-bold text-blue-700 w-32 shrink-0 text-sm font-mono">{p.project_no}</span>
                 <span className="flex-1 font-medium text-gray-800 text-sm truncate">{p.project_name || '（案件名未設定）'}</span>
                 <span className="text-xs text-gray-500 w-40 truncate hidden md:block">{p.customer_name_2 || p.customer_name_1 || '—'}</span>
@@ -282,15 +244,24 @@ export default function ProjectsPage() {
 
               {expanded && (
                 <div className="bg-gray-50">
+                  {/* 子IDテーブルヘッダー */}
                   <div className="grid text-xs text-gray-400 px-10 py-1.5 border-b border-gray-100 font-medium"
-                    style={{ gridTemplateColumns: '140px 1fr 160px 100px 110px 110px 120px 160px 60px' }}>
-                    <span>子ID</span><span>案件名</span><span>納入先</span>
-                    <span>担当者</span><span>受注予定日</span><span>出荷予定日</span>
-                    <span>見積金額</span><span>採用見積</span><span>操作</span>
+                    style={{ gridTemplateColumns: '140px 1fr 150px 90px 100px 100px 110px 170px 80px' }}>
+                    <span>子ID</span>
+                    <span>案件名</span>
+                    <span>納入先</span>
+                    <span>担当者</span>
+                    <span>受注予定日</span>
+                    <span>出荷予定日</span>
+                    <span>見積金額</span>
+                    <span>採用見積</span>
+                    <span>操作</span>
                   </div>
+
                   {(p.orders || []).map((o: any) => (
-                    <div key={o.id} className="grid items-center px-10 py-2 text-sm border-b border-gray-100 hover:bg-blue-50"
-                      style={{ gridTemplateColumns: '140px 1fr 160px 100px 110px 110px 120px 160px 60px' }}>
+                    <div key={o.id}
+                      className="grid items-center px-10 py-2 text-sm border-b border-gray-100 hover:bg-blue-50"
+                      style={{ gridTemplateColumns: '140px 1fr 150px 90px 100px 100px 110px 170px 80px' }}>
                       <span className="font-mono text-xs text-blue-600 font-bold">{o.child_no}</span>
                       <span className="truncate text-gray-700 text-xs">{o.project_name || p.project_name || '—'}</span>
                       <span className="truncate text-gray-500 text-xs">{o.customer_name || o.agency_name || '—'}</span>
@@ -300,25 +271,27 @@ export default function ProjectsPage() {
                       <span className="text-gray-700 font-medium text-xs">
                         {o.quotation_amount != null ? `¥${Number(o.quotation_amount).toLocaleString()}` : '—'}
                       </span>
+                      {/* 採用見積 */}
                       <div className="text-xs">
                         {o.quotation_no ? (
                           <div className="flex flex-col gap-0.5">
-                            <span className="text-green-600 font-medium">✓ {o.quotation_no}</span>
+                            <span className="text-green-600 font-bold">✓ {o.quotation_no}</span>
                             {o.quotation_total && <span className="text-gray-500">¥{Number(o.quotation_total).toLocaleString()}</span>}
                           </div>
                         ) : (
-                          <span className="text-gray-300">未採用</span>
+                          <span className="text-gray-300 text-xs">未採用</span>
                         )}
                       </div>
+                      {/* 操作ボタン */}
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => navigate(`/estimates/new?child_no=${o.child_no}&project_order_id=${o.id}`)}
                           className="text-green-500 hover:text-green-700 p-0.5" title="見積作成">
-                          <FileText size={12} />
+                          <FileText size={13} />
                         </button>
                         <button
                           onClick={() => navigate(`/estimates?child_no=${o.child_no}`)}
-                          className="text-purple-400 hover:text-purple-600 p-0.5 text-xs" title="見積一覧">
+                          className="text-purple-400 hover:text-purple-600 text-xs p-0.5" title="見積一覧">
                           一覧
                         </button>
                         <button onClick={() => openOrderEdit(p, o)} className="text-blue-400 hover:text-blue-600 p-0.5"><Edit2 size={12} /></button>
@@ -326,6 +299,7 @@ export default function ProjectsPage() {
                       </div>
                     </div>
                   ))}
+
                   <div className="px-10 py-2">
                     <button onClick={() => openOrderNew(p)}
                       className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1">
@@ -361,13 +335,12 @@ export default function ProjectsPage() {
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-gray-50 font-mono font-bold text-blue-700" />
                 </div>
                 <SelectField label="案件ステータス" name="status" options={STATUS_OPTIONS} form={form} setForm={setForm} />
-                <TextField label="案件名" name="project_name" form={form} setForm={setForm} cols={2} />
-                <TextField label="案件概要" name="project_summary" form={form} setForm={setForm} cols={2} />
+                <TextField label="案件名" name="project_name" value={form.project_name} onChange={(v: string) => setForm((f: any) => ({ ...f, project_name: v }))} cols={2} />
+                <TextField label="案件概要" name="project_summary" value={form.project_summary} onChange={(v: string) => setForm((f: any) => ({ ...f, project_summary: v }))} cols={2} />
                 <SelectField label="商流判定" name="distribution_type" options={DIST_OPTIONS} form={form} setForm={setForm} />
                 <div className="flex items-end pb-1">
                   <p className="text-xs text-gray-400">{form.distribution_type === '代理店' ? '代理店経由：商社＋納入先を選択' : '直接取引：納入先のみ選択'}</p>
                 </div>
-
                 {form.distribution_type === '代理店' && (<>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">商社（代理店）</label>
@@ -383,7 +356,6 @@ export default function ProjectsPage() {
                     <input value={form.customer_name_1 || ''} readOnly className="w-full border border-gray-100 rounded-lg px-3 py-1.5 text-sm bg-gray-50" />
                   </div>
                 </>)}
-
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">納入先（エンドユーザー）</label>
                   <select value={form.customer_code_2 || ''}
@@ -397,7 +369,6 @@ export default function ProjectsPage() {
                   <label className="block text-xs text-gray-500 mb-1">納入先名</label>
                   <input value={form.customer_name_2 || ''} readOnly className="w-full border border-gray-100 rounded-lg px-3 py-1.5 text-sm bg-gray-50" />
                 </div>
-
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">自社営業担当</label>
                   <select value={form.sales_person_code || ''}
@@ -411,30 +382,26 @@ export default function ProjectsPage() {
                   <label className="block text-xs text-gray-500 mb-1">担当者名</label>
                   <input value={form.sales_person_name || ''} readOnly className="w-full border border-gray-100 rounded-lg px-3 py-1.5 text-sm bg-gray-50" />
                 </div>
-
-                <NumberField label="予算金額" name="budget_amount" form={form} setForm={setForm} />
-                <NumberField label="見込売上合計（仕切りベース）" name="estimated_sales_total" form={form} setForm={setForm} />
-                <NumberField label="最終受注金額" name="final_order_amount" form={form} setForm={setForm} />
-                <NumberField label="案件原価" name="cost_price" form={form} setForm={setForm} />
-                <NumberField label="利益額" name="profit_amount" form={form} setForm={setForm} />
+                <NumberField label="予算金額" value={form.budget_amount} onChange={(v: string) => setForm((f: any) => ({ ...f, budget_amount: v }))} />
+                <NumberField label="見込売上合計（仕切りベース）" value={form.estimated_sales_total} onChange={(v: string) => setForm((f: any) => ({ ...f, estimated_sales_total: v }))} />
+                <NumberField label="最終受注金額" value={form.final_order_amount} onChange={(v: string) => setForm((f: any) => ({ ...f, final_order_amount: v }))} />
+                <NumberField label="案件原価" value={form.cost_price} onChange={(v: string) => setForm((f: any) => ({ ...f, cost_price: v }))} />
+                <NumberField label="利益額" value={form.profit_amount} onChange={(v: string) => setForm((f: any) => ({ ...f, profit_amount: v }))} />
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">利益率（%）</label>
-                  <input type="number" step="0.1" defaultValue={form.profit_rate || ''}
-                    key={`profit_rate_${form.id || 'new'}`}
+                  <input type="number" step="0.1" value={form.profit_rate || ''}
                     onChange={e => { const v = e.target.value; setForm((f: any) => ({ ...f, profit_rate: v })); }}
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-blue-500 focus:outline-none" />
                 </div>
-
-                <DateField label="引き合い日" name="inquiry_date" form={form} setForm={setForm} />
-                <DateField label="顧客納期/売上計上日" name="sales_date" form={form} setForm={setForm} />
-                <DateField label="社内出図希望日" name="drawing_request_date" form={form} setForm={setForm} />
-                <DateField label="受注日" name="order_date" form={form} setForm={setForm} />
-                <DateField label="受注予定日" name="expected_order_date" form={form} setForm={setForm} />
-                <DateField label="出荷予定日" name="expected_shipment_date" form={form} setForm={setForm} />
+                <DateField label="引き合い日" value={form.inquiry_date} onChange={(v: string) => setForm((f: any) => ({ ...f, inquiry_date: v }))} />
+                <DateField label="顧客納期/売上計上日" value={form.sales_date} onChange={(v: string) => setForm((f: any) => ({ ...f, sales_date: v }))} />
+                <DateField label="社内出図希望日" value={form.drawing_request_date} onChange={(v: string) => setForm((f: any) => ({ ...f, drawing_request_date: v }))} />
+                <DateField label="受注日" value={form.order_date} onChange={(v: string) => setForm((f: any) => ({ ...f, order_date: v }))} />
+                <DateField label="受注予定日" value={form.expected_order_date} onChange={(v: string) => setForm((f: any) => ({ ...f, expected_order_date: v }))} />
+                <DateField label="出荷予定日" value={form.expected_shipment_date} onChange={(v: string) => setForm((f: any) => ({ ...f, expected_shipment_date: v }))} />
                 <div className="md:col-span-2">
                   <label className="block text-xs text-gray-500 mb-1">備考</label>
-                  <textarea defaultValue={form.notes || ''} rows={2}
-                    key={`notes_${form.id || 'new'}`}
+                  <textarea value={form.notes || ''} rows={2}
                     onChange={e => { const v = e.target.value; setForm((f: any) => ({ ...f, notes: v })); }}
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
                 </div>
@@ -467,8 +434,7 @@ export default function ProjectsPage() {
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-gray-50 font-mono font-bold text-green-700" />
                 </div>
                 <SelectField label="ステータス" name="status" options={STATUS_OPTIONS} form={orderForm} setForm={setOrderForm} />
-                <TextField label="案件名" name="project_name" form={orderForm} setForm={setOrderForm} cols={2} />
-
+                <TextField label="案件名" name="project_name" value={orderForm.project_name} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, project_name: v }))} cols={2} />
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">納入先（エンドユーザー）</label>
                   <select value={orderForm.customer_code || ''}
@@ -482,7 +448,6 @@ export default function ProjectsPage() {
                   <label className="block text-xs text-gray-500 mb-1">納入先名</label>
                   <input value={orderForm.customer_name || ''} readOnly className="w-full border border-gray-100 rounded-lg px-3 py-1.5 text-sm bg-gray-50" />
                 </div>
-
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">代理店（商社）</label>
                   <select value={orderForm.agency_code || ''}
@@ -496,7 +461,6 @@ export default function ProjectsPage() {
                   <label className="block text-xs text-gray-500 mb-1">代理店名</label>
                   <input value={orderForm.agency_name || ''} readOnly className="w-full border border-gray-100 rounded-lg px-3 py-1.5 text-sm bg-gray-50" />
                 </div>
-
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">自社営業担当</label>
                   <select value={orderForm.sales_person_code || ''}
@@ -510,21 +474,19 @@ export default function ProjectsPage() {
                   <label className="block text-xs text-gray-500 mb-1">担当者名</label>
                   <input value={orderForm.sales_person_name || ''} readOnly className="w-full border border-gray-100 rounded-lg px-3 py-1.5 text-sm bg-gray-50" />
                 </div>
-
-                <NumberField label="見積金額" name="quotation_amount" form={orderForm} setForm={setOrderForm} />
-                <NumberField label="予算金額" name="budget_amount" form={orderForm} setForm={setOrderForm} />
-                <DateField label="引き合い日" name="inquiry_date" form={orderForm} setForm={setOrderForm} />
-                <DateField label="顧客納期/売上計上日" name="sales_date" form={orderForm} setForm={setOrderForm} />
-                <DateField label="受注日" name="order_date" form={orderForm} setForm={setOrderForm} />
-                <DateField label="受注予定日" name="expected_order_date" form={orderForm} setForm={setOrderForm} />
-                <DateField label="出荷日" name="shipment_date" form={orderForm} setForm={setOrderForm} />
-                <DateField label="出荷予定日" name="expected_shipment_date" form={orderForm} setForm={setOrderForm} />
-                <TextField label="見積NO" name="quotation_no" form={orderForm} setForm={setOrderForm} />
-                <DateField label="見積発行日" name="quotation_issue_date" form={orderForm} setForm={setOrderForm} />
+                <NumberField label="見積金額" value={orderForm.quotation_amount} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, quotation_amount: v }))} />
+                <NumberField label="予算金額" value={orderForm.budget_amount} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, budget_amount: v }))} />
+                <DateField label="引き合い日" value={orderForm.inquiry_date} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, inquiry_date: v }))} />
+                <DateField label="顧客納期/売上計上日" value={orderForm.sales_date} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, sales_date: v }))} />
+                <DateField label="受注日" value={orderForm.order_date} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, order_date: v }))} />
+                <DateField label="受注予定日" value={orderForm.expected_order_date} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, expected_order_date: v }))} />
+                <DateField label="出荷日" value={orderForm.shipment_date} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, shipment_date: v }))} />
+                <DateField label="出荷予定日" value={orderForm.expected_shipment_date} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, expected_shipment_date: v }))} />
+                <TextField label="見積NO（採用見積）" name="quotation_no" value={orderForm.quotation_no} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, quotation_no: v }))} />
+                <DateField label="見積発行日" value={orderForm.quotation_issue_date} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, quotation_issue_date: v }))} />
                 <div className="md:col-span-2">
                   <label className="block text-xs text-gray-500 mb-1">備考</label>
-                  <textarea defaultValue={orderForm.notes || ''} rows={2}
-                    key={`order_notes_${orderForm.id || 'new'}`}
+                  <textarea value={orderForm.notes || ''} rows={2}
                     onChange={e => { const v = e.target.value; setOrderForm((f: any) => ({ ...f, notes: v })); }}
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
                 </div>
