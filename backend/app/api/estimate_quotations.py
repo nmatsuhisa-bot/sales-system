@@ -289,10 +289,6 @@ def export_pdf(quotation_id: str, db: Session = Depends(get_db)):
 
 def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
     draft_watermark = ""
-    if is_draft:
-        draft_watermark = '''<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-45deg);
-font-size:120px;font-weight:bold;color:rgba(200,0,0,0.08);white-space:nowrap;z-index:9999;
-pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
 
     items_html = ""
     sections = {}
@@ -488,7 +484,20 @@ def issue_order_ticket(quotation_id: str, db: Session = Depends(get_db)):
         customer_name=q.customer_name, delivery_name=q.delivery_name,
         sales_person_name=q.sales_person_name, order_date=date.today(),
     )
-    db.add(ticket); db.commit(); db.refresh(ticket)
+    db.add(ticket)
+
+    # 受注票発行＝受注確定。子IDにこの見積を採用見積として反映し、ステータスを受注に。
+    if q.project_order_id:
+        po = db.query(ProjectOrder).filter(ProjectOrder.id == q.project_order_id).first()
+        if po:
+            po.quotation_id = q.id
+            po.quotation_no = q.quotation_no
+            po.quotation_total = q.total_amount
+            po.quotation_amount = q.total_amount
+            po.quotation_issue_date = q.issue_date
+            po.status = "受注"
+
+    db.commit(); db.refresh(ticket)
     return {"ticket_no": ticket_no, "ticket_type": ticket_type, "id": str(ticket.id)}
 
 
@@ -504,10 +513,6 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
     title = "受 注 票【工番】" if is_koban else "受 注 票【単番】"
 
     draft_watermark = ""
-    if is_draft:
-        draft_watermark = '''<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-45deg);
-font-size:120px;font-weight:bold;color:rgba(200,0,0,0.08);white-space:nowrap;z-index:9999;
-pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
 
     items_html = ""
     if q:
@@ -553,7 +558,7 @@ pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
     <td style="background:#eee;border:1px solid #999;padding:4px 8px">担当者</td>
     <td style="border:1px solid #999;padding:4px 8px">{t.sales_person_name or ' '}</td>
     <td style="background:#eee;border:1px solid #999;padding:4px 8px">区分</td>
-    <td style="border:1px solid #999;padding:4px 8px">{'工番(100万円以上)' if is_koban else '単番(100万円未満)'}</td>
+    <td style="border:1px solid #999;padding:4px 8px">{'工番(300万円以上)' if is_koban else '単番(300万円未満)'}</td>
   </tr>
 </table>
 
