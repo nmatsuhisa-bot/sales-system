@@ -569,16 +569,31 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
   <div style="margin-top:6px">図面: 有 ・ 無　　注文書: 有 ・ 無{'　　契約書: 有 ・ 無' if is_koban else ''}</div>
 </div>
 
-<table style="margin-top:15px;font-size:10px;width:100%">
+  <table style="margin-top:15px;font-size:10px;width:100%;border-collapse:collapse">
   <tr>
-    <th style="border:1px solid #999;padding:4px;width:70px">社長</th>
-    <th style="border:1px solid #999;padding:4px;width:70px">柴田</th>
-    <th style="border:1px solid #999;padding:4px;width:70px">後藤</th>
-    <th style="border:1px solid #999;padding:4px;width:70px">江里口</th>
-    <th style="border:1px solid #999;padding:4px;width:70px">国立</th>
-    <th style="border:1px solid #999;padding:4px;width:70px">担当</th>
+    <th style="border:1px solid #999;padding:3px;text-align:center">社長</th>
+    <th style="border:1px solid #999;padding:3px;text-align:center">柴田</th>
+    <th style="border:1px solid #999;padding:3px;text-align:center">後藤</th>
+    <th style="border:1px solid #999;padding:3px;text-align:center">江里口</th>
+    <th style="border:1px solid #999;padding:3px;text-align:center">国立</th>
+    <th style="border:1px solid #999;padding:3px;text-align:center">川口</th>
+    <th style="border:1px solid #999;padding:3px;text-align:center">今井</th>
+    <th style="border:1px solid #999;padding:3px;text-align:center">大西</th>
+    <th style="border:1px solid #999;padding:3px;text-align:center">伏屋</th>
+    <th style="border:1px solid #999;padding:3px;text-align:center">三輪</th>
   </tr>
-  <tr><td style="border:1px solid #999;height:30px"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td><td style="border:1px solid #999"></td></tr>
+  <tr>
+    <td style="border:1px solid #999;height:35px"></td>
+    <td style="border:1px solid #999"></td>
+    <td style="border:1px solid #999"></td>
+    <td style="border:1px solid #999"></td>
+    <td style="border:1px solid #999"></td>
+    <td style="border:1px solid #999"></td>
+    <td style="border:1px solid #999"></td>
+    <td style="border:1px solid #999"></td>
+    <td style="border:1px solid #999"></td>
+    <td style="border:1px solid #999"></td>
+  </tr>
 </table>
 
 <div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
