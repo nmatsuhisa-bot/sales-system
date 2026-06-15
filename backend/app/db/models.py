@@ -629,6 +629,8 @@ class OrderTicket(Base):
     notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
 
+    quotation = relationship("QuotationHeader", foreign_keys=[quotation_id])
+
 
 # =============================================
 # 手配書（子IDに紐づく）
