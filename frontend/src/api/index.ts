@@ -148,6 +148,7 @@ export const estimateApi = {
   delete: (id: string) => api.delete(`/estimate-quotations/${id}`),
   // 受注票
   issueOrderTicket: (quotationId: string) => api.post(`/estimate-quotations/${quotationId}/issue-order-ticket`),
+  listOrderTickets: (params?: any) => api.get("/estimate-quotations/order-tickets", { params }),
   adoptQuotation: (quotationId: string) => api.post(`/estimate-quotations/${quotationId}/adopt`),
   unadoptQuotation: (quotationId: string) => api.delete(`/estimate-quotations/${quotationId}/adopt`),
   cranePdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/arrangements/crane/${orderId}/pdf`,
