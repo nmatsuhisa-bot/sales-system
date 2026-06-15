@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import { projectApi, mastersApi } from '../api';
 import { Plus, ChevronDown, ChevronRight, Edit2, Trash2, FileText } from 'lucide-react';
 
-const STATUS_OPTIONS = ['営業中', '受注', '受注済', '失注'];
+const STATUS_OPTIONS = ['営業中', '見積発行', '受注', '失注', '請求済'];
 const DIST_OPTIONS = ['直接', '代理店'];
 const STATUS_COLORS: Record<string, string> = {
   '営業中': 'bg-blue-100 text-blue-700',
+  '見積発行': 'bg-orange-100 text-orange-700',
   '受注': 'bg-yellow-100 text-yellow-700',
-  '受注済': 'bg-green-100 text-green-700',
   '失注': 'bg-gray-100 text-gray-500',
+  '請求済': 'bg-green-100 text-green-700',
 };
 
 export default function ProjectsPage() {
