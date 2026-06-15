@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """見積書 API"""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -574,7 +575,7 @@ pointer-events:none;letter-spacing:10px;font-family:serif;">DRAFT</div>'''
   </tfoot>
 </table>
 
-{'<div style="border:1px solid #999;padding:8px;margin-top:10px;font-size:10px"><b>前受金</b>:有 . 無<br>①( 月 日付)税込/税抜 ¥   入金済<br>②( 月 日付)税込/税抜 ¥   入金済</div>' if is_koban else ''}
+{'<div style="border:1px solid #999;padding:8px;margin-top:10px;font-size:10px"><b>前受金</b>:有 . 無<br>1.( 月 日付)税込/税抜 ¥   入金済<br>2.( 月 日付)税込/税抜 ¥   入金済</div>' if is_koban else ''}
 
 <div style="margin-top:20px;border:1px solid #999;padding:8px;font-size:10px">
   <table style="width:100%"><tr>
@@ -1220,9 +1221,9 @@ def shipping_pdf(order_id: str, db: Session = Depends(get_db)):
     <td style="background:#f0f0f0;width:40px">到着</td>
     <td style="min-width:100px"> </td>
   </tr>
-  <tr><td style="background:#f0f0f0">積込①</td><td> </td><td colspan="4"> </td></tr>
-  <tr><td style="background:#f0f0f0">積込②</td><td> </td><td colspan="4"> </td></tr>
-  <tr><td style="background:#f0f0f0">積込③</td><td> </td><td colspan="4"> </td></tr>
+  <tr><td style="background:#f0f0f0">積込1.</td><td> </td><td colspan="4"> </td></tr>
+  <tr><td style="background:#f0f0f0">積込2.</td><td> </td><td colspan="4"> </td></tr>
+  <tr><td style="background:#f0f0f0">積込3.</td><td> </td><td colspan="4"> </td></tr>
 </table>
 """ for _ in range(3)])}
 
