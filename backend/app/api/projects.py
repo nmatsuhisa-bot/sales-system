@@ -155,6 +155,8 @@ def project_to_dict(p: Project, include_orders: bool = True) -> dict:
     return d
 
 def generate_child_no(project_no: str, db: Session) -> str:
+    from sqlalchemy import text as sa_text
+    db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"child_no_{project_no}"})
     existing = db.query(ProjectOrder).filter(ProjectOrder.project_no == project_no).all()
     max_seq = max(
         (int(o.child_no.split("_")[-1]) for o in existing
@@ -209,6 +211,8 @@ def list_projects(
 
 @router.post("/", status_code=201)
 def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
+    from sqlalchemy import text as sa_text
+    db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext('project_no_lock'))"))
     from sqlalchemy import text as sa_text
     db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext('project_no_lock'))"))
     if db.query(Project).filter(Project.project_no == data.project_no).first():
