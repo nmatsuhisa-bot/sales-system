@@ -1,7 +1,7 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, FileText, ShoppingCart,
-  Truck, BarChart3, LogOut, Menu, X, Boxes, Briefcase, Database, UserCog
+  Truck, BarChart3, LogOut, Menu, X, Boxes, Briefcase, Database, UserCog, Calendar
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -17,6 +17,7 @@ const navItems = [
   { to: '/estimates', icon: FileText, label: '見積管理（新）' },
   { to: '/masters', icon: Database, label: 'マスタ管理' },
   { to: '/users', icon: UserCog, label: 'ユーザー管理' },
+  { to: '/schedule', icon: Calendar, label: 'スケジュール' },
 ];
 
 export default function Layout() {
