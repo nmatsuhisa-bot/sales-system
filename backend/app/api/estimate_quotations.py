@@ -510,22 +510,43 @@ def issue_order_ticket(quotation_id: str, db: Session = Depends(get_db)):
     total = int(q.total_amount or 0)
     ticket_type = "koban" if total >= 3000000 else "tanban"
 
-    year = datetime.now().year
-    prefix = f"OT{year}-"
-    last = db.query(OrderTicket).filter(OrderTicket.ticket_no.like(f"{prefix}%")).order_by(desc(OrderTicket.ticket_no)).first()
-    seq = int(last.ticket_no.split("-")[-1]) + 1 if last else 1
-    ticket_no = f"{prefix}{seq:04d}"
+    # 子IDに既存の受注票があれば上書き、なければ新規採番
+    existing = None
+    if q.project_order_id:
+        existing = db.query(OrderTicket).filter(
+            OrderTicket.project_order_id == q.project_order_id
+        ).first()
 
-    ticket = OrderTicket(
-        ticket_no=ticket_no, ticket_type=ticket_type,
-        project_order_id=q.project_order_id, child_no=q.child_no,
-        quotation_id=None, total_amount=total,
-        customer_name=q.customer_name, delivery_name=q.delivery_name,
-        sales_person_name=q.sales_person_name, order_date=date.today(),
-    )
-    db.add(ticket)
+    if existing:
+        # 上書き更新
+        existing.ticket_type = ticket_type
+        existing.total_amount = total
+        existing.customer_name = q.customer_name
+        existing.delivery_name = q.delivery_name
+        existing.sales_person_name = q.sales_person_name
+        existing.order_date = date.today()
+        existing.child_no = q.child_no
+        ticket = existing
+        ticket_no = existing.ticket_no
+    else:
+        # 新規採番
+        from sqlalchemy import text as sa_text
+        db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext('order_ticket_no_lock'))"))
+        year = datetime.now().year
+        prefix = f"OT{year}-"
+        last = db.query(OrderTicket).filter(OrderTicket.ticket_no.like(f"{prefix}%")).order_by(desc(OrderTicket.ticket_no)).first()
+        seq = int(last.ticket_no.split("-")[-1]) + 1 if last else 1
+        ticket_no = f"{prefix}{seq:04d}"
+        ticket = OrderTicket(
+            ticket_no=ticket_no, ticket_type=ticket_type,
+            project_order_id=q.project_order_id, child_no=q.child_no,
+            quotation_id=None, total_amount=total,
+            customer_name=q.customer_name, delivery_name=q.delivery_name,
+            sales_person_name=q.sales_person_name, order_date=date.today(),
+        )
+        db.add(ticket)
 
-    # 受注票発行＝受注確定。子IDにこの見積を採用見積として反映し、ステータスを受注に。
+    # 子IDにステータス・採用見積を反映
     if q.project_order_id:
         po = db.query(ProjectOrder).filter(ProjectOrder.id == q.project_order_id).first()
         if po:
@@ -535,8 +556,9 @@ def issue_order_ticket(quotation_id: str, db: Session = Depends(get_db)):
             po.quotation_issue_date = q.issue_date
             po.status = "受注"
 
-    db.commit(); db.refresh(ticket)
-    return {"ticket_no": ticket_no, "ticket_type": ticket_type, "id": str(ticket.id)}
+    db.commit()
+    db.refresh(ticket)
+    return {"ticket_no": ticket_no, "ticket_type": ticket_type, "id": str(ticket.id), "overwritten": existing is not None}
 
 
 @router.get("/order-ticket/{ticket_id}/pdf")

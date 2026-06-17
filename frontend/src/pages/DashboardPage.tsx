@@ -38,13 +38,13 @@ export default function DashboardPage() {
         <KpiCard
           icon={<TrendingUp className="text-blue-500" />}
           label="今月の受注金額"
-          value={`¥${(data.monthly_orders_amount || 0).toLocaleString()}`}
+          value={`¥${(data.order_amount || 0).toLocaleString()}`}
           color="blue"
         />
         <KpiCard
           icon={<ShoppingCart className="text-green-500" />}
           label="今月の受注件数"
-          value={`${data.monthly_orders_count || 0} 件`}
+          value={`${data.order_count || 0} 件`}
           color="green"
         />
         <KpiCard
