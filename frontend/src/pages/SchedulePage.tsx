@@ -23,13 +23,11 @@ function getWeekDates(base: Date): Date[] {
   monday.setDate(base.getDate() - (day === 0 ? 6 : day - 1));
   return Array.from({ length: 7 }, (_, i) => { const d = new Date(monday); d.setDate(monday.getDate() + i); return d; });
 }
-
 function dateKey(d: Date): string { return d.toISOString().split('T')[0]; }
 function formatDate(d: Date): string {
   const w = ['日','月','火','水','木','金','土'];
-  return `${d.getMonth()+1}/${d.getDate()}(${w[d.getDay()]})`;
+  return `${d.getMonth()+1}/${d.getDate()}\n(${w[d.getDay()]})`;
 }
-
 function loadData(): ScheduleEntry[] {
   try { return JSON.parse(localStorage.getItem('inoue_schedules') || '[]'); } catch { return []; }
 }
@@ -41,41 +39,52 @@ export default function SchedulePage() {
   const [users, setUsers] = useState<User[]>([]);
   const [schedules, setSchedules] = useState<ScheduleEntry[]>(loadData());
   const [base, setBase] = useState(new Date());
-  const [modal, setModal] = useState<{ open: boolean; entry?: ScheduleEntry; userId?: string; date?: string; slot?: 'am'|'pm' }>({ open: false });
-  const [form, setForm] = useState({ title: '', color: COLOR_OPTIONS[0].value });
+  const [modal, setModal] = useState<{
+    open: boolean; entry?: ScheduleEntry;
+    defaultUserIds?: string[]; defaultDate?: string; defaultSlot?: 'am'|'pm';
+  }>({ open: false });
+  const [form, setForm] = useState({
+    title: '', color: COLOR_OPTIONS[0].value,
+    allDay: false, userIds: [] as string[],
+    date: '', slot: 'am' as 'am'|'pm'
+  });
   const dragId = useRef<string | null>(null);
   const weekDates = getWeekDates(base);
   const todayKey = dateKey(new Date());
 
   useEffect(() => {
     const token = localStorage.getItem('access_token') || localStorage.getItem('token');
-    axios.get(`${API_BASE}/auth/users`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-      .then(r => setUsers(r.data))
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    axios.get(`${API_BASE}/auth/users`, { headers })
+      .then(r => { if (Array.isArray(r.data)) setUsers(r.data); })
       .catch(() => {
-        axios.get(`${API_BASE}/masters/employees`)
+        axios.get(`${API_BASE}/masters/employees`, { headers })
           .then(r => setUsers((r.data.items || r.data).map((e: any) => ({
-            id: e.employee_code || e.id,
-            full_name: e.employee_name || e.full_name,
-            email: ''
+            id: e.id, full_name: e.employee_name, email: ''
           })))).catch(() => {});
       });
   }, []);
 
-  function openNew(userId: string, date: string, slot: 'am'|'pm') {
-    setForm({ title: '', color: COLOR_OPTIONS[0].value });
-    setModal({ open: true, userId, date, slot });
+  function openNew(userIds: string[], date: string, slot: 'am'|'pm') {
+    setForm({ title: '', color: COLOR_OPTIONS[0].value, allDay: false, userIds, date, slot });
+    setModal({ open: true, defaultUserIds: userIds, defaultDate: date, defaultSlot: slot });
   }
   function openEdit(entry: ScheduleEntry) {
-    setForm({ title: entry.title, color: entry.color });
+    setForm({ title: entry.title, color: entry.color, allDay: false, userIds: [entry.userId], date: entry.date, slot: entry.slot });
     setModal({ open: true, entry });
   }
   function saveEntry() {
-    if (!form.title.trim()) return;
-    let updated: ScheduleEntry[];
+    if (!form.title.trim() || form.userIds.length === 0) return;
+    const slots: ('am'|'pm')[] = form.allDay ? ['am','pm'] : [form.slot];
+    let updated = [...schedules];
     if (modal.entry) {
-      updated = schedules.map(s => s.id === modal.entry!.id ? { ...s, ...form } : s);
+      updated = updated.map(s => s.id === modal.entry!.id ? { ...s, title: form.title, color: form.color } : s);
     } else {
-      updated = [...schedules, { id: crypto.randomUUID(), userId: modal.userId!, date: modal.date!, slot: modal.slot!, ...form }];
+      for (const uid of form.userIds) {
+        for (const sl of slots) {
+          updated.push({ id: crypto.randomUUID(), userId: uid, date: form.date, slot: sl, title: form.title, color: form.color });
+        }
+      }
     }
     setSchedules(updated); saveData(updated); setModal({ open: false });
   }
@@ -87,6 +96,9 @@ export default function SchedulePage() {
     if (!dragId.current) return;
     const updated = schedules.map(s => s.id === dragId.current ? { ...s, userId, date, slot } : s);
     setSchedules(updated); saveData(updated); dragId.current = null;
+  }
+  function toggleUserId(uid: string) {
+    setForm(f => ({ ...f, userIds: f.userIds.includes(uid) ? f.userIds.filter(x => x !== uid) : [...f.userIds, uid] }));
   }
 
   return (
@@ -102,14 +114,14 @@ export default function SchedulePage() {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="border-collapse text-sm" style={{ minWidth: `${200 + users.length * 150}px` }}>
+        <table className="border-collapse text-sm w-full">
           <thead>
             <tr>
-              <th className="border border-gray-300 bg-gray-100 px-2 py-2 w-24 text-center">日付</th>
-              <th className="border border-gray-300 bg-gray-100 px-2 py-2 w-12 text-center">時間</th>
+              <th className="border border-gray-300 bg-gray-100 px-1 py-2 text-center" style={{width:'60px'}}>日付</th>
+              <th className="border border-gray-300 bg-gray-100 px-1 py-2 text-center" style={{width:'36px'}}>時間</th>
               {users.map(u => (
-                <th key={u.id} className="border border-gray-300 bg-gray-50 px-2 py-2 text-center" style={{ minWidth: '150px' }}>
-                  {u.full_name}
+                <th key={u.id} className="border border-gray-300 bg-gray-50 px-1 py-1 text-center text-xs leading-tight" style={{width:'90px', minWidth:'90px'}}>
+                  {u.full_name.replace(' ', '\n').split('\n').map((line, i) => <div key={i}>{line}</div>)}
                 </th>
               ))}
             </tr>
@@ -122,7 +134,7 @@ export default function SchedulePage() {
               return (['am','pm'] as const).map(slot => (
                 <tr key={`${dk}-${slot}`} className={isWeekend ? 'bg-red-50' : isToday ? 'bg-blue-50' : ''}>
                   {slot === 'am' && (
-                    <td rowSpan={2} className={`border border-gray-300 text-center text-xs font-medium px-1 ${isToday ? 'bg-blue-100 text-blue-700' : isWeekend ? 'bg-red-100 text-red-600' : 'bg-gray-50 text-gray-700'}`}>
+                    <td rowSpan={2} className={`border border-gray-300 text-center text-xs font-medium px-1 whitespace-pre-line leading-tight ${isToday ? 'bg-blue-100 text-blue-700' : isWeekend ? 'bg-red-100 text-red-600' : 'bg-gray-50 text-gray-700'}`}>
                       {formatDate(date)}
                     </td>
                   )}
@@ -132,11 +144,11 @@ export default function SchedulePage() {
                   {users.map(u => {
                     const entries = schedules.filter(s => s.userId === u.id && s.date === dk && s.slot === slot);
                     return (
-                      <td key={u.id} className="border border-gray-300 px-1 py-1 align-top" style={{ height: '52px' }}
+                      <td key={u.id} className="border border-gray-300 px-1 py-1 align-top cursor-pointer" style={{height:'48px'}}
                         onDragOver={e => e.preventDefault()}
                         onDrop={() => onDrop(u.id, dk, slot)}
-                        onClick={() => entries.length === 0 && openNew(u.id, dk, slot)}>
-                        <div className="flex flex-col gap-1 min-h-[44px]">
+                        onClick={() => entries.length === 0 && openNew([u.id], dk, slot)}>
+                        <div className="flex flex-col gap-0.5 min-h-[40px]">
                           {entries.map(entry => (
                             <div key={entry.id} draggable
                               onDragStart={() => { dragId.current = entry.id; }}
@@ -146,9 +158,7 @@ export default function SchedulePage() {
                               {entry.title}
                             </div>
                           ))}
-                          {entries.length === 0 && (
-                            <div className="text-xs text-gray-300 text-center pt-2 cursor-pointer hover:text-gray-400">+</div>
-                          )}
+                          {entries.length === 0 && <div className="text-xs text-gray-300 text-center pt-2">+</div>}
                         </div>
                       </td>
                     );
@@ -162,19 +172,53 @@ export default function SchedulePage() {
 
       {modal.open && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-80">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-96">
             <h2 className="text-lg font-bold mb-4">{modal.entry ? '予定を編集' : '予定を追加'}</h2>
+
+            {!modal.entry && (
+              <>
+                <div className="mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">対象者（複数選択可）</label>
+                  <div className="flex flex-wrap gap-2 border rounded p-2 max-h-32 overflow-y-auto">
+                    {users.map(u => (
+                      <label key={u.id} className="flex items-center gap-1 text-sm cursor-pointer">
+                        <input type="checkbox" checked={form.userIds.includes(u.id)} onChange={() => toggleUserId(u.id)} />
+                        {u.full_name}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="mb-3 flex items-center gap-2">
+                  <input type="checkbox" id="allDay" checked={form.allDay} onChange={e => setForm(f => ({ ...f, allDay: e.target.checked }))} />
+                  <label htmlFor="allDay" className="text-sm font-medium text-gray-700 cursor-pointer">終日（午前・午後両方に登録）</label>
+                </div>
+                {!form.allDay && (
+                  <div className="mb-3">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">時間帯</label>
+                    <div className="flex gap-3">
+                      <label className="flex items-center gap-1 text-sm cursor-pointer">
+                        <input type="radio" name="slot" checked={form.slot === 'am'} onChange={() => setForm(f => ({ ...f, slot: 'am' }))} />午前
+                      </label>
+                      <label className="flex items-center gap-1 text-sm cursor-pointer">
+                        <input type="radio" name="slot" checked={form.slot === 'pm'} onChange={() => setForm(f => ({ ...f, slot: 'pm' }))} />午後
+                      </label>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
             <div className="mb-3">
               <label className="block text-sm font-medium text-gray-700 mb-1">内容</label>
               <input className="border rounded w-full px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-                value={form.title} onChange={e => setForm({ ...form, title: e.target.value })}
+                value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
                 onKeyDown={e => e.key === 'Enter' && saveEntry()} autoFocus placeholder="予定を入力..." />
             </div>
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">色</label>
               <div className="flex gap-2 flex-wrap">
                 {COLOR_OPTIONS.map(c => (
-                  <button key={c.value} onClick={() => setForm({ ...form, color: c.value })}
+                  <button key={c.value} onClick={() => setForm(f => ({ ...f, color: c.value }))}
                     className={`w-8 h-8 rounded border-2 ${c.value} ${form.color === c.value ? 'ring-2 ring-offset-1 ring-gray-600' : ''}`}
                     title={c.label} />
                 ))}
