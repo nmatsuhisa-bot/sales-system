@@ -502,43 +502,6 @@ def list_order_tickets(
     }
 
 
-@router.get("/order-tickets")
-def list_order_tickets(
-    search: str = None, ticket_type: str = None,
-    per_page: int = 50, db: Session = Depends(get_db)
-):
-    """受注票一覧"""
-    q = db.query(OrderTicket)
-    if search:
-        q = q.filter(
-            or_(
-                OrderTicket.ticket_no.ilike(f"%{search}%"),
-                OrderTicket.customer_name.ilike(f"%{search}%"),
-                OrderTicket.child_no.ilike(f"%{search}%"),
-            )
-        )
-    if ticket_type:
-        q = q.filter(OrderTicket.ticket_type == ticket_type)
-    total = q.count()
-    items = q.order_by(OrderTicket.created_at.desc()).limit(per_page).all()
-    return {
-        "total": total,
-        "items": [
-            {
-                "id": str(t.id),
-                "ticket_no": t.ticket_no,
-                "ticket_type": t.ticket_type,
-                "child_no": t.child_no,
-                "customer_name": t.customer_name,
-                "delivery_name": t.delivery_name,
-                "sales_person_name": t.sales_person_name,
-                "total_amount": int(t.total_amount or 0),
-                "order_date": str(t.order_date) if t.order_date else None,
-            }
-            for t in items
-        ]
-    }
-
 @router.post("/{quotation_id}/issue-order-ticket")
 def issue_order_ticket(quotation_id: str, db: Session = Depends(get_db)):
     q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
