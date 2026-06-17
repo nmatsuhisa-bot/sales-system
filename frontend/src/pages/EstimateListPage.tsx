@@ -51,11 +51,12 @@ export default function EstimateListPage() {
 
   const handleIssueTicket = async (id: string, total: number) => {
     const type = total >= 3000000 ? '工番（300万円以上）' : '単番（300万円未満）';
-    if (!confirm(`受注票を発行します。\n種別: ${type}\nよろしいですか？`)) return;
+    const confirmMsg = `受注票を発行します。\n種別: ${type}\nよろしいですか？`;
+      if (!confirm(confirmMsg)) return;
     try {
       const r = await estimateApi.issueOrderTicket(id);
       const { ticket_no, id: ticketId } = r.data;
-      alert(r.data.overwritten ? `受注票を上書きしました: ${ticket_no}` : `受注票発行: ${ticket_no}`);
+      if (r.data.has_previous) { alert(`受注票を再発行しました: ${ticket_no}\n旧受注票は非表示になりました`); } else { alert(`受注票発行: ${ticket_no}`); }
       const url = `${import.meta.env.VITE_API_URL}/estimate-quotations/order-ticket/${ticketId}/pdf`;
       window.open(url, '_blank');
     } catch (e: any) {

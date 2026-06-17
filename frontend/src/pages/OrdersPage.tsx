@@ -13,14 +13,19 @@ export default function OrdersPage() {
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('active');
 
   const load = () => {
-    estimateApi.listOrderTickets({ search: search || undefined, ticket_type: typeFilter || undefined })
+    estimateApi.listOrderTickets({
+      search: search || undefined,
+      ticket_type: typeFilter || undefined,
+      status_filter: statusFilter,
+    })
       .then(r => { setItems(r.data.items || []); setTotal(r.data.total || 0); })
       .catch(() => {});
   };
 
-  useEffect(() => { load(); }, [search, typeFilter]);
+  useEffect(() => { load(); }, [search, typeFilter, statusFilter]);
 
   const handlePdf = (id: string) => {
     window.open(`${import.meta.env.VITE_API_URL}/estimate-quotations/order-ticket/${id}/pdf`, '_blank');
@@ -47,6 +52,12 @@ export default function OrdersPage() {
           <option value="koban">工番</option>
           <option value="tanban">単番</option>
         </select>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm">
+          <option value="active">最新のみ</option>
+          <option value="inactive">過去（非表示）</option>
+          <option value="">全件</option>
+        </select>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -66,9 +77,10 @@ export default function OrdersPage() {
           </thead>
           <tbody className="divide-y divide-gray-50">
             {items.map(t => (
-              <tr key={t.id} className="hover:bg-blue-50">
+              <tr key={t.id} className={`hover:bg-blue-50 ${!t.is_active ? 'opacity-50' : ''}`}>
                 <td className="px-4 py-3 font-medium text-blue-600 flex items-center gap-1">
                   <ShoppingCart size={14} /> {t.ticket_no}
+                  {!t.is_active && <span className="ml-1 text-xs text-gray-400">（過去）</span>}
                 </td>
                 <td className="px-4 py-3">
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${TYPE_COLORS[t.ticket_type] || 'bg-gray-100'}`}>
@@ -84,8 +96,7 @@ export default function OrdersPage() {
                   ¥{(t.total_amount || 0).toLocaleString()}
                 </td>
                 <td className="px-4 py-3 text-center">
-                  <button onClick={() => handlePdf(t.id)}
-                    className="text-green-600 hover:text-green-800">
+                  <button onClick={() => handlePdf(t.id)} className="text-green-600 hover:text-green-800">
                     <FileText size={16} />
                   </button>
                 </td>
