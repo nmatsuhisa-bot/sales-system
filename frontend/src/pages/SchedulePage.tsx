@@ -48,7 +48,7 @@ export default function SchedulePage() {
   const todayKey = dateKey(new Date());
 
   useEffect(() => {
-    const token = localStorage.getItem('access_token');
+    const token = localStorage.getItem('access_token') || localStorage.getItem('token');
     axios.get(`${API_BASE}/api/auth/users`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
       .then(r => setUsers(r.data)).catch(() => {});
   }, []);
