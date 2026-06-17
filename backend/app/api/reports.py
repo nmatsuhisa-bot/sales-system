@@ -31,11 +31,13 @@ def dashboard(db: Session = Depends(get_db)):
 
     # 受注票ベースの受注件数・金額（今年累計）
     order_count = db.query(func.count(OrderTicket.id)).filter(
-        extract('year', OrderTicket.order_date) == year
+        extract('year', OrderTicket.order_date) == year,
+        OrderTicket.is_active == True
     ).scalar() or 0
 
     order_amount = db.query(func.sum(OrderTicket.total_amount)).filter(
-        extract('year', OrderTicket.order_date) == year
+        extract('year', OrderTicket.order_date) == year,
+        OrderTicket.is_active == True
     ).scalar() or 0
 
     # 月別見積金額推移（今年）
@@ -53,7 +55,8 @@ def dashboard(db: Session = Depends(get_db)):
         func.count(OrderTicket.id).label('count'),
         func.sum(OrderTicket.total_amount).label('total')
     ).filter(
-        extract('year', OrderTicket.order_date) == year
+        extract('year', OrderTicket.order_date) == year,
+        OrderTicket.is_active == True
     ).group_by('month').order_by('month').all()
 
     return {

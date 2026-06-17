@@ -229,7 +229,7 @@ def create_quotation(data: QuotationHeaderCreate, db: Session = Depends(get_db))
 
 @router.get("/order-tickets")
 def list_order_tickets(
-    search: str = None, ticket_type: str = None,
+    search: str = None, ticket_type: str = None, status_filter: str = "active",
     per_page: int = 50, db: Session = Depends(get_db)
 ):
     """受注票一覧"""
@@ -244,6 +244,10 @@ def list_order_tickets(
         )
     if ticket_type:
         q = q.filter(OrderTicket.ticket_type == ticket_type)
+    if status_filter == "active":
+        q = q.filter(OrderTicket.is_active == True)
+    elif status_filter == "inactive":
+        q = q.filter(OrderTicket.is_active == False)
     total = q.count()
     items = q.order_by(OrderTicket.created_at.desc()).limit(per_page).all()
     return {
@@ -259,6 +263,7 @@ def list_order_tickets(
                 "sales_person_name": t.sales_person_name,
                 "total_amount": int(t.total_amount or 0),
                 "order_date": str(t.order_date) if t.order_date else None,
+                "is_active": t.is_active,
             }
             for t in items
         ]
@@ -510,41 +515,35 @@ def issue_order_ticket(quotation_id: str, db: Session = Depends(get_db)):
     total = int(q.total_amount or 0)
     ticket_type = "koban" if total >= 3000000 else "tanban"
 
-    # 子IDに既存の受注票があれば上書き、なければ新規採番
-    existing = None
+    # 子IDに既存のアクティブな受注票があるか確認
+    existing_tickets = []
     if q.project_order_id:
-        existing = db.query(OrderTicket).filter(
-            OrderTicket.project_order_id == q.project_order_id
-        ).first()
+        existing_tickets = db.query(OrderTicket).filter(
+            OrderTicket.project_order_id == q.project_order_id,
+            OrderTicket.is_active == True
+        ).all()
 
-    if existing:
-        # 上書き更新
-        existing.ticket_type = ticket_type
-        existing.total_amount = total
-        existing.customer_name = q.customer_name
-        existing.delivery_name = q.delivery_name
-        existing.sales_person_name = q.sales_person_name
-        existing.order_date = date.today()
-        existing.child_no = q.child_no
-        ticket = existing
-        ticket_no = existing.ticket_no
-    else:
-        # 新規採番
-        from sqlalchemy import text as sa_text
-        db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext('order_ticket_no_lock'))"))
-        year = datetime.now().year
-        prefix = f"OT{year}-"
-        last = db.query(OrderTicket).filter(OrderTicket.ticket_no.like(f"{prefix}%")).order_by(desc(OrderTicket.ticket_no)).first()
-        seq = int(last.ticket_no.split("-")[-1]) + 1 if last else 1
-        ticket_no = f"{prefix}{seq:04d}"
-        ticket = OrderTicket(
-            ticket_no=ticket_no, ticket_type=ticket_type,
-            project_order_id=q.project_order_id, child_no=q.child_no,
-            quotation_id=None, total_amount=total,
-            customer_name=q.customer_name, delivery_name=q.delivery_name,
-            sales_person_name=q.sales_person_name, order_date=date.today(),
-        )
-        db.add(ticket)
+    # 既存票を非表示に
+    for t in existing_tickets:
+        t.is_active = False
+
+    # 常に新規採番
+    from sqlalchemy import text as sa_text
+    db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext('order_ticket_no_lock'))"))
+    year = datetime.now().year
+    prefix = f"OT{year}-"
+    last = db.query(OrderTicket).filter(OrderTicket.ticket_no.like(f"{prefix}%")).order_by(desc(OrderTicket.ticket_no)).first()
+    seq = int(last.ticket_no.split("-")[-1]) + 1 if last else 1
+    ticket_no = f"{prefix}{seq:04d}"
+    ticket = OrderTicket(
+        ticket_no=ticket_no, ticket_type=ticket_type,
+        project_order_id=q.project_order_id, child_no=q.child_no,
+        quotation_id=None, total_amount=total,
+        customer_name=q.customer_name, delivery_name=q.delivery_name,
+        sales_person_name=q.sales_person_name, order_date=date.today(),
+        is_active=True,
+    )
+    db.add(ticket)
 
     # 子IDにステータス・採用見積を反映
     if q.project_order_id:
@@ -558,7 +557,7 @@ def issue_order_ticket(quotation_id: str, db: Session = Depends(get_db)):
 
     db.commit()
     db.refresh(ticket)
-    return {"ticket_no": ticket_no, "ticket_type": ticket_type, "id": str(ticket.id), "overwritten": existing is not None}
+    return {"ticket_no": ticket_no, "ticket_type": ticket_type, "id": str(ticket.id), "has_previous": len(existing_tickets) > 0}
 
 
 @router.get("/order-ticket/{ticket_id}/pdf")

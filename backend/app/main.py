@@ -54,3 +54,17 @@ def seed_users():
 @app.get("/")
 def root():
     return {"message": "販売管理システム API v1.0"}
+
+
+@app.get("/setup-add-is-active")
+def setup_add_is_active():
+    from app.db.models import engine
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE order_tickets ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE"))
+            conn.execute(text("UPDATE order_tickets SET is_active = TRUE WHERE is_active IS NULL"))
+            conn.commit()
+            return {"status": "ok", "message": "is_activeカラム追加完了"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}

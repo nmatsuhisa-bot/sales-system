@@ -627,6 +627,7 @@ class OrderTicket(Base):
     delivery_name = Column(String(300))
     sales_person_name = Column(String(100))
     notes = Column(Text)
+    is_active = Column(Boolean, default=True, server_default="true")
     created_at = Column(DateTime, server_default=func.now())
 
     quotation = relationship("QuotationHeader", foreign_keys=[quotation_id])
