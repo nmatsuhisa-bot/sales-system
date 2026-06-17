@@ -49,10 +49,10 @@ export default function SchedulePage() {
 
   useEffect(() => {
     const token = localStorage.getItem('access_token') || localStorage.getItem('token');
-    axios.get(`${API_BASE}/api/auth/users`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    axios.get(`${API_BASE}/auth/users`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
       .then(r => setUsers(r.data))
       .catch(() => {
-        axios.get(`${API_BASE}/api/masters/employees`)
+        axios.get(`${API_BASE}/masters/employees`)
           .then(r => setUsers((r.data.items || r.data).map((e: any) => ({
             id: e.employee_code || e.id,
             full_name: e.employee_name || e.full_name,
