@@ -209,6 +209,8 @@ def list_projects(
 
 @router.post("/", status_code=201)
 def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
+    from sqlalchemy import text as sa_text
+    db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext('project_no_lock'))"))
     if db.query(Project).filter(Project.project_no == data.project_no).first():
         raise HTTPException(400, f"案件NO {data.project_no} は既に存在します")
     p = Project(**data.dict(exclude={"orders"}))

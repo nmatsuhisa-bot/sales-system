@@ -556,7 +556,7 @@ def issue_order_ticket(quotation_id: str, db: Session = Depends(get_db)):
     ticket = OrderTicket(
         ticket_no=ticket_no, ticket_type=ticket_type,
         project_order_id=q.project_order_id, child_no=q.child_no,
-        quotation_id=q.id, total_amount=total,
+        quotation_id=None, total_amount=total,
         customer_name=q.customer_name, delivery_name=q.delivery_name,
         sales_person_name=q.sales_person_name, order_date=date.today(),
     )
