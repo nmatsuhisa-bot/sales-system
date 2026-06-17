@@ -25,7 +25,7 @@ export default function DashboardPage() {
 
   const monthNames = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
   const chartData = monthNames.map((name, i) => {
-    const found = data.monthly_sales?.find((s: any) => s.month === i + 1);
+    const found = data.monthly_orders?.find((s: any) => s.month === i + 1);
     return { name, 売上: found ? found.total : 0 };
   });
 
