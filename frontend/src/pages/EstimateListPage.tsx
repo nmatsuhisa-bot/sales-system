@@ -55,7 +55,7 @@ export default function EstimateListPage() {
     try {
       const r = await estimateApi.issueOrderTicket(id);
       const { ticket_no, id: ticketId } = r.data;
-      alert(`受注票発行: ${ticket_no}`);
+      alert(r.data.overwritten ? `受注票を上書きしました: ${ticket_no}` : `受注票発行: ${ticket_no}`);
       const url = `${import.meta.env.VITE_API_URL}/estimate-quotations/order-ticket/${ticketId}/pdf`;
       window.open(url, '_blank');
     } catch (e: any) {
