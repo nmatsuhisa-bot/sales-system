@@ -68,3 +68,26 @@ def setup_add_is_active():
             return {"status": "ok", "message": "is_activeカラム追加完了"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
+
+
+@app.get("/setup-fix-duplicate-tickets")
+def setup_fix_duplicate_tickets():
+    from app.db.models import engine
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            # 子IDごとに最新1件(created_atが最も新しい)のみis_active=true、残りfalse
+            conn.execute(text("""
+                UPDATE order_tickets SET is_active = FALSE
+                WHERE id NOT IN (
+                    SELECT DISTINCT ON (child_no) id
+                    FROM order_tickets
+                    WHERE child_no IS NOT NULL
+                    ORDER BY child_no, created_at DESC
+                )
+                AND child_no IS NOT NULL
+            """))
+            conn.commit()
+            return {"status": "ok", "message": "重複受注票を非表示に設定しました"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
