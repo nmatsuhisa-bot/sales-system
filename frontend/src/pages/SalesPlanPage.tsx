@@ -144,11 +144,11 @@ export default function SalesPlanPage() {
                   )}
                   {monthList.map(m => (
                     <td key={m} className={`border border-gray-300 px-2 py-1 text-right ${m === currentMonth ? 'bg-blue-50' : ''}`}>
-                      {g.months[m] ? (g.months[m] / 10000).toFixed(0) + '万' : ''}
+                      {g.months[m] ? (g.months[m] / 1000000).toFixed(1) + 'M' : ''}
                     </td>
                   ))}
                   <td className="border border-gray-300 px-2 py-1 text-right font-medium bg-gray-50">
-                    {g.total ? (g.total / 10000).toFixed(0) + '万' : ''}
+                    {g.total ? (g.total / 1000000).toFixed(1) + 'M' : ''}
                   </td>
                 </tr>
               ))}
@@ -159,7 +159,7 @@ export default function SalesPlanPage() {
                 {groupBy === 'project' && <td className="border border-gray-300 px-2 py-2"></td>}
                 {monthList.map(m => (
                   <td key={m} className={`border border-gray-300 px-2 py-2 text-right ${m === currentMonth ? 'bg-blue-100' : ''}`}>
-                    {monthTotals[m] ? (monthTotals[m] / 10000).toFixed(0) + '万' : ''}
+                    {monthTotals[m] ? (monthTotals[m] / 1000000).toFixed(1) + 'M' : ''}
                   </td>
                 ))}
                 <td className="border border-gray-300 px-2 py-2 text-right bg-gray-200">
@@ -172,7 +172,7 @@ export default function SalesPlanPage() {
       )}
 
       <div className="mt-4 text-xs text-gray-400">
-        ※ 売上計上日（sales_date）が設定されている案件のみ表示。金額は万円単位。
+        ※ 売上計上日（sales_date）が設定されている案件のみ表示。金額は百万円単位（M）。
       </div>
     </div>
   );
