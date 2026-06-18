@@ -18,6 +18,7 @@ const navItems = [
   { to: '/masters', icon: Database, label: 'マスタ管理' },
   { to: '/users', icon: UserCog, label: 'ユーザー管理' },
   { to: '/schedule', icon: Calendar, label: 'スケジュール' },
+  { to: '/sales-plan', icon: BarChart3, label: '売上計画表' },
 ];
 
 export default function Layout() {

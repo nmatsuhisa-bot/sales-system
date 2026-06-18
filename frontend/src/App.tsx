@@ -15,6 +15,7 @@ import EstimateListPage from './pages/EstimateListPage';
 import EstimateFormPage from './pages/EstimateFormPage';
 import UsersPage from './pages/UsersPage';
 import SchedulePage from './pages/SchedulePage';
+import SalesPlanPage from './pages/SalesPlanPage';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('access_token');
@@ -43,6 +44,7 @@ export default function App() {
           <Route path="estimates/new" element={<EstimateFormPage />} />
           <Route path="estimates/:id/edit" element={<EstimateFormPage />} />
           <Route path="schedule" element={<SchedulePage />} />
+          <Route path="sales-plan" element={<SalesPlanPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
