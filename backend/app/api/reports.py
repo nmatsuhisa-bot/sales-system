@@ -89,3 +89,31 @@ def sales_report(year: int = Query(default=datetime.now().year), db: Session = D
         "year": year,
         "monthly": [{"month": int(m), "count": c, "total": int(t or 0)} for m, c, t in monthly]
     }
+
+
+@router.get("/sales-plan")
+def sales_plan(year: int = Query(default=datetime.now().year), db: Session = Depends(get_db)):
+    from app.db.models import ProjectOrder
+    from sqlalchemy import extract, case
+
+    orders = db.query(ProjectOrder).filter(
+        ProjectOrder.sales_date != None,
+        extract('year', ProjectOrder.sales_date) == year
+    ).all()
+
+    rows = []
+    for o in orders:
+        if not o.sales_date: continue
+        amount = int(o.quotation_amount or o.quotation_total or 0)
+        rows.append({
+            "child_no": o.child_no or "",
+            "project_no": o.project_no or "",
+            "customer_name": o.customer_name or "",
+            "agency_name": o.agency_name or "",
+            "status": o.status or "",
+            "sales_date": str(o.sales_date),
+            "month": o.sales_date.month,
+            "amount": amount,
+        })
+
+    return {"year": year, "rows": rows}
