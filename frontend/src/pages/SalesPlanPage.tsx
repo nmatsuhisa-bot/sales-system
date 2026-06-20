@@ -109,42 +109,101 @@ export default function SalesPlanPage() {
   const tdClass = (m: number) => `border border-gray-300 px-2 py-1 text-right ${m === currentMonth ? 'bg-blue-50' : ''}`;
 
   function handlePrint() {
-    const tableEl = document.getElementById('sales-plan-table');
-    if (!tableEl) return;
-
     const win = window.open('', '_blank', 'width=1400,height=900');
     if (!win) return;
 
+    // 色定数
+    const C = {
+      border: '#d1d5db',
+      thBg: '#f3f4f6',
+      custBg: '#eff6ff',
+      custText: '#1e40af',
+      custMonthText: '#1d4ed8',
+      curMonthBg: '#dbeafe',
+      curMonthHeaderBg: '#bfdbfe',
+      totalBg: '#f3f4f6',
+      grandTotalBg: '#e5e7eb',
+      projTotalBg: '#f9fafb',
+      gray700: '#374151',
+      gray400: '#9ca3af',
+    };
+    const statusColor: Record<string,string> = {
+      '営業中': '#1d4ed8', '見積発行': '#a16207',
+      '受注': '#15803d', '失注': '#b91c1c', '請求済': '#4b5563',
+    };
+
+    const cell = (content: string, style: string) =>
+      `<td style="border:1px solid ${C.border};padding:3px 6px;white-space:nowrap;${style}">${content}</td>`;
+    const th = (content: string, style: string) =>
+      `<th style="border:1px solid ${C.border};padding:4px 6px;white-space:nowrap;background:${C.thBg};${style}">${content}</th>`;
+
+    // ヘッダー行
+    const headerRow = `<tr>
+      ${th('顧客名', 'text-align:left;min-width:120px')}
+      ${th('案件番号', 'text-align:left;min-width:75px')}
+      ${th('案件名', 'text-align:left;min-width:150px')}
+      ${th('ステータス', 'text-align:left;min-width:60px')}
+      ${MONTH_LIST.map(m => th(`${m}月`, `text-align:right;min-width:48px;${m === currentMonth ? `background:${C.curMonthHeaderBg}` : ''}`)).join('')}
+      ${th('合計', `text-align:right;min-width:60px;background:${C.grandTotalBg}`)}
+    </tr>`;
+
+    // データ行
+    const dataRows = customerEntries.map(([customer, cg]) => {
+      const projects = projectsByCustomer[customer] || [];
+      const custRow = `<tr>
+        ${cell(customer, `background:${C.custBg};font-weight:700;color:${C.custText}`)}
+        <td colspan="3" style="border:1px solid ${C.border};background:${C.custBg}"></td>
+        ${MONTH_LIST.map(m => cell(
+          M(cg.months[m] || 0),
+          `text-align:right;font-weight:600;color:${C.custMonthText};background:${m === currentMonth ? C.curMonthBg : C.custBg}`
+        )).join('')}
+        ${cell(M(cg.total), `text-align:right;font-weight:700;color:${C.custText};background:${C.curMonthBg}`)}
+      </tr>`;
+
+      const projRows = projects.map(p => `<tr>
+        ${cell('└', `color:${C.gray400};padding-left:12px`)}
+        ${cell(p.child_no, `font-family:monospace;color:${C.gray700}`)}
+        ${cell(p.project_name || '—', `color:${C.gray700};max-width:180px;overflow:hidden;text-overflow:ellipsis`)}
+        ${cell(`<span style="color:${statusColor[p.status] || C.gray700};font-weight:600">${p.status}</span>`, '')}
+        ${MONTH_LIST.map(m => cell(
+          M(p.months[m] || 0),
+          `text-align:right;color:${C.gray700};background:${m === currentMonth ? C.curMonthBg : '#fff'}`
+        )).join('')}
+        ${cell(M(p.total), `text-align:right;font-weight:500;background:${C.projTotalBg}`)}
+      </tr>`).join('');
+
+      return custRow + projRows;
+    }).join('');
+
+    // 合計行
+    const footerRow = `<tr style="background:${C.totalBg};font-weight:700">
+      <td colspan="4" style="border:1px solid ${C.border};padding:4px 6px">合計</td>
+      ${MONTH_LIST.map(m => cell(
+        M(monthTotals[m] || 0),
+        `text-align:right;background:${m === currentMonth ? C.curMonthBg : C.totalBg}`
+      )).join('')}
+      ${cell(M(grandTotal), `text-align:right;background:${C.grandTotalBg}`)}
+    </tr>`;
+
     win.document.write(`<!DOCTYPE html>
-<html lang="ja">
-<head>
+<html lang="ja"><head>
 <meta charset="UTF-8">
 <title>売上計画表 ${year}年度</title>
 <style>
   @page { size: A3 landscape; margin: 10mm; }
-  body { font-family: sans-serif; font-size: 10px; margin: 0; padding: 8px; }
-  h2 { font-size: 13px; margin: 0 0 4px; }
-  p { font-size: 9px; color: #555; margin: 0 0 6px; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { border: 1px solid #ccc; padding: 3px 5px; white-space: nowrap; }
-  th { background: #f3f4f6; text-align: right; }
-  th.left, td.left { text-align: left; }
-  tr.customer-row td { background: #eff6ff; font-weight: 600; color: #1d4ed8; }
-  tr.total-row td { background: #f3f4f6; font-weight: 700; }
-  td.total-cell { background: #e5e7eb; }
-  td.cur-month { background: #dbeafe; }
-  th.cur-month { background: #bfdbfe; }
-  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: "Hiragino Sans","Yu Gothic",sans-serif; font-size: 10px; margin:0; padding:8px; }
+  h2 { font-size:13px; margin:0 0 3px; }
+  p { font-size:9px; color:#555; margin:0 0 8px; }
+  table { border-collapse:collapse; width:100%; }
+  * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 </style>
-</head>
-<body>
-<h2>売上計画表　${year}年度（${year}/2/21〜${year + 1}/2/20）</h2>
+</head><body>
+<h2>売上計画表　${year}年度（${year}/2/21〜${year+1}/2/20）</h2>
 <p>対象ステータス：${selectedStatuses.join('・')}　　出力日：${new Date().toLocaleDateString('ja-JP')}</p>
-${tableEl.outerHTML}
-</body>
-</html>`);
+<table>${headerRow}<tbody>${dataRows}</tbody><tfoot>${footerRow}</tfoot></table>
+</body></html>`);
     win.document.close();
-    win.onload = () => { win.print(); win.close(); };
+    win.onload = () => { win.print(); win.onafterprint = () => win.close(); };
   }
 
   return (
