@@ -96,7 +96,7 @@ export const inventoryApi = {
 // レポートAPI
 // =============================================
 export const reportApi = {
-  dashboard: () => api.get('/reports/dashboard'),
+  dashboard: (year?: number) => api.get('/reports/dashboard', { params: year !== undefined ? { year } : {} }),
   sales: (year?: number) => api.get('/reports/sales', { params: { year } }),
 };
 
