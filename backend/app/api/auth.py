@@ -70,8 +70,15 @@ class UserCreate(BaseModel):
     full_name: str
     role: str = "staff"
 
+def require_admin(current_user: User = Depends(get_current_user)):
+    """管理者権限チェック"""
+    if current_user.role not in ("admin",):
+        raise HTTPException(403, "管理者権限が必要です")
+    return current_user
+
+# B009修正: 管理者認証ガードを追加
 @router.post("/users", status_code=201)
-def create_user(data: UserCreate, db: Session = Depends(get_db)):
+def create_user(data: UserCreate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     if db.query(User).filter(User.email == data.email).first():
         raise HTTPException(400, "このメールアドレスは既に使用されています")
     hashed = bcrypt.hashpw(data.password.encode(), bcrypt.gensalt()).decode()
@@ -86,7 +93,7 @@ def create_user(data: UserCreate, db: Session = Depends(get_db)):
 # ユーザー一覧・管理（管理者用）
 # =============================================
 @router.get("/users")
-def list_users(db: Session = Depends(get_db)):
+def list_users(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     users = db.query(User).filter(User.is_active == True).order_by(User.created_at).all()
     return [{"id": str(u.id), "email": u.email, "full_name": u.full_name, "role": u.role,
              "is_active": u.is_active, "created_at": u.created_at.isoformat() if u.created_at else None}
@@ -99,7 +106,7 @@ class UserUpdate(BaseModel):
     password: Optional[str] = None
 
 @router.put("/users/{user_id}")
-def update_user(user_id: str, data: UserUpdate, db: Session = Depends(get_db)):
+def update_user(user_id: str, data: UserUpdate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     u = db.query(User).filter(User.id == user_id).first()
     if not u: raise HTTPException(404)
     if data.email: u.email = data.email
@@ -111,7 +118,7 @@ def update_user(user_id: str, data: UserUpdate, db: Session = Depends(get_db)):
     return {"id": str(u.id), "email": u.email, "full_name": u.full_name, "role": u.role}
 
 @router.delete("/users/{user_id}", status_code=204)
-def delete_user(user_id: str, db: Session = Depends(get_db)):
+def delete_user(user_id: str, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     u = db.query(User).filter(User.id == user_id).first()
     if not u: raise HTTPException(404)
     u.is_active = False

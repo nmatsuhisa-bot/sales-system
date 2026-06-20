@@ -1,7 +1,10 @@
 import axios from 'axios';
 
+// B012修正: VITE_API_URL未設定時のフォールバックを共通化（PDF URL等の直接生成にも使用）
+export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/api',
+  baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -107,6 +110,7 @@ export const projectApi = {
   update: (id: string, data: any) => api.put(`/projects/${id}`, data),
   delete: (id: string) => api.delete(`/projects/${id}`),
   stats: () => api.get('/projects/stats'),
+  getOrder: (orderId: string) => api.get(`/projects/orders/${orderId}`),
   addOrder: (projectId: string, data: any) => api.post(`/projects/${projectId}/orders`, data),
   updateOrder: (orderId: string, data: any) => api.put(`/projects/orders/${orderId}`, data),
   deleteOrder: (orderId: string) => api.delete(`/projects/orders/${orderId}`),
@@ -126,9 +130,9 @@ export const arrangementApi = {
   saveShipping: (orderId: string, data: any) => api.put(`/arrangements/shipping/${orderId}`, data),
   getHotel: (orderId: string) => api.get(`/arrangements/hotel/${orderId}`),
   saveHotel: (orderId: string, data: any) => api.put(`/arrangements/hotel/${orderId}`, data),
-  cranePdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/arrangements/crane/${orderId}/pdf`,
-  shippingPdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/arrangements/shipping/${orderId}/pdf`,
-  hotelPdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/arrangements/hotel/${orderId}/pdf`,
+  cranePdf: (orderId: string) => `${API_BASE}/arrangements/crane/${orderId}/pdf`,
+  shippingPdf: (orderId: string) => `${API_BASE}/arrangements/shipping/${orderId}/pdf`,
+  hotelPdf: (orderId: string) => `${API_BASE}/arrangements/hotel/${orderId}/pdf`,
 };
 
 export const estimateApi = {
@@ -151,9 +155,9 @@ export const estimateApi = {
   listOrderTickets: (params?: any) => api.get("/estimate-quotations/order-tickets", { params }),
   adoptQuotation: (quotationId: string) => api.post(`/estimate-quotations/${quotationId}/adopt`),
   unadoptQuotation: (quotationId: string) => api.delete(`/estimate-quotations/${quotationId}/adopt`),
-  cranePdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/arrangements/crane/${orderId}/pdf`,
-  shippingPdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/arrangements/shipping/${orderId}/pdf`,
-  hotelPdf: (orderId: string) => `${import.meta.env.VITE_API_URL}/arrangements/hotel/${orderId}/pdf`,
+  cranePdf: (orderId: string) => `${API_BASE}/arrangements/crane/${orderId}/pdf`,
+  shippingPdf: (orderId: string) => `${API_BASE}/arrangements/shipping/${orderId}/pdf`,
+  hotelPdf: (orderId: string) => `${API_BASE}/arrangements/hotel/${orderId}/pdf`,
 };
 
 // =============================================

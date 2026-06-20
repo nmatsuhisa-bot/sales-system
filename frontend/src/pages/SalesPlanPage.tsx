@@ -163,7 +163,7 @@ export default function SalesPlanPage() {
                   </td>
                 ))}
                 <td className="border border-gray-300 px-2 py-2 text-right bg-gray-200">
-                  {(grandTotal / 10000).toFixed(0)}万
+                  {(grandTotal / 1000000).toFixed(1)}M
                 </td>
               </tr>
             </tfoot>

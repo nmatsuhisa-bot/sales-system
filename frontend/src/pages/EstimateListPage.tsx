@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { estimateApi } from '../api';
+import { estimateApi, API_BASE } from '../api';
 import { Plus, FileText, Search, Printer } from 'lucide-react';
 
 const STATUS_LABELS: Record<string, string> = { draft: '下書き', submitted: '提出済', approved: '承認済' };
@@ -33,20 +33,20 @@ export default function EstimateListPage() {
   };
 
   const handlePdf = (id: string) => {
-    const url = `${import.meta.env.VITE_API_URL}/estimate-quotations/${id}/pdf`;
+    const url = `${API_BASE}/estimate-quotations/${id}/pdf`;
     window.open(url, '_blank');
   };
 
   const handleFanInstruction = (id: string) => {
-    window.open(`${import.meta.env.VITE_API_URL}/estimate-quotations/${id}/fan-instruction-pdf`, '_blank');
+    window.open(`${API_BASE}/estimate-quotations/${id}/fan-instruction-pdf`, '_blank');
   };
 
   const handleFanInspection = (id: string) => {
-    window.open(`${import.meta.env.VITE_API_URL}/estimate-quotations/${id}/fan-inspection-pdf`, '_blank');
+    window.open(`${API_BASE}/estimate-quotations/${id}/fan-inspection-pdf`, '_blank');
   };
 
   const handleControlPanel = (id: string) => {
-    window.open(`${import.meta.env.VITE_API_URL}/estimate-quotations/${id}/control-panel-pdf`, '_blank');
+    window.open(`${API_BASE}/estimate-quotations/${id}/control-panel-pdf`, '_blank');
   };
 
   const handleIssueTicket = async (id: string, total: number) => {
@@ -57,7 +57,7 @@ export default function EstimateListPage() {
       const r = await estimateApi.issueOrderTicket(id);
       const { ticket_no, id: ticketId } = r.data;
       if (r.data.has_previous) { alert(`受注票を再発行しました: ${ticket_no}\n旧受注票は非表示になりました`); } else { alert(`受注票発行: ${ticket_no}`); }
-      const url = `${import.meta.env.VITE_API_URL}/estimate-quotations/order-ticket/${ticketId}/pdf`;
+      const url = `${API_BASE}/estimate-quotations/order-ticket/${ticketId}/pdf`;
       window.open(url, '_blank');
     } catch (e: any) {
       alert(e.response?.data?.detail || 'エラー');

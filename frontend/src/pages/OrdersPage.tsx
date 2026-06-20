@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { estimateApi } from '../api';
+import { estimateApi, API_BASE } from '../api';
 import { Search, FileText, ShoppingCart } from 'lucide-react';
 
 const TYPE_LABELS: Record<string, string> = { koban: '工番', tanban: '単番' };
@@ -28,7 +28,7 @@ export default function OrdersPage() {
   useEffect(() => { load(); }, [search, typeFilter, statusFilter]);
 
   const handlePdf = (id: string) => {
-    window.open(`${import.meta.env.VITE_API_URL}/estimate-quotations/order-ticket/${id}/pdf`, '_blank');
+    window.open(`${API_BASE}/estimate-quotations/order-ticket/${id}/pdf`, '_blank');
   };
 
   return (

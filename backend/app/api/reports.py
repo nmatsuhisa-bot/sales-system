@@ -29,14 +29,16 @@ def dashboard(db: Session = Depends(get_db)):
         extract('month', QuotationHeader.issue_date) == month
     ).scalar() or 0
 
-    # 受注票ベースの受注件数・金額（今年累計）
+    # 受注票ベースの受注件数・金額（今月）B008修正: 月フィルタ追加
     order_count = db.query(func.count(OrderTicket.id)).filter(
         extract('year', OrderTicket.order_date) == year,
+        extract('month', OrderTicket.order_date) == month,
         OrderTicket.is_active == True
     ).scalar() or 0
 
     order_amount = db.query(func.sum(OrderTicket.total_amount)).filter(
         extract('year', OrderTicket.order_date) == year,
+        extract('month', OrderTicket.order_date) == month,
         OrderTicket.is_active == True
     ).scalar() or 0
 
@@ -48,6 +50,11 @@ def dashboard(db: Session = Depends(get_db)):
     ).filter(
         extract('year', QuotationHeader.issue_date) == year
     ).group_by('month').order_by('month').all()
+
+    # 見積ステータス別件数（B014対応: DashboardPage.tsxのquotation_status_counts用）
+    quotation_statuses = db.query(
+        QuotationHeader.status, func.count(QuotationHeader.id)
+    ).group_by(QuotationHeader.status).all()
 
     # 月別受注金額推移（今年）
     monthly_orders = db.query(
@@ -61,6 +68,7 @@ def dashboard(db: Session = Depends(get_db)):
 
     return {
         "project_status_counts": {(s or "未設定"): c for s, c in project_statuses},
+        "quotation_status_counts": {(s or "draft"): c for s, c in quotation_statuses},
         "monthly_quotations_count": monthly_quotes,
         "monthly_quotations_amount": int(monthly_quote_amount),
         "order_count": order_count,

@@ -55,8 +55,8 @@ export default function DashboardPage() {
         />
         <KpiCard
           icon={<AlertCircle className="text-purple-500" />}
-          label="対応中の受注"
-          value={`${data.order_statuses?.['in_progress'] || 0} 件`}
+          label="受注中の案件"
+          value={`${data.project_status_counts?.['受注'] || 0} 件`}
           color="purple"
         />
       </div>
@@ -77,9 +77,9 @@ export default function DashboardPage() {
         </div>
 
         <div className="bg-white rounded-xl shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-gray-700 mb-4">受注ステータス別</h2>
+          <h2 className="text-lg font-semibold text-gray-700 mb-4">案件ステータス別</h2>
           <div className="space-y-3">
-            {Object.entries(data.order_statuses || {}).map(([status, count]: any) => (
+            {Object.entries(data.project_status_counts || {}).map(([status, count]: any) => (
               <div key={status} className="flex items-center justify-between">
                 <span className="text-sm text-gray-600">{STATUS_LABELS[status] || status}</span>
                 <div className="flex items-center gap-2">
@@ -98,7 +98,7 @@ export default function DashboardPage() {
       <div className="bg-white rounded-xl shadow-sm p-6">
         <h2 className="text-lg font-semibold text-gray-700 mb-4">見積ステータス別</h2>
         <div className="flex flex-wrap gap-3">
-          {Object.entries(data.quotation_statuses || {}).map(([status, count]: any) => (
+          {Object.entries(data.quotation_status_counts || {}).map(([status, count]: any) => (
             <div key={status} className="bg-orange-50 border border-orange-200 rounded-lg px-4 py-3 text-center">
               <div className="text-2xl font-bold text-orange-600">{count}</div>
               <div className="text-xs text-gray-600 mt-1">{STATUS_LABELS[status] || status}</div>

@@ -117,10 +117,16 @@ class QuotationHeaderCreate(BaseModel):
     labor_details: List[LaborDetailIn] = []
 
 def _gen_quotation_no(db: Session) -> str:
+    # B004修正: 文字列ソートから数値ソートへ変更し、採番競合を防ぐadvisory lockを追加
+    from sqlalchemy import text as sa_text, cast, Integer
+    db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext('quotation_no_lock'))"))
     year = datetime.now().year
     prefix = f"Q{year}-"
-    last = db.query(QuotationHeader).filter(QuotationHeader.quotation_no.like(f"{prefix}%")).order_by(desc(QuotationHeader.quotation_no)).first()
-    seq = int(last.quotation_no.split("-")[-1]) + 1 if last else 1
+    rows = db.execute(
+        sa_text(f"SELECT quotation_no FROM quotation_headers WHERE quotation_no LIKE :prefix ORDER BY CAST(SPLIT_PART(quotation_no, '-', 2) AS INTEGER) DESC LIMIT 1"),
+        {"prefix": f"{prefix}%"}
+    ).fetchone()
+    seq = int(rows[0].split("-")[-1]) + 1 if rows else 1
     return f"{prefix}{seq:04d}"
 
 def _calc_totals(line_items, labor_details):
@@ -144,6 +150,7 @@ def _q_to_dict(q: QuotationHeader) -> dict:
         "tax_amount": int(q.tax_amount or 0), "total_amount": int(q.total_amount or 0),
         "labor_total": int(q.labor_total or 0), "status": q.status,
         "notes": q.notes, "internal_notes": q.internal_notes,
+        "is_adopted": q.status == "adopted",
         "created_at": q.created_at.isoformat() if q.created_at else None,
         "line_items": sorted([{
             "id": str(i.id), "line_no": i.line_no, "section": i.section,
@@ -312,6 +319,46 @@ def delete_quotation(quotation_id: str, db: Session = Depends(get_db)):
     q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
     if not q: raise HTTPException(404)
     db.delete(q); db.commit()
+
+# =============================================
+# B013修正: 見積採用・採用解除エンドポイント
+# =============================================
+@router.post("/{quotation_id}/adopt")
+def adopt_quotation(quotation_id: str, db: Session = Depends(get_db)):
+    """見積を採用: statusをadoptedにし、子IDに採用見積情報を反映する"""
+    q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
+    if not q: raise HTTPException(404, "見積が見つかりません")
+    if not q.project_order_id: raise HTTPException(400, "この見積は子IDに紐付いていません")
+
+    # 同じ子IDの他の見積を draft に戻す
+    db.query(QuotationHeader).filter(
+        QuotationHeader.project_order_id == q.project_order_id,
+        QuotationHeader.id != q.id
+    ).update({"status": "draft"}, synchronize_session=False)
+
+    q.status = "adopted"
+
+    # 子IDに採用見積情報を反映
+    po = db.query(ProjectOrder).filter(ProjectOrder.id == q.project_order_id).first()
+    if po:
+        po.quotation_no = q.quotation_no
+        po.quotation_total = q.total_amount
+        po.quotation_amount = q.total_amount
+        po.quotation_issue_date = q.issue_date
+        if po.status in ("営業中", None):
+            po.status = "見積発行"
+
+    db.commit()
+    return {"message": "採用しました", "child_no": po.child_no if po else None, "quotation_no": q.quotation_no}
+
+@router.delete("/{quotation_id}/adopt")
+def unadopt_quotation(quotation_id: str, db: Session = Depends(get_db)):
+    """見積採用を解除: statusをdraftに戻す"""
+    q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
+    if not q: raise HTTPException(404, "見積が見つかりません")
+    q.status = "draft"
+    db.commit()
+    return {"message": "採用を解除しました"}
 
 # =============================================
 # PDF出力(ケイテック形式)
@@ -538,7 +585,7 @@ def issue_order_ticket(quotation_id: str, db: Session = Depends(get_db)):
     ticket = OrderTicket(
         ticket_no=ticket_no, ticket_type=ticket_type,
         project_order_id=q.project_order_id, child_no=q.child_no,
-        quotation_id=None, total_amount=total,
+        quotation_id=q.id, total_amount=total,
         customer_name=q.customer_name, delivery_name=q.delivery_name,
         sales_person_name=q.sales_person_name, order_date=date.today(),
         is_active=True,
@@ -866,12 +913,18 @@ def fan_inspection_pdf(quotation_id: str, db: Session = Depends(get_db)):
         ('組立', 'カバーその他付属品取付'), ('組立', 'PLシール貼付'),
     ]
 
+    # B007修正: rowspanはカテゴリごとの項目数に設定（"X"リテラルだとラベルが1行しか結合されない）
+    from collections import Counter
+    cat_counts = Counter(cat for cat, _ in inspection_items)
+
     rows = ''
     prev_category = ''
     for cat, item in inspection_items:
-        cat_cell = f'<td rowspan="X" style="background:#f0f0f0;font-weight:bold;text-align:center;vertical-align:middle">{cat}</td>' if cat != prev_category else ''
+        cat_cell = f'<td rowspan="{cat_counts[cat]}" style="background:#f0f0f0;font-weight:bold;text-align:center;vertical-align:middle">{cat}</td>' if cat != prev_category else ''
         rows += f"""<tr>
+            {cat_cell}
             <td style="border:1px solid #ccc;padding:3px 6px;background:#fff9c4;font-weight:bold">{item}</td>
+            <td style="border:1px solid #ccc;padding:3px 6px;width:60px"></td>
             <td style="border:1px solid #ccc;padding:3px 6px;width:60px"></td>
             <td style="border:1px solid #ccc;padding:3px 6px;width:60px"></td>
             <td style="border:1px solid #ccc;padding:3px 6px;width:60px"></td>

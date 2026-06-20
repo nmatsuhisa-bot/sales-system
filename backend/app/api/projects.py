@@ -213,8 +213,6 @@ def list_projects(
 def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
     from sqlalchemy import text as sa_text
     db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext('project_no_lock'))"))
-    from sqlalchemy import text as sa_text
-    db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext('project_no_lock'))"))
     if db.query(Project).filter(Project.project_no == data.project_no).first():
         raise HTTPException(400, f"案件NO {data.project_no} は既に存在します")
     p = Project(**data.dict(exclude={"orders"}))
@@ -257,6 +255,15 @@ def add_project_order(project_id: str, data: ProjectOrderCreate, db: Session = D
     db.commit(); db.refresh(o)
     return order_to_dict(o)
 
+@router.get("/orders/{order_id}")
+def get_project_order(order_id: str, db: Session = Depends(get_db)):
+    """子受注（案件ID_子）を単体取得。見積作成時の顧客名・納入先の自動補完に使用。"""
+    o = db.query(ProjectOrder).options(
+        joinedload(ProjectOrder.linked_quotations)
+    ).filter(or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)).first()
+    if not o: raise HTTPException(404, "受注が見つかりません")
+    return order_to_dict(o)
+
 @router.put("/orders/{order_id}")
 def update_project_order(order_id: str, data: ProjectOrderCreate, db: Session = Depends(get_db)):
     o = db.query(ProjectOrder).filter(or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)).first()
@@ -279,18 +286,23 @@ def delete_project_order(order_id: str, db: Session = Depends(get_db)):
 
 @router.post("/orders/{order_id}/link-quotation")
 def link_quotation(order_id: str, quotation_id: str, db: Session = Depends(get_db)):
-    from app.db.models import Quotation
+    # B003修正: 旧Quotationモデルから新QuotationHeaderモデルへ
+    from app.db.models import QuotationHeader
     o = db.query(ProjectOrder).filter(or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)).first()
-    q = db.query(Quotation).filter(Quotation.id == quotation_id).first()
+    q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
     if not o or not q: raise HTTPException(404)
-    o.quotation_id = q.id; o.quotation_no = q.quotation_no
-    o.quotation_total = q.total_amount; o.quotation_issue_date = q.issue_date
+    # project_orders.quotation_id はFK制約が旧テーブルを参照するため書き込まない
+    o.quotation_no = q.quotation_no
+    o.quotation_total = q.total_amount
+    o.quotation_amount = q.total_amount
+    o.quotation_issue_date = q.issue_date
     exists = db.query(ProjectOrderQuotation).filter(
         ProjectOrderQuotation.project_order_id == o.id,
         ProjectOrderQuotation.quotation_no == q.quotation_no
     ).first()
     if not exists:
+        # B001対応: ProjectOrderQuotationのquotation_idも旧FK制約があるため書き込まない
         db.add(ProjectOrderQuotation(project_order_id=o.id, quotation_no=q.quotation_no,
-            quotation_total=q.total_amount, quotation_issue_date=q.issue_date, quotation_id=q.id))
+            quotation_total=q.total_amount, quotation_issue_date=q.issue_date))
     db.commit()
     return {"message": "見積を紐付けました", "quotation_no": q.quotation_no}

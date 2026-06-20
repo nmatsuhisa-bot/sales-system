@@ -1,7 +1,19 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { estimateApi, projectApi, mastersApi } from '../api';
+import { estimateApi, projectApi, mastersApi, API_BASE } from '../api';
 import { Plus, Trash2, Save, FileText, ArrowLeft, Calculator } from 'lucide-react';
+
+// 1文字入力バグ防止のため関数外に定義（毎レンダーで再生成されると入力がリマウントされフォーカスを失う）
+function HeaderField({ label, name, header, setHeader, type = 'text', cols = 1 }: any) {
+  return (
+    <div className={cols === 2 ? 'md:col-span-2' : ''}>
+      <label className="block text-xs text-gray-500 mb-1">{label}</label>
+      <input type={type} value={(header as any)[name] || ''}
+        onChange={e => setHeader((h: any) => ({ ...h, [name]: e.target.value }))}
+        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+    </div>
+  );
+}
 
 // =============================================
 // 型定義
@@ -83,8 +95,18 @@ export default function EstimateFormPage() {
     estimateApi.getLaborItems().then(r => setLaborMaster(r.data));
     mastersApi.listEmployees().then(r => setEmployees(r.data));
 
-    if (projectOrderId) {
-      projectApi.get(projectOrderId).catch(() => {});
+    // 新規作成時、案件の子受注情報から顧客名（売上先）・納入先を自動補完
+    if (projectOrderId && !isEdit) {
+      projectApi.getOrder(projectOrderId).then(r => {
+        const o = r.data;
+        setHeader(h => ({
+          ...h,
+          // 納入先 ← 子受注のエンドユーザー（customer_name）
+          delivery_name: h.delivery_name || o.customer_name || '',
+          // 顧客名（売上先）← 代理店があれば代理店、なければエンドユーザー
+          customer_name: h.customer_name || o.agency_name || o.customer_name || '',
+        }));
+      }).catch(() => {});
     }
     if (isEdit) {
       estimateApi.get(id!).then(r => {
@@ -142,7 +164,7 @@ export default function EstimateFormPage() {
       item_name: `バグフィルター集塵機 ${bfrSel.body}`,
       spec_detail: filterDetail,
       quantity: 1, unit: '式',
-      unit_price: parseInt(variant.base_price) + (parseInt(variant.filter_price) * parseInt(variant.filter_count)),
+      unit_price: (Number(variant.base_price) || 0) + ((Number(variant.filter_price) || 0) * (Number(variant.filter_count) || 0)),
       product_type: 'BFR',
       spec_json: { model: bfrSel.body, filter_type: bfrSel.filterType, airflow: body.airflow }
     });
@@ -250,18 +272,9 @@ export default function EstimateFormPage() {
 
   const handlePdf = async () => {
     if (!id) { alert('先に保存してください'); return; }
-    const url = `${import.meta.env.VITE_API_URL}/estimate-quotations/${id}/pdf`;
+    const url = `${API_BASE}/estimate-quotations/${id}/pdf`;
     window.open(url, '_blank');
   };
-
-  const F = ({ label, name, type = 'text', cols = 1 }: any) => (
-    <div className={cols === 2 ? 'md:col-span-2' : ''}>
-      <label className="block text-xs text-gray-500 mb-1">{label}</label>
-      <input type={type} value={(header as any)[name] || ''}
-        onChange={e => setHeader(h => ({ ...h, [name]: e.target.value }))}
-        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-    </div>
-  );
 
   return (
     <div className="p-4 max-w-6xl mx-auto">
@@ -287,7 +300,7 @@ export default function EstimateFormPage() {
       <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
         <h2 className="text-sm font-semibold text-gray-700 mb-3">基本情報</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <F label="件名" name="title" cols={2} />
+          <HeaderField header={header} setHeader={setHeader} label="件名" name="title" cols={2} />
           <div>
             <label className="block text-xs text-gray-500 mb-1">営業担当</label>
             <select value={header.sales_person_name}
@@ -297,14 +310,14 @@ export default function EstimateFormPage() {
               {employees.map(e => <option key={e.id} value={e.employee_name}>{e.employee_name}</option>)}
             </select>
           </div>
-          <F label="顧客名（売上先）" name="customer_name" />
-          <F label="納入先" name="delivery_name" />
-          <F label="見積日" name="issue_date" type="date" />
-          <F label="有効期限" name="valid_until" type="date" />
-          <F label="納期" name="delivery_terms" />
-          <F label="支払条件" name="payment_terms" />
-          <F label="備考" name="notes" cols={2} />
-          <F label="社内メモ" name="internal_notes" />
+          <HeaderField header={header} setHeader={setHeader} label="顧客名（売上先）" name="customer_name" />
+          <HeaderField header={header} setHeader={setHeader} label="納入先" name="delivery_name" />
+          <HeaderField header={header} setHeader={setHeader} label="見積日" name="issue_date" type="date" />
+          <HeaderField header={header} setHeader={setHeader} label="有効期限" name="valid_until" type="date" />
+          <HeaderField header={header} setHeader={setHeader} label="納期" name="delivery_terms" />
+          <HeaderField header={header} setHeader={setHeader} label="支払条件" name="payment_terms" />
+          <HeaderField header={header} setHeader={setHeader} label="備考" name="notes" cols={2} />
+          <HeaderField header={header} setHeader={setHeader} label="社内メモ" name="internal_notes" />
         </div>
       </div>
 
@@ -377,13 +390,13 @@ export default function EstimateFormPage() {
                     </td>
                     <td className="px-2 py-1.5">
                       <input type="number" value={item.quantity}
-                        onChange={e => setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, quantity: Number(e.target.value) } : i))}
+                        onChange={e => setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, quantity: Number(e.target.value) || 0 } : i))}
                         className="w-full border border-gray-200 rounded px-1 py-1 text-xs text-right" />
                     </td>
                     <td className="px-2 py-1.5 text-center text-gray-600">{item.unit}</td>
                     <td className="px-2 py-1.5">
                       <input type="number" value={item.unit_price}
-                        onChange={e => setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, unit_price: Number(e.target.value) } : i))}
+                        onChange={e => setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, unit_price: Number(e.target.value) || 0 } : i))}
                         className="w-full border border-gray-200 rounded px-1 py-1 text-xs text-right" />
                     </td>
                     <td className="px-2 py-1.5 text-right font-medium text-gray-700">
@@ -440,13 +453,13 @@ export default function EstimateFormPage() {
                   </td>
                   <td className="px-2 py-1.5">
                     <input type="number" step="0.5" value={l.quantity}
-                      onChange={e => setLaborDetails(prev => prev.map((i, j) => j === idx ? { ...i, quantity: Number(e.target.value) } : i))}
+                      onChange={e => setLaborDetails(prev => prev.map((i, j) => j === idx ? { ...i, quantity: Number(e.target.value) || 0 } : i))}
                       className="w-full border border-gray-200 rounded px-1 py-1 text-xs text-right" />
                   </td>
                   <td className="px-2 py-1.5 text-center text-gray-600">{l.unit}</td>
                   <td className="px-2 py-1.5">
                     <input type="number" value={l.unit_price}
-                      onChange={e => setLaborDetails(prev => prev.map((i, j) => j === idx ? { ...i, unit_price: Number(e.target.value) } : i))}
+                      onChange={e => setLaborDetails(prev => prev.map((i, j) => j === idx ? { ...i, unit_price: Number(e.target.value) || 0 } : i))}
                       className="w-full border border-gray-200 rounded px-1 py-1 text-xs text-right" />
                   </td>
                   <td className="px-2 py-1.5 text-right font-medium text-gray-700">¥{(l.unit_price * l.quantity).toLocaleString()}</td>

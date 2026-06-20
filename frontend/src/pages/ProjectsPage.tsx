@@ -129,7 +129,7 @@ export default function ProjectsPage() {
       const seq = parseInt(parts[parts.length - 1]);
       return isNaN(seq) ? max : Math.max(max, seq);
     }, 0);
-    const childNo = `${project.project_no}_${maxSeq + 1}`;
+    const childNo = `${project.project_no}_${String(maxSeq + 1).padStart(2, '0')}`;
     setOrderForm({
       child_no: childNo,
       status: project.status,
