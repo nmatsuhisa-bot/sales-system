@@ -101,6 +101,8 @@ export default function EstimateFormPage() {
         const o = r.data;
         setHeader(h => ({
           ...h,
+          // 件名 ← 子受注の案件名（project_name）
+          title: h.title || o.project_name || '',
           // 納入先 ← 子受注のエンドユーザー（customer_name）
           delivery_name: h.delivery_name || o.customer_name || '',
           // 顧客名（売上先）← 代理店があれば代理店、なければエンドユーザー
