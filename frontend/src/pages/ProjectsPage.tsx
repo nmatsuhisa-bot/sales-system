@@ -158,8 +158,9 @@ export default function ProjectsPage() {
     try {
       const payload = { ...form };
       Object.keys(payload).forEach(k => { if (payload[k] === '') payload[k] = null; });
-      ['budget_amount','estimated_sales_total','final_order_amount','cost_price','profit_amount','profit_rate']
+      ['budget_amount','estimated_sales_total','cost_price','profit_amount','profit_rate']
         .forEach(k => { if (payload[k]) payload[k] = Number(payload[k]); });
+      delete payload.final_order_amount; // 受注票合計から自動計算するため送信しない
       if (projectModal.isNew) {
         await projectApi.create({ ...payload, orders: [] });
       } else {
@@ -398,7 +399,11 @@ export default function ProjectsPage() {
                 </div>
                 <NumberField label="予算金額" value={form.budget_amount} onChange={(v: string) => setForm((f: any) => ({ ...f, budget_amount: v }))} />
                 <NumberField label="見込売上合計(仕切りベース)" value={form.estimated_sales_total} onChange={(v: string) => setForm((f: any) => ({ ...f, estimated_sales_total: v }))} />
-                <NumberField label="最終受注金額" value={form.final_order_amount} onChange={(v: string) => setForm((f: any) => ({ ...f, final_order_amount: v }))} />
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">最終受注金額</label>
+                  <input value={form.final_order_amount != null ? `¥${Number(form.final_order_amount).toLocaleString()}` : '—'} readOnly className="w-full border border-gray-100 rounded-lg px-3 py-1.5 text-sm bg-gray-50 text-right" />
+                  <p className="text-xs text-gray-400 mt-0.5">受注票の合計から自動計算</p>
+                </div>
                 <NumberField label="案件原価" value={form.cost_price} onChange={(v: string) => setForm((f: any) => ({ ...f, cost_price: v }))} />
                 <NumberField label="利益額" value={form.profit_amount} onChange={(v: string) => setForm((f: any) => ({ ...f, profit_amount: v }))} />
                 <div>
