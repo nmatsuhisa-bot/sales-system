@@ -253,13 +253,14 @@ export default function ProjectsPage() {
               {expanded && (
                 <div className="bg-gray-50">
                   <div className="grid text-xs text-gray-400 px-10 py-1.5 border-b border-gray-100 font-medium"
-                    style={{ gridTemplateColumns: '140px 1fr 150px 90px 100px 100px 110px 170px 130px' }}>
+                    style={{ gridTemplateColumns: '140px 1fr 150px 90px 100px 100px 100px 110px 170px 130px' }}>
                     <span>子ID</span>
                     <span>案件名</span>
                     <span>納入先</span>
                     <span>担当者</span>
                     <span>受注予定日</span>
                     <span>出荷予定日</span>
+                    <span>売上予定日</span>
                     <span>見積金額</span>
                     <span>採用見積</span>
                     <span>操作</span>
@@ -268,13 +269,14 @@ export default function ProjectsPage() {
                   {(p.orders || []).map((o: any) => (
                     <div key={o.id}
                       className="grid items-center px-10 py-2 text-sm border-b border-gray-100 hover:bg-blue-50"
-                      style={{ gridTemplateColumns: '140px 1fr 150px 90px 100px 100px 110px 170px 130px' }}>
+                      style={{ gridTemplateColumns: '140px 1fr 150px 90px 100px 100px 100px 110px 170px 130px' }}>
                       <span className="font-mono text-xs text-blue-600 font-bold">{o.child_no}</span>
                       <span className="truncate text-gray-700 text-xs">{o.project_name || p.project_name || '—'}</span>
                       <span className="truncate text-gray-500 text-xs">{o.customer_name || o.agency_name || '—'}</span>
                       <span className="text-gray-500 text-xs">{o.sales_person_name || '—'}</span>
                       <span className="text-gray-400 text-xs">{o.expected_order_date || '—'}</span>
                       <span className="text-gray-400 text-xs">{o.expected_shipment_date || '—'}</span>
+                      <span className="text-gray-400 text-xs">{o.sales_date || '—'}</span>
                       <span className="text-gray-700 font-medium text-xs">
                         {o.quotation_amount != null ? `¥${Number(o.quotation_amount).toLocaleString()}` : '—'}
                       </span>
