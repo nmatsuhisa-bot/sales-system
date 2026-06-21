@@ -182,6 +182,46 @@ export const mastersApi = {
 };
 
 // =============================================
+// 仕入（発注）管理API
+// =============================================
+export const procurementApi = {
+  // 部材マスタ
+  listMaterials: (search?: string) => api.get('/procurement/materials', { params: { search } }),
+  createMaterial: (data: any) => api.post('/procurement/materials', data),
+  updateMaterial: (id: string, data: any) => api.put(`/procurement/materials/${id}`, data),
+  deleteMaterial: (id: string) => api.delete(`/procurement/materials/${id}`),
+  // BOMマスタ
+  listBom: (product_type?: string, model_no?: string) => api.get('/procurement/bom', { params: { product_type, model_no } }),
+  createBom: (data: any) => api.post('/procurement/bom', data),
+  updateBom: (id: string, data: any) => api.put(`/procurement/bom/${id}`, data),
+  deleteBom: (id: string) => api.delete(`/procurement/bom/${id}`),
+  expandBom: (order_id: string) => api.get('/procurement/bom/expand', { params: { order_id } }),
+  // 部材発注管理
+  listMaterialOrders: (order_id?: string, status?: string) => api.get('/procurement/material-orders', { params: { order_id, status } }),
+  createMaterialOrder: (data: any) => api.post('/procurement/material-orders', data),
+  updateMaterialOrder: (id: string, data: any) => api.put(`/procurement/material-orders/${id}`, data),
+  deleteMaterialOrder: (id: string) => api.delete(`/procurement/material-orders/${id}`),
+  // 仕入先
+  listSuppliers: (search?: string) => api.get('/procurement/suppliers', { params: { search } }),
+};
+
+// =============================================
+// 製造計画API
+// =============================================
+export const manufacturingApi = {
+  listPlans: (year?: number, status?: string) => api.get('/manufacturing/plans', { params: { year, status } }),
+  createPlan: (data: any) => api.post('/manufacturing/plans', data),
+  updatePlan: (id: string, data: any) => api.put(`/manufacturing/plans/${id}`, data),
+  deletePlan: (id: string) => api.delete(`/manufacturing/plans/${id}`),
+  listCapacity: (year?: number) => api.get('/manufacturing/capacity', { params: { year } }),
+  upsertCapacity: (data: any) => api.post('/manufacturing/capacity', data),
+  listProductHours: (product_type?: string) => api.get('/manufacturing/product-hours', { params: { product_type } }),
+  upsertProductHours: (data: any) => api.post('/manufacturing/product-hours', data),
+  deleteProductHours: (id: string) => api.delete(`/manufacturing/product-hours/${id}`),
+  getMonthlyLoad: (year: number, factory?: string) => api.get('/manufacturing/load', { params: { year, factory } }),
+};
+
+// =============================================
 // 認証API
 // =============================================
 export const authApi = {

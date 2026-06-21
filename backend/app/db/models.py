@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, String, Boolean, DateTime, Date, Numeric, Integer, Text, ForeignKey, JSON
+from sqlalchemy import create_engine, Column, String, Boolean, DateTime, Date, Numeric, Integer, Text, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
@@ -689,3 +689,104 @@ class HotelArrangement(Base):
     notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+# =============================================
+# ① 仕入（発注）管理
+# =============================================
+
+class MaterialMaster(Base):
+    """部材マスタ"""
+    __tablename__ = "material_masters"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    material_code = Column(String(50), unique=True, nullable=False)
+    material_name = Column(String(300), nullable=False)
+    unit = Column(String(20), default="個")
+    default_supplier_id = Column(UUID(as_uuid=True), ForeignKey("suppliers.id"))
+    standard_lead_days = Column(Integer, default=14)
+    notes = Column(Text)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    default_supplier = relationship("Supplier", foreign_keys=[default_supplier_id])
+
+class BomItem(Base):
+    """BOMマスタ（製品型番→必要部材）"""
+    __tablename__ = "bom_items"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    product_type = Column(String(50), nullable=False)   # BFR, SCA, SRR, FLT, CY, LRG etc.
+    model_no = Column(String(100), nullable=False)       # 3X6, 675, 2000X2 etc.
+    material_id = Column(UUID(as_uuid=True), ForeignKey("material_masters.id"), nullable=False)
+    quantity = Column(Numeric(10, 3), nullable=False, default=1)
+    unit = Column(String(20))
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    material = relationship("MaterialMaster")
+
+class MaterialOrder(Base):
+    """部材発注"""
+    __tablename__ = "material_orders"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_order_id = Column(UUID(as_uuid=True), ForeignKey("project_orders.id"))
+    material_id = Column(UUID(as_uuid=True), ForeignKey("material_masters.id"), nullable=False)
+    supplier_id = Column(UUID(as_uuid=True), ForeignKey("suppliers.id"))
+    order_qty = Column(Numeric(10, 3))
+    unit_price = Column(Numeric(15, 2))
+    order_date = Column(Date)
+    due_date = Column(Date)
+    received_date = Column(Date)
+    status = Column(String(20), default="未発注")  # 未発注/発注済/入荷済
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    project_order = relationship("ProjectOrder")
+    material = relationship("MaterialMaster")
+    supplier = relationship("Supplier", foreign_keys=[supplier_id])
+
+# =============================================
+# ② 製造計画
+# =============================================
+
+class ProductionCapacity(Base):
+    """生産能力マスタ（月別）"""
+    __tablename__ = "production_capacity"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    factory = Column(String(100), default="小牧")
+    fiscal_year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False)
+    work_days = Column(Integer, default=20)
+    regular_workers = Column(Integer, default=8)
+    temp_workers = Column(Integer, default=5)
+    hours_per_day = Column(Integer, default=8)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+class ProductHours(Base):
+    """製品所要工数マスタ"""
+    __tablename__ = "product_hours"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    product_type = Column(String(50), nullable=False)
+    model_no = Column(String(100), nullable=False)
+    required_hours = Column(Numeric(10, 1), nullable=False)
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+class ManufacturingPlan(Base):
+    """製造計画"""
+    __tablename__ = "manufacturing_plans"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_order_id = Column(UUID(as_uuid=True), ForeignKey("project_orders.id"), nullable=False)
+    product_type = Column(String(50))
+    model_no = Column(String(100))
+    planned_start = Column(Date)
+    planned_end = Column(Date)
+    actual_start = Column(Date)
+    actual_end = Column(Date)
+    assigned_to = Column(String(100))
+    status = Column(String(20), default="未着手")  # 未着手/製造中/完了
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    project_order = relationship("ProjectOrder")
