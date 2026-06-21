@@ -95,6 +95,30 @@ def setup_fix_duplicate_tickets():
             return {"status": "error", "message": str(e)}
 
 
+@app.get("/sync-final-order-amounts")
+def sync_final_order_amounts():
+    """全案件の最終受注金額を子ID.quotation_total の合計で一括再計算"""
+    from app.db.models import SessionLocal, Project, ProjectOrder
+    from sqlalchemy import func
+    db = SessionLocal()
+    try:
+        rows = db.query(
+            ProjectOrder.project_id,
+            func.sum(ProjectOrder.quotation_total).label("total")
+        ).filter(ProjectOrder.project_id != None).group_by(ProjectOrder.project_id).all()
+
+        updated = 0
+        for project_id, total in rows:
+            p = db.query(Project).filter(Project.id == project_id).first()
+            if p and total:
+                p.final_order_amount = int(total)
+                updated += 1
+        db.commit()
+        return {"status": "ok", "updated": updated, "message": f"{updated}件の案件の最終受注金額を更新しました"}
+    finally:
+        db.close()
+
+
 @app.get("/setup-manufacturing-tables")
 def setup_manufacturing_tables():
     from app.db.models import engine, Base, MaterialMaster, BomItem, MaterialOrder, ProductionCapacity, ProductHours, ManufacturingPlan
