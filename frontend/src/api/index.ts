@@ -222,6 +222,24 @@ export const manufacturingApi = {
 };
 
 // =============================================
+// 工程管理API
+// =============================================
+export const processApi = {
+  listTemplates: (product_type?: string) => api.get('/process/templates', { params: { product_type } }),
+  createTemplate: (data: any) => api.post('/process/templates', data),
+  updateTemplate: (id: string, data: any) => api.put(`/process/templates/${id}`, data),
+  deleteTemplate: (id: string) => api.delete(`/process/templates/${id}`),
+  listSchedules: (year?: number, month?: number, order_id?: string) =>
+    api.get('/process/schedules', { params: { year, month, order_id } }),
+  createSchedule: (data: any) => api.post('/process/schedules', data),
+  getSchedule: (id: string) => api.get(`/process/schedules/${id}`),
+  updateSchedule: (id: string, data: any) => api.put(`/process/schedules/${id}`, data),
+  deleteSchedule: (id: string) => api.delete(`/process/schedules/${id}`),
+  generateSchedule: (data: any) => api.post('/process/schedules/generate', data),
+  pdfUrl: (id: string) => `${API_BASE}/process/schedules/${id}/pdf`,
+};
+
+// =============================================
 // 認証API
 // =============================================
 export const authApi = {

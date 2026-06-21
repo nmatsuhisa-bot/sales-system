@@ -790,3 +790,72 @@ class ManufacturingPlan(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     project_order = relationship("ProjectOrder")
+
+
+# =============================================
+# ③ 工程管理
+# =============================================
+
+class ProcessTemplate(Base):
+    """工程テンプレート（製品種別ごとの標準工程）"""
+    __tablename__ = "process_templates"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    product_type = Column(String(50))          # BFR, SCA, SRR, FLT, CY, LRG etc.
+    template_name = Column(String(200), nullable=False)
+    notes = Column(Text)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    steps = relationship("ProcessTemplateStep", back_populates="template", cascade="all, delete-orphan", order_by="ProcessTemplateStep.step_no")
+
+class ProcessTemplateStep(Base):
+    """工程テンプレートステップ"""
+    __tablename__ = "process_template_steps"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    template_id = Column(UUID(as_uuid=True), ForeignKey("process_templates.id", ondelete="CASCADE"), nullable=False)
+    step_no = Column(Integer, nullable=False)
+    step_name = Column(String(200), nullable=False)
+    offset_start_days = Column(Integer, default=-7)   # 納期からの開始オフセット（負=前）
+    duration_days = Column(Integer, default=1)
+    equipment = Column(String(200))                    # 使用機材（レッカー車等）
+    color = Column(String(20), default="#3b82f6")
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    template = relationship("ProcessTemplate", back_populates="steps")
+
+class WorkSchedule(Base):
+    """工程表ヘッダー"""
+    __tablename__ = "work_schedules"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_order_id = Column(UUID(as_uuid=True), ForeignKey("project_orders.id"))
+    customer_name = Column(String(300))        # 納入先
+    delivery_name = Column(String(300))        # 御担当者
+    work_name = Column(String(500))            # 工事名
+    work_no = Column(String(100))              # 工番
+    responsible_person = Column(String(100))   # 担当者
+    work_year = Column(Integer)                # 工程年
+    work_month = Column(Integer)               # 工程月
+    delivery_date = Column(Date)               # 納期
+    created_date = Column(Date)                # 作成日
+    notes = Column(Text)
+    status = Column(String(20), default="作成中")   # 作成中/確定/発行済
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    project_order = relationship("ProjectOrder")
+    items = relationship("WorkScheduleItem", back_populates="schedule", cascade="all, delete-orphan", order_by="WorkScheduleItem.step_no")
+
+class WorkScheduleItem(Base):
+    """工程表明細（ガントバー1行）"""
+    __tablename__ = "work_schedule_items"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    schedule_id = Column(UUID(as_uuid=True), ForeignKey("work_schedules.id", ondelete="CASCADE"), nullable=False)
+    step_no = Column(Integer, nullable=False)
+    row_type = Column(String(20), default="task")    # task / equipment / note / blank
+    step_name = Column(String(300), nullable=False)
+    start_day = Column(Integer)                       # 開始日（日付）
+    end_day = Column(Integer)                         # 終了日（日付）
+    equipment = Column(String(200))                   # 機材情報
+    color = Column(String(20), default="#3b82f6")
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    schedule = relationship("WorkSchedule", back_populates="items")

@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import auth, customers, products, quotations, orders, purchase_orders, inventory, reports, projects, masters, estimate_quotations, arrangements, materials as procurement_api, manufacturing
+from app.api import auth, customers, products, quotations, orders, purchase_orders, inventory, reports, projects, masters, estimate_quotations, arrangements, materials as procurement_api, manufacturing, process_schedule
 
 app = FastAPI(
     title="販売管理・見積管理システム API",
@@ -30,6 +30,7 @@ app.include_router(estimate_quotations.router, prefix="/api/estimate-quotations"
 app.include_router(arrangements.router, prefix="/api/arrangements", tags=["手配書"])
 app.include_router(procurement_api.router, prefix="/api/procurement", tags=["仕入（発注）管理"])
 app.include_router(manufacturing.router, prefix="/api/manufacturing", tags=["製造計画"])
+app.include_router(process_schedule.router, prefix="/api/process", tags=["工程管理"])
 
 
 @app.get("/seed-users")
@@ -159,5 +160,54 @@ def setup_manufacturing_tables():
                 db.add(ProductionCapacity(factory="小牧",fiscal_year=fy,month=mo,work_days=wd))
         db.commit()
         return {"status": "ok", "message": "製造計画・仕入管理テーブル作成完了"}
+    finally:
+        db.close()
+
+
+@app.get("/setup-process-tables")
+def setup_process_tables():
+    from app.db.models import engine, Base, ProcessTemplate, ProcessTemplateStep, WorkSchedule, WorkScheduleItem
+    Base.metadata.create_all(engine, tables=[
+        ProcessTemplate.__table__, ProcessTemplateStep.__table__,
+        WorkSchedule.__table__, WorkScheduleItem.__table__
+    ])
+    # 初期テンプレート投入
+    from app.db.models import SessionLocal
+    db = SessionLocal()
+    try:
+        if db.query(ProcessTemplate).count() == 0:
+            templates = [
+                {
+                    "product_type": "SCA", "template_name": "SCA標準工程",
+                    "steps": [
+                        {"step_no":1,"step_name":"移動（行き）","offset_start_days":-10,"duration_days":1,"color":"#6b7280"},
+                        {"step_no":2,"step_name":"搬入・機器据付","offset_start_days":-9,"duration_days":3,"color":"#3b82f6"},
+                        {"step_no":3,"step_name":"ダクト配管","offset_start_days":-6,"duration_days":3,"color":"#0ea5e9"},
+                        {"step_no":4,"step_name":"仕上げ・塗装","offset_start_days":-3,"duration_days":2,"color":"#8b5cf6"},
+                        {"step_no":5,"step_name":"配管並び電気切替え","offset_start_days":-1,"duration_days":1,"color":"#f59e0b"},
+                        {"step_no":6,"step_name":"試運転・調整","offset_start_days":0,"duration_days":1,"color":"#10b981"},
+                        {"step_no":7,"step_name":"移動（帰り）","offset_start_days":1,"duration_days":1,"color":"#6b7280"},
+                    ]
+                },
+                {
+                    "product_type": "BFR", "template_name": "BFR標準工程",
+                    "steps": [
+                        {"step_no":1,"step_name":"移動（行き）","offset_start_days":-12,"duration_days":1,"color":"#6b7280"},
+                        {"step_no":2,"step_name":"基礎・架台据付","offset_start_days":-11,"duration_days":2,"color":"#3b82f6"},
+                        {"step_no":3,"step_name":"本体搬入・据付","offset_start_days":-9,"duration_days":3,"color":"#0ea5e9"},
+                        {"step_no":4,"step_name":"ダクト・配管工事","offset_start_days":-6,"duration_days":3,"color":"#8b5cf6"},
+                        {"step_no":5,"step_name":"仕上げ・塗装","offset_start_days":-3,"duration_days":2,"color":"#f97316"},
+                        {"step_no":6,"step_name":"電気・試運転","offset_start_days":-1,"duration_days":2,"color":"#f59e0b"},
+                        {"step_no":7,"step_name":"移動（帰り）","offset_start_days":1,"duration_days":1,"color":"#6b7280"},
+                    ]
+                },
+            ]
+            for td in templates:
+                tmpl = ProcessTemplate(product_type=td["product_type"], template_name=td["template_name"])
+                db.add(tmpl); db.flush()
+                for sd in td["steps"]:
+                    db.add(ProcessTemplateStep(template_id=tmpl.id, **{k:v for k,v in sd.items()}))
+            db.commit()
+        return {"status": "ok", "message": "工程管理テーブル作成完了"}
     finally:
         db.close()
