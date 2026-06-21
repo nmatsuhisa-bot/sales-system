@@ -255,6 +255,34 @@ def add_project_order(project_id: str, data: ProjectOrderCreate, db: Session = D
     db.commit(); db.refresh(o)
     return order_to_dict(o)
 
+@router.get("/orders/search")
+def search_project_orders(q: str = Query(""), db: Session = Depends(get_db)):
+    """案件ID（親）または子IDで受注を検索。製造計画・工程管理の子ID選択に使用。"""
+    if not q.strip():
+        return []
+    keyword = q.strip()
+    orders = db.query(ProjectOrder).filter(
+        or_(
+            ProjectOrder.child_no.ilike(f"%{keyword}%"),
+            ProjectOrder.project_no.ilike(f"%{keyword}%"),
+            ProjectOrder.project_name.ilike(f"%{keyword}%"),
+            ProjectOrder.customer_name.ilike(f"%{keyword}%"),
+        )
+    ).order_by(ProjectOrder.child_no).limit(30).all()
+    return [
+        {
+            "id": str(o.id),
+            "child_no": o.child_no,
+            "project_no": o.project_no,
+            "project_name": o.project_name,
+            "customer_name": o.customer_name,
+            "sales_person_name": o.sales_person_name,
+            "sales_date": str(o.sales_date) if o.sales_date else None,
+            "status": o.status,
+        }
+        for o in orders
+    ]
+
 @router.get("/orders/{order_id}")
 def get_project_order(order_id: str, db: Session = Depends(get_db)):
     """子受注（案件ID_子）を単体取得。見積作成時の顧客名・納入先の自動補完に使用。"""

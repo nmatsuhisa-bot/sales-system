@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { processApi, projectApi } from '../api';
-import { Plus, Trash2, Edit2, Check, X, Printer, ChevronDown, ChevronUp, Search } from 'lucide-react';
+import { processApi } from '../api';
+import { Plus, Trash2, Edit2, Check, X, Printer, ChevronDown, ChevronUp } from 'lucide-react';
+import OrderSearchInput from '../components/common/OrderSearchInput';
 
 const PRODUCT_TYPES = ['BFR', 'BFP', 'SCA', 'LCA', 'SRR', 'FLT', 'CY', 'LRG'];
 const ROW_TYPES = ['task', 'equipment', 'note', 'blank'];
@@ -170,32 +171,21 @@ function ScheduleEditModal({ schedule: initSchedule, isNew, templates, onClose, 
   const [items, setItems] = useState<any[]>(initSchedule.items || []);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [saving, setSaving] = useState(false);
-  const [childNoInput, setChildNoInput] = useState(initSchedule.work_no || '');
-  const [orderLookupMsg, setOrderLookupMsg] = useState('');
-
-  const lookupChildNo = async () => {
-    if (!childNoInput.trim()) return;
-    try {
-      const r = await projectApi.getOrder(childNoInput.trim());
-      const o = r.data;
-      const deliveryDate = o.sales_date || '';
-      const salesYear = deliveryDate ? Number(deliveryDate.slice(0, 4)) : currentYear();
-      const salesMonth = deliveryDate ? Number(deliveryDate.slice(5, 7)) : currentMonth();
-      setForm((f: any) => ({
-        ...f,
-        project_order_id: o.id,
-        work_no: o.child_no,
-        work_name: o.project_name || f.work_name,
-        customer_name: o.customer_name || f.customer_name,
-        responsible_person: o.sales_person_name || f.responsible_person,
-        delivery_date: deliveryDate,
-        work_year: salesYear,
-        work_month: salesMonth,
-      }));
-      setOrderLookupMsg(`✓ ${o.child_no}　${o.project_name || ''}　納期: ${deliveryDate || '未設定'}`);
-    } catch {
-      setOrderLookupMsg('❌ 子IDが見つかりません');
-    }
+  const handleOrderSelect = (o: any) => {
+    const deliveryDate = o.sales_date || '';
+    const salesYear = deliveryDate ? Number(deliveryDate.slice(0, 4)) : currentYear();
+    const salesMonth = deliveryDate ? Number(deliveryDate.slice(5, 7)) : currentMonth();
+    setForm((f: any) => ({
+      ...f,
+      project_order_id: o.id,
+      work_no: o.child_no,
+      work_name: o.project_name || f.work_name,
+      customer_name: o.customer_name || f.customer_name,
+      responsible_person: o.sales_person_name || f.responsible_person,
+      delivery_date: deliveryDate,
+      work_year: salesYear,
+      work_month: salesMonth,
+    }));
   };
 
   const year = Number(form.work_year) || currentYear();
@@ -275,22 +265,9 @@ function ScheduleEditModal({ schedule: initSchedule, isNew, templates, onClose, 
 
         <div className="p-6">
           {/* 子ID参照 */}
-          <div className="flex items-end gap-2 mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-            <div className="flex-1">
-              <label className="block text-xs text-gray-500 mb-1">案件 子ID で参照</label>
-              <input value={childNoInput} onChange={e => setChildNoInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && lookupChildNo()}
-                placeholder="例: 260010_01" className="w-full border rounded px-2 py-1.5 text-sm" />
-            </div>
-            <button onClick={lookupChildNo}
-              className="flex items-center gap-1 px-3 py-1.5 bg-gray-700 text-white text-sm rounded hover:bg-gray-800">
-              <Search size={13} />参照
-            </button>
-            {orderLookupMsg && (
-              <span className={`text-xs ${orderLookupMsg.startsWith('✓') ? 'text-green-600' : 'text-red-500'}`}>
-                {orderLookupMsg}
-              </span>
-            )}
+          <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+            <label className="block text-xs text-gray-500 mb-1">案件ID または 子ID で検索して情報を自動入力</label>
+            <OrderSearchInput onSelect={handleOrderSelect} />
           </div>
 
           {/* ヘッダー情報 */}

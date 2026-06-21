@@ -110,6 +110,7 @@ export const projectApi = {
   update: (id: string, data: any) => api.put(`/projects/${id}`, data),
   delete: (id: string) => api.delete(`/projects/${id}`),
   stats: () => api.get('/projects/stats'),
+  searchOrders: (q: string) => api.get('/projects/orders/search', { params: { q } }),
   getOrder: (orderId: string) => api.get(`/projects/orders/${orderId}`),
   addOrder: (projectId: string, data: any) => api.post(`/projects/${projectId}/orders`, data),
   updateOrder: (orderId: string, data: any) => api.put(`/projects/orders/${orderId}`, data),

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { manufacturingApi, projectApi } from '../api';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { Plus, Trash2, Edit2, Check, X, AlertTriangle, Search } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X, AlertTriangle } from 'lucide-react';
+import OrderSearchInput from '../components/common/OrderSearchInput';
 
 const STATUS_OPTIONS = ['未着手', '製造中', '完了'];
 const STATUS_COLORS: Record<string, string> = {
@@ -56,27 +57,6 @@ function PlansTab({ fiscalYear }: { fiscalYear: number }) {
   const [loadData, setLoadData] = useState<any[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [newData, setNewData] = useState<any>({ status: '未着手' });
-  const [childNoInput, setChildNoInput] = useState('');
-  const [orderInfo, setOrderInfo] = useState<any>(null);
-  const [lookupMsg, setLookupMsg] = useState('');
-
-  const lookupChildNo = async () => {
-    if (!childNoInput.trim()) return;
-    try {
-      const r = await projectApi.getOrder(childNoInput.trim());
-      const o = r.data;
-      setOrderInfo(o);
-      setNewData((d: any) => ({
-        ...d,
-        project_order_id: o.id,
-        planned_end: o.sales_date || d.planned_end,
-      }));
-      setLookupMsg(`✓ ${o.child_no}　${o.project_name || ''}　納期: ${o.sales_date || '未設定'}`);
-    } catch {
-      setOrderInfo(null);
-      setLookupMsg('❌ 子IDが見つかりません');
-    }
-  };
   const [editing, setEditing] = useState<string | null>(null);
   const [editData, setEditData] = useState<any>({});
 
@@ -159,28 +139,16 @@ function PlansTab({ fiscalYear }: { fiscalYear: number }) {
 
       {showAdd && (
         <div className="mb-4 p-3 border border-green-200 rounded-lg bg-green-50 flex flex-wrap gap-2 items-end">
-          <div className="w-full flex items-end gap-2 pb-2 border-b border-green-200 mb-1">
-            <div className="flex-1">
-              <label className="block text-xs text-gray-500 mb-0.5">案件 子ID</label>
-              <input value={childNoInput} onChange={e => setChildNoInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && lookupChildNo()}
-                placeholder="例: 260010_01" className="border rounded px-2 py-1 text-sm w-44" />
-            </div>
-            <button onClick={lookupChildNo}
-              className="flex items-center gap-1 px-2 py-1 bg-gray-700 text-white text-xs rounded hover:bg-gray-800">
-              <Search size={12} />参照
-            </button>
-            {lookupMsg && (
-              <span className={`text-xs ${lookupMsg.startsWith('✓') ? 'text-green-700' : 'text-red-500'}`}>{lookupMsg}</span>
-            )}
+          <div className="w-full pb-2 border-b border-green-200 mb-1">
+            <label className="block text-xs text-gray-500 mb-0.5">案件ID または 子ID で検索して情報を自動入力</label>
+            <OrderSearchInput onSelect={(o: any) => {
+              setNewData((d: any) => ({
+                ...d,
+                project_order_id: o.id,
+                planned_end: o.sales_date || d.planned_end,
+              }));
+            }} />
           </div>
-          {orderInfo && (
-            <div className="w-full text-xs text-gray-600 bg-white border border-green-200 rounded px-2 py-1 mb-1 flex gap-4">
-              <span><span className="text-gray-400">顧客:</span> {orderInfo.customer_name || '—'}</span>
-              <span><span className="text-gray-400">案件名:</span> {orderInfo.project_name || '—'}</span>
-              <span><span className="text-gray-400">担当:</span> {orderInfo.sales_person_name || '—'}</span>
-            </div>
-          )}
           <div>
             <label className="block text-xs text-gray-500 mb-0.5">製品種別</label>
             <select value={newData.product_type || ''} onChange={e => setNewData({...newData, product_type: e.target.value})}
