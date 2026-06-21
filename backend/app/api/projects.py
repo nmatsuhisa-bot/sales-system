@@ -304,5 +304,14 @@ def link_quotation(order_id: str, quotation_id: str, db: Session = Depends(get_d
         # B001対応: ProjectOrderQuotationのquotation_idも旧FK制約があるため書き込まない
         db.add(ProjectOrderQuotation(project_order_id=o.id, quotation_no=q.quotation_no,
             quotation_total=q.total_amount, quotation_issue_date=q.issue_date))
+    db.flush()
+    # 親案件の最終受注金額を子ID合計で自動更新
+    if o.project_id:
+        total = db.query(func.sum(ProjectOrder.quotation_total)).filter(
+            ProjectOrder.project_id == o.project_id
+        ).scalar() or 0
+        parent = db.query(Project).filter(Project.id == o.project_id).first()
+        if parent:
+            parent.final_order_amount = int(total)
     db.commit()
     return {"message": "見積を紐付けました", "quotation_no": q.quotation_no}

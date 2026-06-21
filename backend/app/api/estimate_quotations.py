@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import desc, or_
+from sqlalchemy import desc, or_, func
 from typing import Optional, List
 from pydantic import BaseModel
 from datetime import date, datetime
@@ -17,6 +17,17 @@ from app.db.models import (
 )
 
 router = APIRouter()
+
+def _sync_project_final_amount(project_order: "ProjectOrder", db: Session):
+    """受注票発行・見積採用時に親案件の最終受注金額を子ID合計で自動更新する"""
+    if not project_order.project_id:
+        return
+    total = db.query(func.sum(ProjectOrder.quotation_total)).filter(
+        ProjectOrder.project_id == project_order.project_id
+    ).scalar() or 0
+    parent = db.query(Project).filter(Project.id == project_order.project_id).first()
+    if parent:
+        parent.final_order_amount = int(total)
 
 # =============================================
 # 見積パターンマスタ取得
@@ -347,6 +358,8 @@ def adopt_quotation(quotation_id: str, db: Session = Depends(get_db)):
         po.quotation_issue_date = q.issue_date
         if po.status in ("営業中", None):
             po.status = "見積発行"
+        db.flush()
+        _sync_project_final_amount(po, db)
 
     db.commit()
     return {"message": "採用しました", "child_no": po.child_no if po else None, "quotation_no": q.quotation_no}
@@ -601,6 +614,8 @@ def issue_order_ticket(quotation_id: str, db: Session = Depends(get_db)):
             po.quotation_amount = q.total_amount
             po.quotation_issue_date = q.issue_date
             po.status = "受注"
+            db.flush()
+            _sync_project_final_amount(po, db)
 
     db.commit()
     db.refresh(ticket)
