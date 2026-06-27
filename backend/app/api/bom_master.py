@@ -209,3 +209,91 @@ def _um_dict(r: UnitMaterialBom):
 
 def _pick(data: dict, keys: list):
     return {k: data.get(k) for k in keys if k in data}
+
+
+# =============================================
+# 見積パターンから型式を取込（既存の見積パターン → 製品/ユニットマスタ）
+# =============================================
+
+@router.post("/seed-from-estimate-patterns")
+def seed_from_estimate_patterns(db: Session = Depends(get_db)):
+    """既存の見積パターン（BFR本体/ファン/RV・SCA本体・PLファン・サイクロン・自動ダンパー）を
+    製品マスタ・ユニットマスタへ取込み、BFR本体↔ファン/RV を製品構成BOMで紐付ける。
+    既存コードはスキップ（再実行で重複しない）。"""
+    from app.db.models import (
+        EstimateBfrBody, EstimateBfrFan, EstimateBfrRv,
+        EstimateScaBody, EstimatePlFan, EstimateCyclone, EstimateAutoDamper,
+    )
+    stats = {"products": 0, "units": 0, "links": 0}
+
+    def ensure_product(code, name, ptype, model_no, price, ref):
+        ex = db.query(ProductMaster).filter(ProductMaster.product_code == code).first()
+        if ex:
+            return ex, False
+        p = ProductMaster(product_code=code, product_name=name, product_type=ptype,
+                          model_no=model_no, standard_price=price, estimate_ref=ref)
+        db.add(p); db.flush()
+        stats["products"] += 1
+        return p, True
+
+    def ensure_unit(code, name, utype, model_no, price, ref):
+        ex = db.query(UnitMaster).filter(UnitMaster.unit_code == code).first()
+        if ex:
+            return ex, False
+        u = UnitMaster(unit_code=code, unit_name=name, unit_type=utype,
+                       model_no=model_no, standard_price=price, estimate_ref=ref)
+        db.add(u); db.flush()
+        stats["units"] += 1
+        return u, True
+
+    def link(prod, unit, qty):
+        if not prod or not unit:
+            return
+        ex = db.query(ProductUnitBom).filter(
+            ProductUnitBom.product_id == prod.id, ProductUnitBom.unit_id == unit.id
+        ).first()
+        if not ex:
+            db.add(ProductUnitBom(product_id=prod.id, unit_id=unit.id, quantity=qty or 1))
+            stats["links"] += 1
+
+    # BFR本体 → 製品マスタ
+    for b in db.query(EstimateBfrBody).filter(EstimateBfrBody.is_active == True).all():
+        ensure_product(f"BFR-{b.model_code}", f"BFR本体 {b.model_code}", "BFR", b.model_code, b.base_price, b.model_code)
+
+    # SCA本体 → 製品マスタ
+    for b in db.query(EstimateScaBody).filter(EstimateScaBody.is_active == True).all():
+        ensure_product(f"SCA-{b.model_code}", f"SCA本体 {b.model_code}", "SCA", b.model_code, b.base_price, b.model_code)
+
+    # BFRファン → ユニット + BFR本体への紐付け
+    for f in db.query(EstimateBfrFan).filter(EstimateBfrFan.is_active == True).all():
+        if not f.fan_model:
+            continue
+        u, _ = ensure_unit(f"FAN-{f.fan_model}", f"ターボファン {f.fan_model}", "ファン", f.fan_model, f.price, f.fan_model)
+        prod = db.query(ProductMaster).filter(ProductMaster.product_code == f"BFR-{f.bfr_model}").first()
+        link(prod, u, f.quantity)
+
+    # BFR RV → ユニット + BFR本体への紐付け
+    for r in db.query(EstimateBfrRv).filter(EstimateBfrRv.is_active == True).all():
+        if not r.rv_model:
+            continue
+        u, _ = ensure_unit(f"RV-{r.rv_model}", f"ロータリーバルブ {r.rv_model}", "RV", r.rv_model, r.price, r.rv_model)
+        prod = db.query(ProductMaster).filter(ProductMaster.product_code == f"BFR-{r.bfr_model}").first()
+        link(prod, u, r.quantity)
+
+    # PLファン → ユニット
+    for f in db.query(EstimatePlFan).filter(EstimatePlFan.is_active == True).all():
+        ensure_unit(f"PLFAN-{f.model_code}", f"PLファン {f.model_code}", "ファン", f.model_code, f.price, f.model_code)
+
+    # サイクロン → ユニット
+    for c in db.query(EstimateCyclone).filter(EstimateCyclone.is_active == True).all():
+        ensure_unit(f"CY-{c.model_code}", f"サイクロン {c.model_code}", "サイクロン", c.model_code, c.price, c.model_code)
+
+    # 自動ダンパー → ユニット
+    for d in db.query(EstimateAutoDamper).filter(EstimateAutoDamper.is_active == True).all():
+        ensure_unit(f"DMP-{d.model_code}", f"自動ダンパー {d.model_code}", "ダンパー", d.model_code, d.price, d.model_code)
+
+    db.commit()
+    return {
+        "ok": True, **stats,
+        "message": f"見積パターンから取込完了: 製品{stats['products']}件・ユニット{stats['units']}件・製品構成{stats['links']}件",
+    }

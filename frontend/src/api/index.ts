@@ -268,6 +268,8 @@ export const bomMasterApi = {
   addUnitMaterial: (data: any) => api.post('/bom-master/unit-materials', data),
   updateUnitMaterial: (id: string, data: any) => api.put(`/bom-master/unit-materials/${id}`, data),
   deleteUnitMaterial: (id: string) => api.delete(`/bom-master/unit-materials/${id}`),
+  // 見積パターンから型式を取込
+  seedFromEstimatePatterns: () => api.post('/bom-master/seed-from-estimate-patterns'),
 };
 
 // =============================================

@@ -1,17 +1,36 @@
 import { useEffect, useState } from 'react';
 import { bomMasterApi, procurementApi } from '../api';
-import { Plus, Trash2, Edit2, Check, X, Package, Boxes } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X, Package, Boxes, Download } from 'lucide-react';
 
 const PRODUCT_TYPES = ['BFR', 'BFP', 'SCA', 'LCA', 'SRR', 'FLT', 'CY', 'LRG'];
 const UNIT_TYPES = ['本体', 'ファン', 'RV', 'サイクロン', 'ダンパー', '架台', 'その他'];
 
 export default function BomMasterPage() {
   const [tab, setTab] = useState<'products' | 'units' | 'product-bom' | 'unit-bom'>('products');
+  const [seeding, setSeeding] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const seed = async () => {
+    if (!confirm('既存の見積パターン（BFR本体・ファン・RV・SCA本体・PLファン・サイクロン・自動ダンパー）を製品/ユニットマスタへ取込みます。\n既存コードはスキップされます。実行しますか？')) return;
+    setSeeding(true);
+    try {
+      const r = await bomMasterApi.seedFromEstimatePatterns();
+      alert(r.data.message);
+      setReloadKey(k => k + 1);
+    } catch (e: any) { alert(e.response?.data?.detail || 'エラー'); }
+    finally { setSeeding(false); }
+  };
 
   return (
     <div className="p-4">
-      <h1 className="text-xl font-bold text-gray-800 mb-1">製品BOMマスタ（型式 → ユニット → 部材）</h1>
-      <p className="text-xs text-gray-500 mb-4">型式・ユニット・部材の紐付けを定義します。見積で型式を選ぶとユニット候補が出て、選んだユニットの部材が仕入管理へ自動セットされます。</p>
+      <div className="flex items-start justify-between mb-1 gap-2">
+        <h1 className="text-xl font-bold text-gray-800">製品BOMマスタ（型式 → ユニット → 部材）</h1>
+        <button onClick={seed} disabled={seeding}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-sm rounded hover:bg-emerald-700 disabled:opacity-60 shrink-0">
+          <Download size={14} />{seeding ? '取込中...' : '見積パターンから取込'}
+        </button>
+      </div>
+      <p className="text-xs text-gray-500 mb-4">型式・ユニット・部材の紐付けを定義します。型式は「見積パターンから取込」で既存の見積パターン（BFR本体・ファン等）から一括登録できます。各ユニットに部材を紐付けると、仕入管理で一括取込できます。</p>
       <div className="flex gap-1 mb-5 border-b border-gray-200 flex-wrap">
         {([
           ['products', '製品マスタ'], ['units', 'ユニットマスタ'],
@@ -23,8 +42,8 @@ export default function BomMasterPage() {
           </button>
         ))}
       </div>
-      {tab === 'products' && <ProductMasterTab />}
-      {tab === 'units' && <UnitMasterTab />}
+      {tab === 'products' && <ProductMasterTab reloadKey={reloadKey} />}
+      {tab === 'units' && <UnitMasterTab reloadKey={reloadKey} />}
       {tab === 'product-bom' && <ProductBomTab />}
       {tab === 'unit-bom' && <UnitBomTab />}
     </div>
@@ -32,7 +51,7 @@ export default function BomMasterPage() {
 }
 
 // ========== 製品マスタ ==========
-function ProductMasterTab() {
+function ProductMasterTab({ reloadKey }: { reloadKey: number }) {
   const [items, setItems] = useState<any[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState<any>({});
@@ -40,7 +59,7 @@ function ProductMasterTab() {
   const [editForm, setEditForm] = useState<any>({});
 
   const load = () => bomMasterApi.listProducts().then(r => setItems(r.data)).catch(() => {});
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [reloadKey]);
 
   const add = async () => {
     if (!form.product_code || !form.product_name) { alert('製品コードと製品名は必須です'); return; }
@@ -112,7 +131,7 @@ function ProductMasterTab() {
 }
 
 // ========== ユニットマスタ ==========
-function UnitMasterTab() {
+function UnitMasterTab({ reloadKey }: { reloadKey: number }) {
   const [items, setItems] = useState<any[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState<any>({});
@@ -120,7 +139,7 @@ function UnitMasterTab() {
   const [editForm, setEditForm] = useState<any>({});
 
   const load = () => bomMasterApi.listUnits().then(r => setItems(r.data)).catch(() => {});
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [reloadKey]);
 
   const add = async () => {
     if (!form.unit_code || !form.unit_name) { alert('ユニットコードとユニット名は必須です'); return; }
