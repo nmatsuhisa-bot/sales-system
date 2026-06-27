@@ -233,10 +233,17 @@ def adopted_units(project_order_id: str = Query(...), db: Session = Depends(get_
     """案件子IDの受注採用見積（status=adopted）の明細から、選択されているユニットを抽出。
     見積明細の spec_json（fan_model / rv_model / cyclone_model / model）を
     ユニットマスタの model_no と突合する。"""
+    po = db.query(ProjectOrder).filter(ProjectOrder.id == project_order_id).first()
+
+    # 採用見積の特定: ①status=adopted を優先 ②案件子IDに記録された採用見積番号(po.quotation_no)で補完
     q = db.query(QuotationHeader).filter(
         QuotationHeader.project_order_id == project_order_id,
         QuotationHeader.status == "adopted",
     ).first()
+    if not q and po and po.quotation_no:
+        q = db.query(QuotationHeader).filter(
+            QuotationHeader.quotation_no == po.quotation_no
+        ).order_by(QuotationHeader.created_at.desc()).first()
     if not q:
         return {"quotation_no": None, "units": [], "message": "受注採用された見積がありません"}
 
