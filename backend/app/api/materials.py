@@ -305,6 +305,9 @@ def create_orders_from_units(data: dict, db: Session = Depends(get_db)):
             ))
             total += 1
     db.commit()
+    if total == 0:
+        return {"ok": False, "created": 0,
+                "message": "部材が未登録のため起票されませんでした。製品BOMマスタ→ユニット構成で各ユニットに部材を登録してください"}
     return {"ok": True, "created": total, "message": f"{len(units)}ユニットの部材 {total}件を発注起票しました"}
 
 @router.post("/material-orders/from-unit")

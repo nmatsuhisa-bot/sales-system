@@ -12,6 +12,11 @@ const STATUS_COLORS: Record<string, string> = {
 
 const PRODUCT_TYPES = ['BFR', 'BFP', 'SCA', 'LCA', 'SRR', 'FLT', 'CY', 'LRG'];
 
+// 入力フォーカス維持のためコンポーネント外で定義（毎レンダー再生成を防ぐ）
+function Field({ label, children }: any) {
+  return <div><label className="block text-xs text-gray-500 mb-0.5">{label}</label>{children}</div>;
+}
+
 export default function ProcurementPage() {
   const [tab, setTab] = useState<'orders' | 'materials' | 'bom'>('orders');
 
@@ -102,9 +107,13 @@ function OrdersTab() {
         due_date: importDue || null,
         units: unitRows.map(r => ({ unit_id: r.unit_id, multiplier: Number(r.multiplier) || 1 })),
       });
-      setImportMsg(`✓ ${r.data.message}`);
-      setUnitRows([]);
-      load();
+      if (r.data.created === 0) {
+        setImportMsg(`⚠ ${r.data.message}`);
+      } else {
+        setImportMsg(`✓ ${r.data.message}`);
+        setUnitRows([]);
+        load();
+      }
     } catch (e: any) { setImportMsg(`❌ ${e.response?.data?.detail || 'エラー'}`); }
   };
 
@@ -361,10 +370,6 @@ function MaterialsTab() {
     if (!confirm('削除しますか？')) return;
     await procurementApi.deleteMaterial(id); load();
   };
-
-  const Field = ({ label, children }: any) => (
-    <div><label className="block text-xs text-gray-500 mb-0.5">{label}</label>{children}</div>
-  );
 
   return (
     <div>

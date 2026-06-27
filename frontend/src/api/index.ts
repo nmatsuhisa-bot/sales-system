@@ -218,6 +218,7 @@ export const procurementApi = {
 export const manufacturingApi = {
   listPlans: (year?: number, status?: string) => api.get('/manufacturing/plans', { params: { year, status } }),
   createPlan: (data: any) => api.post('/manufacturing/plans', data),
+  draftFromEstimate: (project_order_id: string) => api.post('/manufacturing/plans/draft-from-estimate', { project_order_id }),
   updatePlan: (id: string, data: any) => api.put(`/manufacturing/plans/${id}`, data),
   deletePlan: (id: string) => api.delete(`/manufacturing/plans/${id}`),
   listCapacity: (year?: number) => api.get('/manufacturing/capacity', { params: { year } }),

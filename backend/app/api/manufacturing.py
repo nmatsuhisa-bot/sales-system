@@ -36,6 +36,72 @@ def create_plan(data: dict, db: Session = Depends(get_db)):
     db.add(p); db.commit(); db.refresh(p)
     return _plan_dict(p)
 
+@router.post("/plans/draft-from-estimate")
+def draft_from_estimate(data: dict, db: Session = Depends(get_db)):
+    """案件子IDの受注採用見積から、本体（型式）ごとに製造計画ドラフトを作成。
+    納期(sales_date)を完了予定とし、所要工数から仮の工期を逆算して開始予定を設定する。"""
+    from app.db.models import QuotationHeader
+    from datetime import timedelta
+    import math
+
+    project_order_id = data.get("project_order_id")
+    po = db.query(ProjectOrder).filter(ProjectOrder.id == project_order_id).first()
+    if not po:
+        raise HTTPException(404, "案件子IDが見つかりません")
+
+    # 採用見積を特定（status=adopted 優先、無ければ採用見積番号で補完）
+    q = db.query(QuotationHeader).filter(
+        QuotationHeader.project_order_id == project_order_id,
+        QuotationHeader.status == "adopted",
+    ).first()
+    if not q and po.quotation_no:
+        q = db.query(QuotationHeader).filter(
+            QuotationHeader.quotation_no == po.quotation_no
+        ).order_by(QuotationHeader.created_at.desc()).first()
+    if not q:
+        raise HTTPException(400, "受注採用された見積がありません")
+
+    end = po.sales_date  # 納期 → 完了予定
+    created, skipped = 0, 0
+    for it in q.line_items:
+        sj = it.spec_json or {}
+        model = sj.get("model")   # 本体ラインのみ 'model' を持つ
+        if not model:
+            continue
+        ptype = it.product_type
+        # 重複スキップ（同じ子ID＋型番の計画が既にあれば作らない）
+        exists = db.query(ManufacturingPlan).filter(
+            ManufacturingPlan.project_order_id == po.id,
+            ManufacturingPlan.model_no == model,
+        ).first()
+        if exists:
+            skipped += 1
+            continue
+        # 仮工期: 所要工数から概算（2名×8h想定）、無ければ14日
+        ph = db.query(ProductHours).filter(
+            ProductHours.product_type == ptype, ProductHours.model_no == model
+        ).first()
+        if ph and ph.required_hours:
+            days = max(7, int(math.ceil(float(ph.required_hours) / 16.0)))
+        else:
+            days = 14
+        planned_start = (end - timedelta(days=days)) if end else None
+        db.add(ManufacturingPlan(
+            project_order_id=po.id, product_type=ptype, model_no=model,
+            planned_start=planned_start, planned_end=end,
+            status="未着手", notes=f"見積ドラフト自動作成（仮日程・工期{days}日）",
+        ))
+        created += 1
+
+    db.commit()
+    if created == 0 and skipped == 0:
+        return {"ok": False, "created": 0, "skipped": 0,
+                "message": "見積に本体（型式）ラインが見つかりませんでした"}
+    msg = f"見積から製造計画を {created}件 作成しました（仮日程）"
+    if skipped:
+        msg += f" / 既存 {skipped}件 はスキップ"
+    return {"ok": True, "created": created, "skipped": skipped, "message": msg}
+
 @router.put("/plans/{plan_id}")
 def update_plan(plan_id: str, data: dict, db: Session = Depends(get_db)):
     p = db.query(ManufacturingPlan).filter(ManufacturingPlan.id == plan_id).first()

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { manufacturingApi, projectApi } from '../api';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { Plus, Trash2, Edit2, Check, X, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X, AlertTriangle, FileText } from 'lucide-react';
 import OrderSearchInput from '../components/common/OrderSearchInput';
 
 const STATUS_OPTIONS = ['未着手', '製造中', '完了'];
@@ -59,6 +59,17 @@ function PlansTab({ fiscalYear }: { fiscalYear: number }) {
   const [newData, setNewData] = useState<any>({ status: '未着手' });
   const [editing, setEditing] = useState<string | null>(null);
   const [editData, setEditData] = useState<any>({});
+  const [showDraft, setShowDraft] = useState(false);
+  const [draftMsg, setDraftMsg] = useState('');
+
+  const handleDraft = async (o: any) => {
+    setDraftMsg('作成中...');
+    try {
+      const r = await manufacturingApi.draftFromEstimate(o.id);
+      setDraftMsg((r.data.created === 0 ? '⚠ ' : '✓ ') + r.data.message);
+      load();
+    } catch (e: any) { setDraftMsg(`❌ ${e.response?.data?.detail || 'エラー'}`); }
+  };
 
   const load = () => {
     manufacturingApi.listPlans(fiscalYear).then(r => setPlans(r.data)).catch(() => {});
@@ -131,11 +142,26 @@ function PlansTab({ fiscalYear }: { fiscalYear: number }) {
 
       {/* 製造計画一覧 + ガント */}
       <div className="flex items-center gap-2 mb-3">
-        <button onClick={() => setShowAdd(true)}
-          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">
+        <button onClick={() => { setShowDraft(!showDraft); setShowAdd(false); }}
+          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700">
+          <FileText size={14} />見積からドラフト作成
+        </button>
+        <button onClick={() => { setShowAdd(true); setShowDraft(false); }}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">
           <Plus size={14} />計画追加
         </button>
       </div>
+
+      {showDraft && (
+        <div className="mb-4 p-3 border border-indigo-200 rounded-lg bg-indigo-50">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs font-semibold text-indigo-700">案件ID / 子ID を選ぶと、受注採用見積の本体（型式）から製造計画を仮日程付きで自動作成</span>
+            <button onClick={() => { setShowDraft(false); setDraftMsg(''); }} className="text-gray-400"><X size={14} /></button>
+          </div>
+          <OrderSearchInput onSelect={handleDraft} placeholder="案件ID または 子ID で検索" />
+          {draftMsg && <p className={`mt-1.5 text-xs ${draftMsg.startsWith('✓') ? 'text-green-700' : draftMsg.startsWith('⚠') ? 'text-amber-600' : 'text-red-500'}`}>{draftMsg}</p>}
+        </div>
+      )}
 
       {showAdd && (
         <div className="mb-4 p-3 border border-green-200 rounded-lg bg-green-50 flex flex-wrap gap-2 items-end">
