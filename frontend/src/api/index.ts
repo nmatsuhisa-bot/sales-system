@@ -208,6 +208,8 @@ export const procurementApi = {
   listBomUnits: (search?: string) => api.get('/procurement/units', { params: { search } }),
   previewUnitMaterials: (unitId: string) => api.get(`/procurement/units/${unitId}/materials`),
   createOrdersFromUnit: (data: any) => api.post('/procurement/material-orders/from-unit', data),
+  adoptedUnits: (project_order_id: string) => api.get('/procurement/adopted-units', { params: { project_order_id } }),
+  createOrdersFromUnits: (data: any) => api.post('/procurement/material-orders/from-units', data),
 };
 
 // =============================================

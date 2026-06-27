@@ -45,15 +45,15 @@ function OrdersTab() {
   const [newData, setNewData] = useState<any>({ status: '未発注' });
   const [loading, setLoading] = useState(false);
 
-  // 方式B: ユニットから一括取込
+  // 方式B: ユニットから一括取込（受注採用見積から自動セット＋編集）
   const [showUnitImport, setShowUnitImport] = useState(false);
   const [units, setUnits] = useState<any[]>([]);
-  const [selUnitId, setSelUnitId] = useState('');
-  const [unitPreview, setUnitPreview] = useState<any[]>([]);
+  const [unitRows, setUnitRows] = useState<any[]>([]);   // 選択中ユニット（編集可）
+  const [addUnitId, setAddUnitId] = useState('');
   const [importOrder, setImportOrder] = useState<any>(null);
-  const [multiplier, setMultiplier] = useState('1');
   const [importDue, setImportDue] = useState('');
   const [importMsg, setImportMsg] = useState('');
+  const [autoMsg, setAutoMsg] = useState('');
 
   const load = () => {
     setLoading(true);
@@ -71,21 +71,39 @@ function OrdersTab() {
     setShowUnitImport(true); setShowAdd(false);
     procurementApi.listBomUnits().then(r => setUnits(r.data)).catch(() => {});
   };
-  const onSelectUnit = (id: string) => {
-    setSelUnitId(id); setUnitPreview([]);
-    if (id) procurementApi.previewUnitMaterials(id).then(r => setUnitPreview(r.data)).catch(() => {});
+  // 案件子ID選択 → 受注採用見積のユニットを自動セット
+  const onSelectImportOrder = (o: any) => {
+    setImportOrder(o); setImportMsg(''); setAutoMsg('読込中...');
+    procurementApi.adoptedUnits(o.id).then(r => {
+      const us = (r.data.units || []).map((u: any) => ({ ...u, multiplier: u.quantity || 1 }));
+      setUnitRows(us);
+      if (!us.length) setAutoMsg(r.data.message || '受注採用見積にユニットがありません');
+      else setAutoMsg(`採用見積 ${r.data.quotation_no || ''} から ${us.length}ユニットを自動セット`);
+    }).catch(() => setAutoMsg('取得に失敗しました'));
   };
+  const addUnitRow = () => {
+    if (!addUnitId) return;
+    const u = units.find(x => x.id === addUnitId);
+    if (!u || unitRows.some(r => r.unit_id === u.id)) { setAddUnitId(''); return; }
+    setUnitRows(rows => [...rows, {
+      unit_id: u.id, unit_code: u.unit_code, unit_name: u.unit_name,
+      unit_type: u.unit_type, model_no: u.model_no, material_count: u.material_count, multiplier: 1,
+    }]);
+    setAddUnitId('');
+  };
+  const updateRowMult = (idx: number, v: string) =>
+    setUnitRows(rows => rows.map((r, i) => i === idx ? { ...r, multiplier: v } : r));
+  const removeUnitRow = (idx: number) => setUnitRows(rows => rows.filter((_, i) => i !== idx));
   const doUnitImport = async () => {
-    if (!selUnitId) { alert('ユニットを選択してください'); return; }
+    if (!unitRows.length) { alert('ユニットがありません'); return; }
     try {
-      const r = await procurementApi.createOrdersFromUnit({
-        unit_id: selUnitId,
+      const r = await procurementApi.createOrdersFromUnits({
         project_order_id: importOrder?.id || null,
-        multiplier: Number(multiplier) || 1,
         due_date: importDue || null,
+        units: unitRows.map(r => ({ unit_id: r.unit_id, multiplier: Number(r.multiplier) || 1 })),
       });
       setImportMsg(`✓ ${r.data.message}`);
-      setSelUnitId(''); setUnitPreview([]);
+      setUnitRows([]);
       load();
     } catch (e: any) { setImportMsg(`❌ ${e.response?.data?.detail || 'エラー'}`); }
   };
@@ -124,50 +142,62 @@ function OrdersTab() {
       {showUnitImport && (
         <div className="mb-4 p-3 border border-indigo-200 rounded-lg bg-indigo-50">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-indigo-700">方式B: ユニットに紐づく部材を一括取込（マスタ由来・員数×台数で自動セット）</span>
-            <button onClick={() => { setShowUnitImport(false); setImportMsg(''); }} className="text-gray-400"><X size={14} /></button>
+            <span className="text-xs font-semibold text-indigo-700">方式B: 受注採用見積のユニットを自動セット → 編集して一括発注（部材は員数×台数で自動展開）</span>
+            <button onClick={() => { setShowUnitImport(false); setImportMsg(''); setAutoMsg(''); setUnitRows([]); }} className="text-gray-400"><X size={14} /></button>
           </div>
-          <div className="flex flex-wrap gap-2 items-end">
-            <div className="min-w-[260px]">
-              <label className="block text-xs text-gray-500 mb-0.5">案件子ID（任意・紐付け先）</label>
-              <OrderSearchInput onSelect={(o: any) => setImportOrder(o)} placeholder="案件ID または 子ID で検索（任意）" />
+          <div className="flex flex-wrap gap-2 items-end mb-2">
+            <div className="min-w-[280px]">
+              <label className="block text-xs text-gray-500 mb-0.5">案件ID / 子ID（受注採用見積からユニットを自動セット）</label>
+              <OrderSearchInput onSelect={onSelectImportOrder} placeholder="案件ID または 子ID で検索" />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-0.5">ユニット（型式）</label>
-              <select value={selUnitId} onChange={e => onSelectUnit(e.target.value)} className="border rounded px-2 py-1 text-sm min-w-[240px]">
+              <label className="block text-xs text-gray-500 mb-0.5">納期（一括設定）</label>
+              <input type="date" value={importDue} onChange={e => setImportDue(e.target.value)} className="border rounded px-2 py-1 text-sm" />
+            </div>
+            {autoMsg && <span className="text-xs text-indigo-600 pb-1.5">{autoMsg}</span>}
+          </div>
+
+          {/* 選択ユニット（編集可） */}
+          <div className="bg-white border rounded">
+            <table className="w-full text-xs">
+              <thead><tr className="bg-gray-50 text-gray-600">
+                {['ユニット', '種別', '型式', '部材数', '台数', ''].map(h => <th key={h} className="px-2 py-1.5 text-left font-medium border-b">{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {unitRows.length === 0 ? (
+                  <tr><td colSpan={6} className="text-center py-4 text-gray-400">案件を選ぶと採用見積のユニットが入ります（手動追加も可）</td></tr>
+                ) : unitRows.map((r, idx) => (
+                  <tr key={r.unit_id} className="border-b last:border-0">
+                    <td className="px-2 py-1.5"><span className="font-mono text-indigo-700">{r.unit_code}</span> {r.unit_name}</td>
+                    <td className="px-2 py-1.5">{r.unit_type || '—'}</td>
+                    <td className="px-2 py-1.5">{r.model_no || '—'}</td>
+                    <td className="px-2 py-1.5 text-center">{r.material_count === 0
+                      ? <span className="text-red-500">未登録</span> : r.material_count}</td>
+                    <td className="px-2 py-1.5"><input type="number" value={r.multiplier}
+                      onChange={e => updateRowMult(idx, e.target.value)} className="border rounded px-1 py-0.5 w-16 text-right" /></td>
+                    <td className="px-2 py-1.5"><button onClick={() => removeUnitRow(idx)} className="text-red-400"><Trash2 size={13} /></button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {/* 手動でユニット追加 */}
+            <div className="flex items-center gap-2 px-2 py-1.5 border-t bg-gray-50">
+              <span className="text-xs text-gray-400">ユニット追加:</span>
+              <select value={addUnitId} onChange={e => setAddUnitId(e.target.value)} className="border rounded px-2 py-1 text-xs min-w-[240px]">
                 <option value="">— ユニット選択 —</option>
                 {units.map(u => <option key={u.id} value={u.id}>{u.unit_code} / {u.unit_name}（部材{u.material_count}件）</option>)}
               </select>
+              <button onClick={addUnitRow} className="flex items-center gap-1 px-2 py-1 bg-gray-700 text-white text-xs rounded hover:bg-gray-800"><Plus size={12} />追加</button>
             </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-0.5">台数</label>
-              <input type="number" value={multiplier} onChange={e => setMultiplier(e.target.value)} className="border rounded px-2 py-1 text-sm w-20" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-0.5">納期</label>
-              <input type="date" value={importDue} onChange={e => setImportDue(e.target.value)} className="border rounded px-2 py-1 text-sm" />
-            </div>
-            <button onClick={doUnitImport} disabled={!unitPreview.length}
+          </div>
+
+          <div className="flex items-center gap-2 mt-2">
+            <button onClick={doUnitImport} disabled={!unitRows.length}
               className="flex items-center gap-1 px-4 py-1.5 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700 disabled:opacity-50">
-              <Check size={14} />一括起票（{unitPreview.length}件）
+              <Check size={14} />一括起票（{unitRows.length}ユニット）
             </button>
             {importMsg && <span className={`text-xs ${importMsg.startsWith('✓') ? 'text-green-700' : 'text-red-500'}`}>{importMsg}</span>}
           </div>
-          {unitPreview.length > 0 && (
-            <div className="mt-3 bg-white border rounded p-2">
-              <p className="text-xs text-gray-500 mb-1">取込プレビュー（部材 × 員数 × 台数{multiplier}）</p>
-              <div className="flex flex-wrap gap-1.5">
-                {unitPreview.map((p, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 text-xs bg-gray-50 border rounded px-1.5 py-0.5">
-                    <span className="font-mono text-gray-500">{p.material_code}</span>
-                    <span>{p.material_name}</span>
-                    <span className="text-indigo-600 font-medium">×{(p.quantity * (Number(multiplier) || 1)).toLocaleString()}</span>
-                    {p.default_supplier_name && <span className="text-gray-400">→{p.default_supplier_name}</span>}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
 

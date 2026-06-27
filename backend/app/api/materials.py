@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
-from app.db.models import get_db, MaterialMaster, BomItem, MaterialOrder, Supplier, ProjectOrder, UnitMaster, UnitMaterialBom
+from app.db.models import get_db, MaterialMaster, BomItem, MaterialOrder, Supplier, ProjectOrder, UnitMaster, UnitMaterialBom, QuotationHeader
 import uuid
 from datetime import date
 
@@ -219,6 +219,86 @@ def preview_unit_materials(unit_id: str, db: Session = Depends(get_db)):
         "default_supplier_id": str(r.material.default_supplier_id) if r.material and r.material.default_supplier_id else None,
         "default_supplier_name": r.material.default_supplier.name if r.material and r.material.default_supplier else None,
     } for r in rows]
+
+def _unit_brief(u: UnitMaster, quantity: float):
+    return {
+        "unit_id": str(u.id), "unit_code": u.unit_code, "unit_name": u.unit_name,
+        "unit_type": u.unit_type, "model_no": u.model_no,
+        "quantity": quantity,
+        "material_count": len(u.materials) if u.materials else 0,
+    }
+
+@router.get("/adopted-units")
+def adopted_units(project_order_id: str = Query(...), db: Session = Depends(get_db)):
+    """案件子IDの受注採用見積（status=adopted）の明細から、選択されているユニットを抽出。
+    見積明細の spec_json（fan_model / rv_model / cyclone_model / model）を
+    ユニットマスタの model_no と突合する。"""
+    q = db.query(QuotationHeader).filter(
+        QuotationHeader.project_order_id == project_order_id,
+        QuotationHeader.status == "adopted",
+    ).first()
+    if not q:
+        return {"quotation_no": None, "units": [], "message": "受注採用された見積がありません"}
+
+    # 明細から (model識別子, 数量) を収集
+    candidates = []
+    for it in q.line_items:
+        sj = it.spec_json or {}
+        qty = float(it.quantity or 1)
+        for key in ("fan_model", "rv_model", "cyclone_model", "model"):
+            val = sj.get(key)
+            if val:
+                candidates.append((str(val), qty))
+
+    # ユニットマスタの model_no と突合（重複ユニットは数量を合算）
+    matched: dict = {}
+    for model_no, qty in candidates:
+        u = db.query(UnitMaster).filter(
+            UnitMaster.model_no == model_no, UnitMaster.is_active == True
+        ).first()
+        if not u:
+            continue
+        key = str(u.id)
+        if key in matched:
+            matched[key]["quantity"] += qty
+        else:
+            matched[key] = _unit_brief(u, qty)
+
+    return {"quotation_no": q.quotation_no, "units": list(matched.values())}
+
+@router.post("/material-orders/from-units")
+def create_orders_from_units(data: dict, db: Session = Depends(get_db)):
+    """複数ユニットの部材をまとめて発注起票。units=[{unit_id, multiplier}]"""
+    project_order_id = data.get("project_order_id") or None
+    due_date = data.get("due_date")
+    units = data.get("units") or []
+    if not units:
+        raise HTTPException(400, "ユニットが選択されていません")
+
+    total = 0
+    for entry in units:
+        unit_id = entry.get("unit_id")
+        multiplier = float(entry.get("multiplier", 1) or 1)
+        unit = db.query(UnitMaster).filter(UnitMaster.id == unit_id).first()
+        if not unit:
+            continue
+        rows = db.query(UnitMaterialBom).options(joinedload(UnitMaterialBom.material)).filter(
+            UnitMaterialBom.unit_id == unit_id
+        ).order_by(UnitMaterialBom.sort_order).all()
+        for r in rows:
+            mat = r.material
+            db.add(MaterialOrder(
+                project_order_id=project_order_id,
+                material_id=r.material_id,
+                supplier_id=mat.default_supplier_id if mat else None,
+                order_qty=float(r.quantity) * multiplier,
+                due_date=due_date,
+                status="未発注",
+                notes=f"ユニット取込: {unit.unit_code} {unit.unit_name}",
+            ))
+            total += 1
+    db.commit()
+    return {"ok": True, "created": total, "message": f"{len(units)}ユニットの部材 {total}件を発注起票しました"}
 
 @router.post("/material-orders/from-unit")
 def create_orders_from_unit(data: dict, db: Session = Depends(get_db)):
