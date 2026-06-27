@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { estimateApi, projectApi, mastersApi, API_BASE } from '../api';
 import { Plus, Trash2, Save, FileText, ArrowLeft, Calculator } from 'lucide-react';
+import OrderSearchInput from '../components/common/OrderSearchInput';
 
 // 1文字入力バグ防止のため関数外に定義（毎レンダーで再生成されると入力がリマウントされフォーカスを失う）
 function HeaderField({ label, name, header, setHeader, type = 'text', cols = 1 }: any) {
@@ -297,6 +298,33 @@ export default function EstimateFormPage() {
           </button>
         </div>
       </div>
+
+      {/* 新規作成時: 案件子ID選択 */}
+      {!isEdit && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+          <p className="text-xs font-semibold text-blue-700 mb-2">案件ID または 子ID を選択すると顧客名・納入先を自動入力します</p>
+          <OrderSearchInput
+            placeholder="案件ID または 子ID で検索（例: 260010 / 260010_01）"
+            onSelect={(o: any) => {
+              projectApi.getOrder(o.id).then(r => {
+                const ord = r.data;
+                setHeader(h => ({
+                  ...h,
+                  project_order_id: ord.id,
+                  child_no: ord.child_no || '',
+                  title: h.title || ord.project_name || '',
+                  delivery_name: h.delivery_name || ord.customer_name || '',
+                  customer_name: h.customer_name || ord.agency_name || ord.customer_name || '',
+                  sales_person_name: h.sales_person_name || ord.sales_person_name || '',
+                }));
+              }).catch(() => {});
+            }}
+          />
+          {header.child_no && (
+            <p className="mt-1.5 text-xs text-blue-600 font-medium">✓ 子ID: {header.child_no} を選択中</p>
+          )}
+        </div>
+      )}
 
       {/* ヘッダー */}
       <div className="bg-white rounded-xl shadow-sm p-4 mb-4">

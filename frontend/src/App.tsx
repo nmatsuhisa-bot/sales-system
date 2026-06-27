@@ -34,9 +34,9 @@ export default function App() {
           <Route index element={<DashboardPage />} />
           <Route path="customers" element={<CustomersPage />} />
           <Route path="products" element={<ProductsPage />} />
-          <Route path="quotations" element={<QuotationsPage />} />
-          <Route path="quotations/new" element={<QuotationFormPage />} />
-          <Route path="quotations/:id/edit" element={<QuotationFormPage />} />
+          <Route path="quotations" element={<Navigate to="/estimates" replace />} />
+          <Route path="quotations/new" element={<Navigate to="/estimates/new" replace />} />
+          <Route path="quotations/:id/edit" element={<Navigate to="/estimates" replace />} />
           <Route path="orders" element={<OrdersPage />} />
           <Route path="purchase-orders" element={<PurchaseOrdersPage />} />
           <Route path="inventory" element={<InventoryPage />} />
