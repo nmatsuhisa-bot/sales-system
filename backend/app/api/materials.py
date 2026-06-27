@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
-from app.db.models import get_db, MaterialMaster, BomItem, MaterialOrder, Supplier, ProjectOrder
+from app.db.models import get_db, MaterialMaster, BomItem, MaterialOrder, Supplier, ProjectOrder, UnitMaster, UnitMaterialBom
 import uuid
 from datetime import date
 
@@ -184,6 +184,75 @@ def create_material_order(data: dict, db: Session = Depends(get_db)):
     )
     db.add(mo); db.commit(); db.refresh(mo)
     return _mo_dict(mo)
+
+# ---- ユニットから部材を一括取込（方式B: マスタ由来の自動セット）----
+
+@router.get("/units")
+def list_bom_units(search: str = Query(None), db: Session = Depends(get_db)):
+    """発注用: ユニットマスタ一覧（部材紐付け数つき）"""
+    q = db.query(UnitMaster).filter(UnitMaster.is_active == True)
+    if search:
+        q = q.filter(or_(
+            UnitMaster.unit_name.ilike(f"%{search}%"),
+            UnitMaster.unit_code.ilike(f"%{search}%"),
+            UnitMaster.model_no.ilike(f"%{search}%"),
+        ))
+    units = q.order_by(UnitMaster.unit_code).all()
+    return [{
+        "id": str(u.id), "unit_code": u.unit_code, "unit_name": u.unit_name,
+        "unit_type": u.unit_type, "model_no": u.model_no,
+        "material_count": len(u.materials) if u.materials else 0,
+    } for u in units]
+
+@router.get("/units/{unit_id}/materials")
+def preview_unit_materials(unit_id: str, db: Session = Depends(get_db)):
+    """発注プレビュー: ユニットに紐づく部材（員数つき）"""
+    rows = db.query(UnitMaterialBom).options(joinedload(UnitMaterialBom.material)).filter(
+        UnitMaterialBom.unit_id == unit_id
+    ).order_by(UnitMaterialBom.sort_order).all()
+    return [{
+        "material_id": str(r.material_id),
+        "material_code": r.material.material_code if r.material else None,
+        "material_name": r.material.material_name if r.material else None,
+        "unit": r.material.unit if r.material else None,
+        "quantity": float(r.quantity),
+        "default_supplier_id": str(r.material.default_supplier_id) if r.material and r.material.default_supplier_id else None,
+        "default_supplier_name": r.material.default_supplier.name if r.material and r.material.default_supplier else None,
+    } for r in rows]
+
+@router.post("/material-orders/from-unit")
+def create_orders_from_unit(data: dict, db: Session = Depends(get_db)):
+    """ユニットに紐づく部材を一括で発注起票（員数 × 台数）。優先仕入先を自動セット"""
+    unit_id = data.get("unit_id")
+    project_order_id = data.get("project_order_id") or None
+    multiplier = float(data.get("multiplier", 1) or 1)
+    due_date = data.get("due_date")
+
+    unit = db.query(UnitMaster).filter(UnitMaster.id == unit_id).first()
+    if not unit:
+        raise HTTPException(404, "ユニットが見つかりません")
+
+    rows = db.query(UnitMaterialBom).options(joinedload(UnitMaterialBom.material)).filter(
+        UnitMaterialBom.unit_id == unit_id
+    ).order_by(UnitMaterialBom.sort_order).all()
+    if not rows:
+        raise HTTPException(400, "このユニットに紐づく部材がありません")
+
+    created = 0
+    for r in rows:
+        mat = r.material
+        db.add(MaterialOrder(
+            project_order_id=project_order_id,
+            material_id=r.material_id,
+            supplier_id=mat.default_supplier_id if mat else None,
+            order_qty=float(r.quantity) * multiplier,
+            due_date=due_date,
+            status="未発注",
+            notes=f"ユニット取込: {unit.unit_code} {unit.unit_name}",
+        ))
+        created += 1
+    db.commit()
+    return {"ok": True, "created": created, "message": f"{unit.unit_name} の部材 {created}件を発注起票しました"}
 
 @router.put("/material-orders/{mo_id}")
 def update_material_order(mo_id: str, data: dict, db: Session = Depends(get_db)):

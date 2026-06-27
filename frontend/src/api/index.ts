@@ -204,6 +204,10 @@ export const procurementApi = {
   deleteMaterialOrder: (id: string) => api.delete(`/procurement/material-orders/${id}`),
   // 仕入先
   listSuppliers: (search?: string) => api.get('/procurement/suppliers', { params: { search } }),
+  // ユニットから部材を一括取込（方式B）
+  listBomUnits: (search?: string) => api.get('/procurement/units', { params: { search } }),
+  previewUnitMaterials: (unitId: string) => api.get(`/procurement/units/${unitId}/materials`),
+  createOrdersFromUnit: (data: any) => api.post('/procurement/material-orders/from-unit', data),
 };
 
 // =============================================
@@ -264,11 +268,6 @@ export const bomMasterApi = {
   addUnitMaterial: (data: any) => api.post('/bom-master/unit-materials', data),
   updateUnitMaterial: (id: string, data: any) => api.put(`/bom-master/unit-materials/${id}`, data),
   deleteUnitMaterial: (id: string) => api.delete(`/bom-master/unit-materials/${id}`),
-  // 案件展開
-  expand: (data: any) => api.post('/bom-master/expand', data),
-  projectTree: (project_order_id: string) => api.get('/bom-master/project-tree', { params: { project_order_id } }),
-  deleteProjectProduct: (id: string) => api.delete(`/bom-master/project-products/${id}`),
-  updateProjectUnit: (id: string, data: any) => api.patch(`/bom-master/project-units/${id}`, data),
 };
 
 // =============================================

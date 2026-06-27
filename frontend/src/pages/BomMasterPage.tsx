@@ -1,22 +1,21 @@
 import { useEffect, useState } from 'react';
 import { bomMasterApi, procurementApi } from '../api';
-import OrderSearchInput from '../components/common/OrderSearchInput';
-import { Plus, Trash2, Edit2, Check, X, ChevronRight, Package, Boxes, GitBranch } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X, Package, Boxes } from 'lucide-react';
 
 const PRODUCT_TYPES = ['BFR', 'BFP', 'SCA', 'LCA', 'SRR', 'FLT', 'CY', 'LRG'];
 const UNIT_TYPES = ['本体', 'ファン', 'RV', 'サイクロン', 'ダンパー', '架台', 'その他'];
 
 export default function BomMasterPage() {
-  const [tab, setTab] = useState<'products' | 'units' | 'product-bom' | 'unit-bom' | 'expand'>('products');
+  const [tab, setTab] = useState<'products' | 'units' | 'product-bom' | 'unit-bom'>('products');
 
   return (
     <div className="p-4">
-      <h1 className="text-xl font-bold text-gray-800 mb-4">製品BOMマスタ（製品 → ユニット → 部品）</h1>
+      <h1 className="text-xl font-bold text-gray-800 mb-1">製品BOMマスタ（型式 → ユニット → 部材）</h1>
+      <p className="text-xs text-gray-500 mb-4">型式・ユニット・部材の紐付けを定義します。見積で型式を選ぶとユニット候補が出て、選んだユニットの部材が仕入管理へ自動セットされます。</p>
       <div className="flex gap-1 mb-5 border-b border-gray-200 flex-wrap">
         {([
           ['products', '製品マスタ'], ['units', 'ユニットマスタ'],
           ['product-bom', '製品構成（製品→ユニット）'], ['unit-bom', 'ユニット構成（ユニット→部品）'],
-          ['expand', '案件展開'],
         ] as const).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === key ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
@@ -28,7 +27,6 @@ export default function BomMasterPage() {
       {tab === 'units' && <UnitMasterTab />}
       {tab === 'product-bom' && <ProductBomTab />}
       {tab === 'unit-bom' && <UnitBomTab />}
-      {tab === 'expand' && <ExpandTab />}
     </div>
   );
 }
@@ -334,117 +332,6 @@ function UnitBomTab() {
                 ))}
             </tbody>
           </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ========== 案件展開 ==========
-function ExpandTab() {
-  const [order, setOrder] = useState<any>(null);
-  const [products, setProducts] = useState<any[]>([]);
-  const [selProduct, setSelProduct] = useState('');
-  const [qty, setQty] = useState('1');
-  const [genOrders, setGenOrders] = useState(true);
-  const [tree, setTree] = useState<any[]>([]);
-  const [msg, setMsg] = useState('');
-
-  useEffect(() => { bomMasterApi.listProducts().then(r => setProducts(r.data)).catch(() => {}); }, []);
-  const loadTree = (oid: string) => bomMasterApi.projectTree(oid).then(r => setTree(r.data.products || [])).catch(() => {});
-
-  const onSelectOrder = (o: any) => { setOrder(o); loadTree(o.id); };
-
-  const doExpand = async () => {
-    if (!order || !selProduct) { alert('案件子IDと製品を選択してください'); return; }
-    try {
-      const r = await bomMasterApi.expand({ project_order_id: order.id, product_master_id: selProduct, quantity: Number(qty) || 1, generate_orders: genOrders });
-      setMsg(`✓ ${r.data.message}`);
-      loadTree(order.id);
-    } catch (e: any) { setMsg(`❌ ${e.response?.data?.detail || 'エラー'}`); }
-  };
-
-  const delProduct = async (id: string) => {
-    if (!confirm('この製品NO（配下のユニット・発注含む）を削除しますか？')) return;
-    await bomMasterApi.deleteProjectProduct(id); loadTree(order.id);
-  };
-  const setUnitStatus = async (id: string, status: string) => { await bomMasterApi.updateProjectUnit(id, { status }); loadTree(order.id); };
-
-  const STATUS_COLOR: Record<string, string> = { '計画': 'bg-gray-100 text-gray-600', '製造中': 'bg-blue-100 text-blue-700', '完了': 'bg-green-100 text-green-700' };
-
-  return (
-    <div>
-      <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-4">
-        <p className="text-xs font-semibold text-indigo-700 mb-2">案件ID または 子ID を選択して、製品マスタを展開（製品NO / ユニットNO / 発注NO を採番）</p>
-        <OrderSearchInput onSelect={onSelectOrder} placeholder="案件ID または 子ID で検索" />
-        {order && (
-          <div className="mt-3 flex flex-wrap items-end gap-2 pt-3 border-t border-indigo-200">
-            <div className="flex-1 min-w-[260px]">
-              <label className="block text-xs text-gray-500 mb-1">展開する製品</label>
-              <select value={selProduct} onChange={e => setSelProduct(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm">
-                <option value="">— 製品を選択 —</option>
-                {products.map(p => <option key={p.id} value={p.id}>{p.product_code} / {p.product_name}（ユニット{p.unit_count}件）</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">台数</label>
-              <input type="number" value={qty} onChange={e => setQty(e.target.value)} className="border rounded px-2 py-1.5 text-sm w-20" />
-            </div>
-            <label className="flex items-center gap-1.5 text-sm text-gray-600 pb-1.5">
-              <input type="checkbox" checked={genOrders} onChange={e => setGenOrders(e.target.checked)} />部材発注も自動起票
-            </label>
-            <button onClick={doExpand} className="flex items-center gap-1 px-4 py-1.5 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700">
-              <GitBranch size={14} />展開
-            </button>
-            {msg && <span className={`text-xs ${msg.startsWith('✓') ? 'text-green-700' : 'text-red-500'}`}>{msg}</span>}
-          </div>
-        )}
-      </div>
-
-      {order && (
-        <div>
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">{order.child_no} の構成ツリー</h3>
-          {tree.length === 0 ? <p className="text-sm text-gray-400 py-6 text-center border rounded-lg">まだ展開された製品はありません</p>
-            : tree.map(p => (
-              <div key={p.id} className="mb-3 border rounded-lg overflow-hidden">
-                <div className="flex items-center gap-2 bg-indigo-50 px-3 py-2 border-b">
-                  <Package size={14} className="text-indigo-600" />
-                  <span className="font-mono font-bold text-indigo-700 text-sm">{p.product_no}</span>
-                  <span className="text-sm text-gray-700">{p.product_name}</span>
-                  <span className="text-xs text-gray-400">{p.product_type} / {p.model_no || '—'} × {p.quantity}台</span>
-                  <button onClick={() => delProduct(p.id)} className="ml-auto text-red-400"><Trash2 size={13} /></button>
-                </div>
-                <div className="divide-y">
-                  {p.units.length === 0 ? <p className="px-4 py-2 text-xs text-gray-400">ユニットなし（製品構成BOM未登録）</p>
-                    : p.units.map((u: any) => (
-                      <div key={u.id} className="px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          <ChevronRight size={13} className="text-gray-300" />
-                          <Boxes size={13} className="text-sky-600" />
-                          <span className="font-mono font-bold text-sky-700 text-xs">{u.unit_no}</span>
-                          <span className="text-xs text-gray-700">{u.unit_name}</span>
-                          <span className="text-xs text-gray-400">{u.unit_type || '—'} × {u.quantity}</span>
-                          <select value={u.status} onChange={e => setUnitStatus(u.id, e.target.value)}
-                            className={`ml-auto text-xs rounded px-2 py-0.5 border-0 ${STATUS_COLOR[u.status] || ''}`}>
-                            {['計画', '製造中', '完了'].map(s => <option key={s} value={s}>{s}</option>)}
-                          </select>
-                        </div>
-                        {u.orders.length > 0 && (
-                          <div className="ml-8 mt-1 flex flex-wrap gap-1.5">
-                            {u.orders.map((o: any) => (
-                              <span key={o.id} className="inline-flex items-center gap-1 text-xs bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
-                                <span className="font-mono text-amber-700">{o.order_no}</span>
-                                <span className="text-gray-600">{o.material_name}</span>
-                                <span className="text-gray-400">×{o.order_qty}</span>
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                </div>
-              </div>
-            ))}
         </div>
       )}
     </div>

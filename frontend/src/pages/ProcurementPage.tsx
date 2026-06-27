@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { procurementApi } from '../api';
-import { Plus, Trash2, Edit2, Check, X, Search } from 'lucide-react';
+import OrderSearchInput from '../components/common/OrderSearchInput';
+import { Plus, Trash2, Edit2, Check, X, Search, Boxes } from 'lucide-react';
 
 const STATUS_OPTIONS = ['未発注', '発注済', '入荷済'];
 const STATUS_COLORS: Record<string, string> = {
@@ -44,6 +45,16 @@ function OrdersTab() {
   const [newData, setNewData] = useState<any>({ status: '未発注' });
   const [loading, setLoading] = useState(false);
 
+  // 方式B: ユニットから一括取込
+  const [showUnitImport, setShowUnitImport] = useState(false);
+  const [units, setUnits] = useState<any[]>([]);
+  const [selUnitId, setSelUnitId] = useState('');
+  const [unitPreview, setUnitPreview] = useState<any[]>([]);
+  const [importOrder, setImportOrder] = useState<any>(null);
+  const [multiplier, setMultiplier] = useState('1');
+  const [importDue, setImportDue] = useState('');
+  const [importMsg, setImportMsg] = useState('');
+
   const load = () => {
     setLoading(true);
     Promise.all([
@@ -55,6 +66,29 @@ function OrdersTab() {
     }).catch(() => {}).finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, [statusFilter]);
+
+  const openUnitImport = () => {
+    setShowUnitImport(true); setShowAdd(false);
+    procurementApi.listBomUnits().then(r => setUnits(r.data)).catch(() => {});
+  };
+  const onSelectUnit = (id: string) => {
+    setSelUnitId(id); setUnitPreview([]);
+    if (id) procurementApi.previewUnitMaterials(id).then(r => setUnitPreview(r.data)).catch(() => {});
+  };
+  const doUnitImport = async () => {
+    if (!selUnitId) { alert('ユニットを選択してください'); return; }
+    try {
+      const r = await procurementApi.createOrdersFromUnit({
+        unit_id: selUnitId,
+        project_order_id: importOrder?.id || null,
+        multiplier: Number(multiplier) || 1,
+        due_date: importDue || null,
+      });
+      setImportMsg(`✓ ${r.data.message}`);
+      setSelUnitId(''); setUnitPreview([]);
+      load();
+    } catch (e: any) { setImportMsg(`❌ ${e.response?.data?.detail || 'エラー'}`); }
+  };
 
   const handleSave = async (id: string) => {
     await procurementApi.updateMaterialOrder(id, editData);
@@ -77,11 +111,65 @@ function OrdersTab() {
           <option value="">全ステータス</option>
           {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
         </select>
-        <button onClick={() => setShowAdd(true)}
-          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
-          <Plus size={14} />新規発注
+        <button onClick={openUnitImport}
+          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700">
+          <Boxes size={14} />ユニットから取込
+        </button>
+        <button onClick={() => { setShowAdd(true); setShowUnitImport(false); }}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
+          <Plus size={14} />個別発注
         </button>
       </div>
+
+      {showUnitImport && (
+        <div className="mb-4 p-3 border border-indigo-200 rounded-lg bg-indigo-50">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-indigo-700">方式B: ユニットに紐づく部材を一括取込（マスタ由来・員数×台数で自動セット）</span>
+            <button onClick={() => { setShowUnitImport(false); setImportMsg(''); }} className="text-gray-400"><X size={14} /></button>
+          </div>
+          <div className="flex flex-wrap gap-2 items-end">
+            <div className="min-w-[260px]">
+              <label className="block text-xs text-gray-500 mb-0.5">案件子ID（任意・紐付け先）</label>
+              <OrderSearchInput onSelect={(o: any) => setImportOrder(o)} placeholder="案件ID または 子ID で検索（任意）" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-0.5">ユニット（型式）</label>
+              <select value={selUnitId} onChange={e => onSelectUnit(e.target.value)} className="border rounded px-2 py-1 text-sm min-w-[240px]">
+                <option value="">— ユニット選択 —</option>
+                {units.map(u => <option key={u.id} value={u.id}>{u.unit_code} / {u.unit_name}（部材{u.material_count}件）</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-0.5">台数</label>
+              <input type="number" value={multiplier} onChange={e => setMultiplier(e.target.value)} className="border rounded px-2 py-1 text-sm w-20" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-0.5">納期</label>
+              <input type="date" value={importDue} onChange={e => setImportDue(e.target.value)} className="border rounded px-2 py-1 text-sm" />
+            </div>
+            <button onClick={doUnitImport} disabled={!unitPreview.length}
+              className="flex items-center gap-1 px-4 py-1.5 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700 disabled:opacity-50">
+              <Check size={14} />一括起票（{unitPreview.length}件）
+            </button>
+            {importMsg && <span className={`text-xs ${importMsg.startsWith('✓') ? 'text-green-700' : 'text-red-500'}`}>{importMsg}</span>}
+          </div>
+          {unitPreview.length > 0 && (
+            <div className="mt-3 bg-white border rounded p-2">
+              <p className="text-xs text-gray-500 mb-1">取込プレビュー（部材 × 員数 × 台数{multiplier}）</p>
+              <div className="flex flex-wrap gap-1.5">
+                {unitPreview.map((p, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 text-xs bg-gray-50 border rounded px-1.5 py-0.5">
+                    <span className="font-mono text-gray-500">{p.material_code}</span>
+                    <span>{p.material_name}</span>
+                    <span className="text-indigo-600 font-medium">×{(p.quantity * (Number(multiplier) || 1)).toLocaleString()}</span>
+                    {p.default_supplier_name && <span className="text-gray-400">→{p.default_supplier_name}</span>}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {showAdd && (
         <div className="mb-4 p-3 border border-blue-200 rounded-lg bg-blue-50 flex flex-wrap gap-2 items-end">

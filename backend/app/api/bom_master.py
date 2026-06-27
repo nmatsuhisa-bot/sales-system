@@ -1,10 +1,9 @@
-"""製品BOM階層マスタ API — 製品マスタ・ユニットマスタ・構成BOM・案件展開（製品NO/ユニットNO/発注NO）"""
+"""製品BOM階層マスタ API — 製品マスタ・ユニットマスタ・構成BOM（型式→ユニット→部材の紐付け定義）"""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
 from app.db.models import (
     get_db, ProductMaster, UnitMaster, ProductUnitBom, UnitMaterialBom,
-    ProjectProduct, ProjectUnit, ProjectOrder, MaterialMaster, MaterialOrder,
 )
 
 router = APIRouter()
@@ -207,149 +206,6 @@ def _um_dict(r: UnitMaterialBom):
         "unit": r.material.unit if r.material else None,
         "quantity": float(r.quantity), "sort_order": r.sort_order, "notes": r.notes,
     }
-
-# =============================================
-# 案件展開（製品NO / ユニットNO / 発注NO 採番）
-# =============================================
-
-@router.post("/expand")
-def expand_product(data: dict, db: Session = Depends(get_db)):
-    """案件子IDに製品マスタを適用し、製品NO→ユニットNO（→発注NO）を採番展開"""
-    project_order_id = data.get("project_order_id")
-    product_master_id = data.get("product_master_id")
-    qty = float(data.get("quantity", 1) or 1)
-    generate_orders = bool(data.get("generate_orders", False))
-
-    po = db.query(ProjectOrder).filter(ProjectOrder.id == project_order_id).first()
-    if not po: raise HTTPException(404, "案件子IDが見つかりません")
-    pm = db.query(ProductMaster).filter(ProductMaster.id == product_master_id).first()
-    if not pm: raise HTTPException(404, "製品マスタが見つかりません")
-
-    # 製品NO採番: {child_no}-P01
-    p_seq = db.query(ProjectProduct).filter(ProjectProduct.project_order_id == project_order_id).count() + 1
-    product_no = f"{po.child_no}-P{p_seq:02d}"
-    pp = ProjectProduct(
-        product_no=product_no, project_order_id=po.id, product_master_id=pm.id,
-        product_name=pm.product_name, product_type=pm.product_type,
-        model_no=pm.model_no, quantity=qty,
-    )
-    db.add(pp); db.flush()
-
-    # ユニット展開（製品構成BOMをたどる）
-    bom_units = db.query(ProductUnitBom).options(joinedload(ProductUnitBom.unit)).filter(
-        ProductUnitBom.product_id == pm.id
-    ).order_by(ProductUnitBom.sort_order).all()
-
-    order_seq = db.query(MaterialOrder).filter(MaterialOrder.project_order_id == project_order_id).count()
-    created_units = 0
-    created_orders = 0
-    for u_idx, bu in enumerate(bom_units, start=1):
-        um = bu.unit
-        if not um:
-            continue
-        unit_qty = float(bu.quantity) * qty
-        unit_no = f"{product_no}-U{u_idx:02d}"
-        pu = ProjectUnit(
-            unit_no=unit_no, project_product_id=pp.id, unit_master_id=um.id,
-            unit_name=um.unit_name, unit_type=um.unit_type, model_no=um.model_no,
-            quantity=unit_qty,
-        )
-        db.add(pu); db.flush()
-        created_units += 1
-
-        # 発注生成（オプション）: ユニット構成BOMをたどって部材発注を起票
-        if generate_orders:
-            mat_boms = db.query(UnitMaterialBom).options(joinedload(UnitMaterialBom.material)).filter(
-                UnitMaterialBom.unit_id == um.id
-            ).order_by(UnitMaterialBom.sort_order).all()
-            for mb in mat_boms:
-                order_seq += 1
-                order_no = f"{po.child_no}-O{order_seq:03d}"
-                mat = mb.material
-                db.add(MaterialOrder(
-                    order_no=order_no, project_order_id=po.id, project_unit_id=pu.id,
-                    material_id=mb.material_id,
-                    supplier_id=mat.default_supplier_id if mat else None,
-                    order_qty=float(mb.quantity) * unit_qty,
-                    status="未発注",
-                ))
-                created_orders += 1
-
-    db.commit()
-    return {
-        "ok": True, "product_no": product_no,
-        "created_units": created_units, "created_orders": created_orders,
-        "message": f"製品NO {product_no} を展開（ユニット{created_units}件" +
-                   (f"・発注{created_orders}件" if generate_orders else "") + "）",
-    }
-
-# =============================================
-# 案件ツリー表示（製品NO → ユニットNO → 発注NO）
-# =============================================
-
-@router.get("/project-tree")
-def project_tree(project_order_id: str = Query(...), db: Session = Depends(get_db)):
-    po = db.query(ProjectOrder).filter(ProjectOrder.id == project_order_id).first()
-    if not po: raise HTTPException(404)
-
-    products = db.query(ProjectProduct).filter(
-        ProjectProduct.project_order_id == project_order_id
-    ).order_by(ProjectProduct.product_no).all()
-
-    # ユニット毎の発注をまとめて取得
-    orders_by_unit: dict = {}
-    for mo in db.query(MaterialOrder).options(
-        joinedload(MaterialOrder.material), joinedload(MaterialOrder.supplier)
-    ).filter(MaterialOrder.project_order_id == project_order_id).all():
-        if mo.project_unit_id:
-            orders_by_unit.setdefault(str(mo.project_unit_id), []).append(mo)
-
-    tree = []
-    for pp in products:
-        units = db.query(ProjectUnit).filter(
-            ProjectUnit.project_product_id == pp.id
-        ).order_by(ProjectUnit.unit_no).all()
-        tree.append({
-            "id": str(pp.id), "product_no": pp.product_no, "product_name": pp.product_name,
-            "product_type": pp.product_type, "model_no": pp.model_no,
-            "quantity": float(pp.quantity) if pp.quantity is not None else 1,
-            "status": pp.status,
-            "units": [{
-                "id": str(u.id), "unit_no": u.unit_no, "unit_name": u.unit_name,
-                "unit_type": u.unit_type, "model_no": u.model_no,
-                "quantity": float(u.quantity) if u.quantity is not None else 1,
-                "status": u.status, "assigned_to": u.assigned_to,
-                "orders": [{
-                    "id": str(mo.id), "order_no": mo.order_no,
-                    "material_name": mo.material.material_name if mo.material else None,
-                    "supplier_name": mo.supplier.name if mo.supplier else None,
-                    "order_qty": float(mo.order_qty) if mo.order_qty is not None else None,
-                    "status": mo.status,
-                } for mo in orders_by_unit.get(str(u.id), [])],
-            } for u in units],
-        })
-    return {"child_no": po.child_no, "products": tree}
-
-@router.delete("/project-products/{pp_id}")
-def delete_project_product(pp_id: str, db: Session = Depends(get_db)):
-    pp = db.query(ProjectProduct).filter(ProjectProduct.id == pp_id).first()
-    if not pp: raise HTTPException(404)
-    # 紐付く発注も削除
-    unit_ids = [str(u.id) for u in db.query(ProjectUnit).filter(ProjectUnit.project_product_id == pp.id).all()]
-    if unit_ids:
-        db.query(MaterialOrder).filter(MaterialOrder.project_unit_id.in_(unit_ids)).delete(synchronize_session=False)
-    db.delete(pp); db.commit()
-    return {"ok": True}
-
-@router.patch("/project-units/{pu_id}")
-def update_project_unit(pu_id: str, data: dict, db: Session = Depends(get_db)):
-    u = db.query(ProjectUnit).filter(ProjectUnit.id == pu_id).first()
-    if not u: raise HTTPException(404)
-    for k in ["status", "assigned_to", "quantity", "model_no", "notes"]:
-        if k in data: setattr(u, k, data[k])
-    db.commit(); db.refresh(u)
-    return {"ok": True, "status": u.status}
-
 
 def _pick(data: dict, keys: list):
     return {k: data.get(k) for k in keys if k in data}
