@@ -19,6 +19,7 @@ import SalesPlanPage from './pages/SalesPlanPage';
 import ProcurementPage from './pages/ProcurementPage';
 import ManufacturingPage from './pages/ManufacturingPage';
 import ProcessPage from './pages/ProcessPage';
+import BomMasterPage from './pages/BomMasterPage';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('access_token');
@@ -51,6 +52,7 @@ export default function App() {
           <Route path="procurement" element={<ProcurementPage />} />
           <Route path="manufacturing" element={<ManufacturingPage />} />
           <Route path="process" element={<ProcessPage />} />
+          <Route path="bom-master" element={<BomMasterPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

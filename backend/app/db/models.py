@@ -728,7 +728,9 @@ class MaterialOrder(Base):
     """部材発注"""
     __tablename__ = "material_orders"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    order_no = Column(String(100))                                  # 発注NO（採番）
     project_order_id = Column(UUID(as_uuid=True), ForeignKey("project_orders.id"))
+    project_unit_id = Column(UUID(as_uuid=True), ForeignKey("project_units.id"))  # 案件ユニット紐付け
     material_id = Column(UUID(as_uuid=True), ForeignKey("material_masters.id"), nullable=False)
     supplier_id = Column(UUID(as_uuid=True), ForeignKey("suppliers.id"))
     order_qty = Column(Numeric(10, 3))
@@ -859,3 +861,115 @@ class WorkScheduleItem(Base):
     notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
     schedule = relationship("WorkSchedule", back_populates="items")
+
+
+# =============================================
+# ④ 製品BOM階層マスタ（製品 → ユニット(型式) → 部品(原材料)）
+# =============================================
+
+class ProductMaster(Base):
+    """製品マスタ（本体系。BFR本体・SCA本体 等）"""
+    __tablename__ = "product_masters"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    product_code = Column(String(50), unique=True, nullable=False)   # 製品コード
+    product_name = Column(String(300), nullable=False)               # 製品名
+    product_type = Column(String(50))                                # 種別 BFR/SCA/SRR/FLT/CY/LRG
+    model_no = Column(String(100))                                   # 代表型式
+    standard_price = Column(Numeric(15, 0))                          # 標準販売単価（見積パターン由来）
+    standard_hours = Column(Numeric(10, 1))                          # 標準所要工数
+    spec_json = Column(JSON)                                         # 仕様（風量・フィルタ等）
+    estimate_ref = Column(String(100))                               # 既存見積パターン紐付（model_code）
+    notes = Column(Text)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    units = relationship("ProductUnitBom", back_populates="product", cascade="all, delete-orphan")
+
+
+class UnitMaster(Base):
+    """ユニットマスタ（型式。ファン・RV・サイクロン・ダンパー 等）"""
+    __tablename__ = "unit_masters"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    unit_code = Column(String(50), unique=True, nullable=False)      # ユニットコード
+    unit_name = Column(String(300), nullable=False)                  # ユニット名
+    unit_type = Column(String(50))                                   # 種別 ファン/RV/サイクロン/本体...
+    model_no = Column(String(100))                                   # 型式
+    standard_price = Column(Numeric(15, 0))                          # 標準販売単価（見積パターン由来）
+    standard_hours = Column(Numeric(10, 1))                          # 標準所要工数
+    spec_json = Column(JSON)
+    estimate_ref = Column(String(100))                               # 既存見積パターン紐付
+    notes = Column(Text)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    materials = relationship("UnitMaterialBom", back_populates="unit", cascade="all, delete-orphan")
+
+
+class ProductUnitBom(Base):
+    """製品構成BOM（製品 → ユニット, 員数）"""
+    __tablename__ = "product_unit_boms"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    product_id = Column(UUID(as_uuid=True), ForeignKey("product_masters.id", ondelete="CASCADE"), nullable=False)
+    unit_id = Column(UUID(as_uuid=True), ForeignKey("unit_masters.id"), nullable=False)
+    quantity = Column(Numeric(10, 2), nullable=False, default=1)     # 員数
+    sort_order = Column(Integer, default=0)
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    product = relationship("ProductMaster", back_populates="units")
+    unit = relationship("UnitMaster")
+
+
+class UnitMaterialBom(Base):
+    """ユニット構成BOM（ユニット → 部品, 員数）"""
+    __tablename__ = "unit_material_boms"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    unit_id = Column(UUID(as_uuid=True), ForeignKey("unit_masters.id", ondelete="CASCADE"), nullable=False)
+    material_id = Column(UUID(as_uuid=True), ForeignKey("material_masters.id"), nullable=False)
+    quantity = Column(Numeric(10, 3), nullable=False, default=1)     # 員数
+    sort_order = Column(Integer, default=0)
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    unit = relationship("UnitMaster", back_populates="materials")
+    material = relationship("MaterialMaster")
+
+
+# ---- 案件適用層（案件子IDごとの実体・NO採番）----
+
+class ProjectProduct(Base):
+    """案件製品（製品NO）"""
+    __tablename__ = "project_products"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    product_no = Column(String(100), unique=True, nullable=False)    # 製品NO
+    project_order_id = Column(UUID(as_uuid=True), ForeignKey("project_orders.id", ondelete="CASCADE"), nullable=False)
+    product_master_id = Column(UUID(as_uuid=True), ForeignKey("product_masters.id"))
+    product_name = Column(String(300))
+    product_type = Column(String(50))
+    model_no = Column(String(100))
+    quantity = Column(Numeric(10, 2), default=1)
+    status = Column(String(20), default="計画")     # 計画/製造中/完了
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    project_order = relationship("ProjectOrder")
+    product_master = relationship("ProductMaster")
+    units = relationship("ProjectUnit", back_populates="project_product", cascade="all, delete-orphan")
+
+
+class ProjectUnit(Base):
+    """案件ユニット（ユニットNO）"""
+    __tablename__ = "project_units"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    unit_no = Column(String(100), unique=True, nullable=False)       # ユニットNO
+    project_product_id = Column(UUID(as_uuid=True), ForeignKey("project_products.id", ondelete="CASCADE"), nullable=False)
+    unit_master_id = Column(UUID(as_uuid=True), ForeignKey("unit_masters.id"))
+    unit_name = Column(String(300))
+    unit_type = Column(String(50))
+    model_no = Column(String(100))
+    quantity = Column(Numeric(10, 2), default=1)
+    status = Column(String(20), default="計画")     # 計画/製造中/完了
+    assigned_to = Column(String(100))
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    project_product = relationship("ProjectProduct", back_populates="units")
+    unit_master = relationship("UnitMaster")

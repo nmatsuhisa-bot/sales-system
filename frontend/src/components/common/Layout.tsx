@@ -2,7 +2,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, FileText, ShoppingCart,
   Truck, BarChart3, LogOut, Menu, X, Boxes, Briefcase, Database, UserCog, Calendar,
-  ShoppingBag, Factory, ClipboardList
+  ShoppingBag, Factory, ClipboardList, GitBranch
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -19,6 +19,7 @@ const navItems = [
   { to: '/users', icon: UserCog, label: 'ユーザー管理' },
   { to: '/schedule', icon: Calendar, label: 'スケジュール' },
   { to: '/sales-plan', icon: BarChart3, label: '売上計画表' },
+  { to: '/bom-master', icon: GitBranch, label: '製品BOMマスタ' },
   { to: '/procurement', icon: ShoppingBag, label: '仕入（発注）管理' },
   { to: '/manufacturing', icon: Factory, label: '製造計画' },
   { to: '/process', icon: ClipboardList, label: '工程管理' },

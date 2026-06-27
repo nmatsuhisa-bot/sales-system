@@ -241,6 +241,37 @@ export const processApi = {
 };
 
 // =============================================
+// 製品BOMマスタAPI（製品→ユニット→部品 + 案件展開）
+// =============================================
+export const bomMasterApi = {
+  // 製品マスタ
+  listProducts: (search?: string, product_type?: string) => api.get('/bom-master/products', { params: { search, product_type } }),
+  createProduct: (data: any) => api.post('/bom-master/products', data),
+  updateProduct: (id: string, data: any) => api.put(`/bom-master/products/${id}`, data),
+  deleteProduct: (id: string) => api.delete(`/bom-master/products/${id}`),
+  // ユニットマスタ
+  listUnits: (search?: string, unit_type?: string) => api.get('/bom-master/units', { params: { search, unit_type } }),
+  createUnit: (data: any) => api.post('/bom-master/units', data),
+  updateUnit: (id: string, data: any) => api.put(`/bom-master/units/${id}`, data),
+  deleteUnit: (id: string) => api.delete(`/bom-master/units/${id}`),
+  // 製品構成BOM（製品→ユニット）
+  listProductUnits: (productId: string) => api.get(`/bom-master/products/${productId}/units`),
+  addProductUnit: (data: any) => api.post('/bom-master/product-units', data),
+  updateProductUnit: (id: string, data: any) => api.put(`/bom-master/product-units/${id}`, data),
+  deleteProductUnit: (id: string) => api.delete(`/bom-master/product-units/${id}`),
+  // ユニット構成BOM（ユニット→部品）
+  listUnitMaterials: (unitId: string) => api.get(`/bom-master/units/${unitId}/materials`),
+  addUnitMaterial: (data: any) => api.post('/bom-master/unit-materials', data),
+  updateUnitMaterial: (id: string, data: any) => api.put(`/bom-master/unit-materials/${id}`, data),
+  deleteUnitMaterial: (id: string) => api.delete(`/bom-master/unit-materials/${id}`),
+  // 案件展開
+  expand: (data: any) => api.post('/bom-master/expand', data),
+  projectTree: (project_order_id: string) => api.get('/bom-master/project-tree', { params: { project_order_id } }),
+  deleteProjectProduct: (id: string) => api.delete(`/bom-master/project-products/${id}`),
+  updateProjectUnit: (id: string, data: any) => api.patch(`/bom-master/project-units/${id}`, data),
+};
+
+// =============================================
 // 認証API
 // =============================================
 export const authApi = {
