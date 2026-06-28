@@ -134,6 +134,12 @@ export const arrangementApi = {
   cranePdf: (orderId: string) => `${API_BASE}/arrangements/crane/${orderId}/pdf`,
   shippingPdf: (orderId: string) => `${API_BASE}/arrangements/shipping/${orderId}/pdf`,
   hotelPdf: (orderId: string) => `${API_BASE}/arrangements/hotel/${orderId}/pdf`,
+  // 手配業者マスタ
+  listVendors: (category?: string, search?: string) => api.get('/arrangements/vendors', { params: { category, search } }),
+  createVendor: (data: any) => api.post('/arrangements/vendors', data),
+  updateVendor: (id: string, data: any) => api.put(`/arrangements/vendors/${id}`, data),
+  deleteVendor: (id: string) => api.delete(`/arrangements/vendors/${id}`),
+  vendorCount: () => api.get('/arrangements/vendors/count'),
 };
 
 export const estimateApi = {

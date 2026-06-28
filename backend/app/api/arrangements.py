@@ -9,10 +9,81 @@ from pydantic import BaseModel
 import io
 from app.db.models import (
     get_db, ProjectOrder,
-    CraneArrangement, ShippingArrangement, HotelArrangement,
+    CraneArrangement, ShippingArrangement, HotelArrangement, ArrangementVendor,
 )
 
 router = APIRouter()
+
+# =============================================
+# 手配業者マスタ
+# =============================================
+
+def _vendor_dict(v: ArrangementVendor):
+    return {
+        "id": str(v.id), "category": v.category, "name": v.name, "branch": v.branch,
+        "contact_person": v.contact_person, "phone": v.phone, "fax": v.fax,
+        "postal_code": v.postal_code, "address": v.address, "notes": v.notes,
+    }
+
+@router.get("/vendors")
+def list_vendors(category: Optional[str] = None, search: Optional[str] = None, db: Session = Depends(get_db)):
+    q = db.query(ArrangementVendor).filter(ArrangementVendor.is_active == True)
+    if category:
+        q = q.filter(ArrangementVendor.category == category)
+    if search:
+        like = f"%{search}%"
+        q = q.filter(or_(ArrangementVendor.name.ilike(like), ArrangementVendor.branch.ilike(like),
+                         ArrangementVendor.contact_person.ilike(like)))
+    return [_vendor_dict(v) for v in q.order_by(ArrangementVendor.name).limit(50).all()]
+
+@router.post("/vendors")
+def create_vendor(data: dict, db: Session = Depends(get_db)):
+    v = ArrangementVendor(**{k: data.get(k) for k in
+        ["category", "name", "branch", "contact_person", "phone", "fax", "postal_code", "address", "notes", "source_tag"] if k in data})
+    db.add(v); db.commit(); db.refresh(v)
+    return _vendor_dict(v)
+
+@router.put("/vendors/{vendor_id}")
+def update_vendor(vendor_id: str, data: dict, db: Session = Depends(get_db)):
+    v = db.query(ArrangementVendor).filter(ArrangementVendor.id == vendor_id).first()
+    if not v: raise HTTPException(404)
+    for k in ["category", "name", "branch", "contact_person", "phone", "fax", "postal_code", "address", "notes"]:
+        if k in data: setattr(v, k, data[k])
+    db.commit(); db.refresh(v)
+    return _vendor_dict(v)
+
+@router.delete("/vendors/{vendor_id}")
+def delete_vendor(vendor_id: str, db: Session = Depends(get_db)):
+    v = db.query(ArrangementVendor).filter(ArrangementVendor.id == vendor_id).first()
+    if not v: raise HTTPException(404)
+    v.is_active = False; db.commit()
+    return {"ok": True}
+
+@router.post("/vendors/bulk")
+def bulk_vendors(data: dict, db: Session = Depends(get_db)):
+    """業者を一括登録。既存（同名＋同営業所）はスキップ。"""
+    tag = data.get("tag")
+    rows = data.get("vendors", [])
+    existing = {(r[0], r[1] or "") for r in db.query(ArrangementVendor.name, ArrangementVendor.branch).all()}
+    created = 0
+    for r in rows:
+        name = (r.get("name") or "").strip()
+        branch = (r.get("branch") or "").strip()
+        if not name or (name, branch) in existing:
+            continue
+        existing.add((name, branch))
+        db.add(ArrangementVendor(
+            category=r.get("category"), name=name, branch=branch,
+            contact_person=r.get("contact"), phone=r.get("tel"), fax=r.get("fax"),
+            source_tag=tag,
+        ))
+        created += 1
+    db.commit()
+    return {"ok": True, "created": created, "skipped": len(rows) - created}
+
+@router.get("/vendors/count")
+def vendor_count(db: Session = Depends(get_db)):
+    return {"count": db.query(ArrangementVendor).filter(ArrangementVendor.is_active == True).count()}
 
 COMPANY_FOOTER = (
     '<div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">'

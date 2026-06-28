@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
-import { mastersApi } from '../api';
-import { Plus, Edit2, Trash2, Search, Building2, MapPin, Users } from 'lucide-react';
+import { mastersApi, arrangementApi } from '../api';
+import { Plus, Edit2, Trash2, Search, Building2, MapPin, Users, Truck } from 'lucide-react';
 
-type Tab = 'agencies' | 'destinations' | 'employees';
+type Tab = 'agencies' | 'destinations' | 'employees' | 'vendors';
+const VENDOR_CATEGORIES = ['クレーン・作業車', '運送（トラック）', 'その他'];
 
 export default function MastersPage() {
   const [tab, setTab] = useState<Tab>('agencies');
   const [agencies, setAgencies] = useState<any[]>([]);
   const [destinations, setDestinations] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
+  const [vendors, setVendors] = useState<any[]>([]);
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState<any>(null);
   const [form, setForm] = useState<any>({});
@@ -17,6 +19,7 @@ export default function MastersPage() {
     mastersApi.listAgencies(search || undefined).then(r => setAgencies(r.data));
     mastersApi.listDeliveryDestinations(search || undefined).then(r => setDestinations(r.data));
     mastersApi.listEmployees(search || undefined).then(r => setEmployees(r.data));
+    arrangementApi.listVendors(undefined, search || undefined).then(r => setVendors(r.data));
   };
 
   useEffect(() => { loadAll(); }, [search]);
@@ -38,9 +41,12 @@ export default function MastersPage() {
       } else if (tab === 'destinations') {
         if (modal.id) await mastersApi.updateDeliveryDestination(modal.id, form);
         else await mastersApi.createDeliveryDestination(form);
-      } else {
+      } else if (tab === 'employees') {
         if (modal.id) await mastersApi.updateEmployee(modal.id, form);
         else await mastersApi.createEmployee(form);
+      } else {
+        if (modal.id) await arrangementApi.updateVendor(modal.id, form);
+        else await arrangementApi.createVendor(form);
       }
       setModal(null);
       loadAll();
@@ -53,7 +59,8 @@ export default function MastersPage() {
     if (!confirm('削除しますか？')) return;
     if (tab === 'agencies') await mastersApi.deleteAgency(item.id);
     else if (tab === 'destinations') await mastersApi.deleteDeliveryDestination(item.id);
-    else await mastersApi.deleteEmployee(item.id);
+    else if (tab === 'employees') await mastersApi.deleteEmployee(item.id);
+    else await arrangementApi.deleteVendor(item.id);
     loadAll();
   };
 
@@ -64,6 +71,7 @@ export default function MastersPage() {
     { key: 'agencies', label: '商社マスタ', icon: Building2, count: agencies.length },
     { key: 'destinations', label: '納入先マスタ', icon: MapPin, count: destinations.length },
     { key: 'employees', label: '従業員マスタ', icon: Users, count: employees.length },
+    { key: 'vendors', label: '手配業者マスタ', icon: Truck, count: vendors.length },
   ];
 
   return (
@@ -200,6 +208,43 @@ export default function MastersPage() {
         </div>
       )}
 
+      {/* 手配業者マスタ */}
+      {tab === 'vendors' && (
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="px-4 py-3 text-left font-medium text-gray-600">区分</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600">業者名</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600">営業所</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600">担当</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600">TEL</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600">FAX</th>
+                <th className="px-4 py-3 text-center font-medium text-gray-600">操作</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {vendors.map(v => (
+                <tr key={v.id} className="hover:bg-blue-50">
+                  <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{v.category || '—'}</td>
+                  <td className="px-4 py-3 font-medium text-gray-800">{v.name}</td>
+                  <td className="px-4 py-3 text-gray-500">{v.branch || '—'}</td>
+                  <td className="px-4 py-3 text-gray-500">{v.contact_person || '—'}</td>
+                  <td className="px-4 py-3 text-gray-500">{v.phone || '—'}</td>
+                  <td className="px-4 py-3 text-gray-500">{v.fax || '—'}</td>
+                  <td className="px-4 py-3 text-center flex items-center justify-center gap-2">
+                    <button onClick={() => openEdit(v)} className="text-blue-400 hover:text-blue-600"><Edit2 size={14} /></button>
+                    <button onClick={() => handleDelete(v)} className="text-red-300 hover:text-red-500"><Trash2 size={14} /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {vendors.length === 0 && <div className="text-center py-10 text-gray-400">該当なし（検索で絞り込み／最大50件表示）</div>}
+          <div className="px-4 py-2 text-xs text-gray-400 border-t">※ 多数登録のため検索で絞り込み表示（最大50件）</div>
+        </div>
+      )}
+
       {/* モーダル */}
       {modal !== null && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -239,6 +284,23 @@ export default function MastersPage() {
                 <F label="従業員ID *" name="employee_code" />
                 <F label="従業員名 *" name="employee_name" />
                 <F label="部署" name="department" />
+              </>)}
+              {tab === 'vendors' && (<>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">区分</label>
+                  <select value={form.category || ''} onChange={e => setForm((f: any) => ({ ...f, category: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                    <option value="">選択</option>
+                    {VENDOR_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <F label="業者名 *" name="name" />
+                <F label="営業所/支店" name="branch" />
+                <F label="担当" name="contact_person" />
+                <F label="TEL" name="phone" />
+                <F label="FAX" name="fax" />
+                <F label="郵便番号" name="postal_code" />
+                <F label="住所" name="address" />
               </>)}
             </div>
             <div className="flex justify-end gap-3 mt-5">

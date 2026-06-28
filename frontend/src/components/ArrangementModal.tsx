@@ -48,6 +48,8 @@ const CONFIG: Record<string, any> = {
       { key: 'order_no', label: '注番' },
     ],
     get: arrangementApi.getCrane, save: arrangementApi.saveCrane, pdf: arrangementApi.cranePdf,
+    vendorCategory: 'クレーン・作業車',
+    vendorFill: (v: any) => ({ vendor_name: v.name, vendor_branch: v.branch || '', vendor_contact: v.contact_person || '', vendor_tel: v.phone || '', vendor_fax: v.fax || '' }),
   },
   shipping: {
     title: '送り状（トラック手配）', cols: SHIPPING_COLS,
@@ -61,6 +63,8 @@ const CONFIG: Record<string, any> = {
       { key: 'order_no', label: '注番' },
     ],
     get: arrangementApi.getShipping, save: arrangementApi.saveShipping, pdf: arrangementApi.shippingPdf,
+    vendorCategory: '運送（トラック）',
+    vendorFill: (v: any) => ({ carrier_name: v.name, carrier_contact: v.contact_person || '', carrier_tel: v.phone || '' }),
   },
   hotel: {
     title: '宿泊予約票', cols: HOTEL_COLS,
@@ -130,6 +134,15 @@ export default function ArrangementModal({ type, orderId, childNo, onClose }: an
         </div>
 
         <div className="overflow-y-auto flex-1 p-4">
+          {/* 業者マスタから選択 */}
+          {cfg.vendorCategory && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <label className="block text-xs font-semibold text-blue-700 mb-1.5">業者マスタから選択（住所・連絡先を自動補完）</label>
+              <VendorPicker category={cfg.vendorCategory}
+                onSelect={(v: any) => setData((d: any) => ({ ...d, ...cfg.vendorFill(v) }))} />
+            </div>
+          )}
+
           {/* ヘッダー項目 */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
             {cfg.header.map((h: any) => (
@@ -198,6 +211,47 @@ export default function ArrangementModal({ type, orderId, childNo, onClose }: an
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// 業者マスタ検索セレクタ
+function VendorPicker({ category, onSelect }: { category: string; onSelect: (v: any) => void }) {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<any[]>([]);
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState<any>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      arrangementApi.listVendors(category, q || undefined)
+        .then((r: any) => { setResults(r.data); setOpen(true); })
+        .catch(() => {});
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q, category]);
+
+  return (
+    <div className="relative">
+      <input value={q} onChange={e => { setQ(e.target.value); setPicked(null); }}
+        onFocus={() => results.length && setOpen(true)}
+        placeholder="業者名・営業所・担当で検索"
+        className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" />
+      {open && results.length > 0 && !picked && (
+        <div className="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+          {results.map(v => (
+            <button key={v.id} onClick={() => { onSelect(v); setPicked(v); setQ(v.name); setOpen(false); }}
+              className="block w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 border-b border-gray-50 last:border-0">
+              <span className="font-medium text-gray-800">{v.name}</span>
+              {v.branch && <span className="text-gray-500"> / {v.branch}</span>}
+              <span className="text-gray-400 ml-2">担当:{v.contact_person || '—'} TEL:{v.phone || '—'}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {picked && (
+        <p className="mt-1 text-xs text-green-700">✓ {picked.name}{picked.branch ? ` / ${picked.branch}` : ''} を反映しました</p>
+      )}
     </div>
   );
 }

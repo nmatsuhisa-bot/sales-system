@@ -677,6 +677,25 @@ class ShippingArrangement(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class ArrangementVendor(Base):
+    """手配業者マスタ（クレーン業者・運送業者等）"""
+    __tablename__ = "arrangement_vendors"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    category = Column(String(50))              # クレーン・作業車 / 運送（トラック） / その他
+    name = Column(String(200), nullable=False) # 業者名
+    branch = Column(String(100))               # 営業所/支店
+    contact_person = Column(String(100))       # 担当
+    phone = Column(String(50))                 # TEL
+    fax = Column(String(50))                   # FAX
+    postal_code = Column(String(20))
+    address = Column(String(500))
+    notes = Column(Text)
+    source_tag = Column(String(50))            # 取込元タグ（一括削除用）
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class HotelArrangement(Base):
     """宿泊予約票"""
     __tablename__ = "hotel_arrangements"

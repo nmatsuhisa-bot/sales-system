@@ -165,6 +165,14 @@ def setup_manufacturing_tables():
         db.close()
 
 
+@app.get("/setup-arrangement-vendors")
+def setup_arrangement_vendors():
+    """手配業者マスタテーブルを作成"""
+    from app.db.models import engine, Base, ArrangementVendor
+    Base.metadata.create_all(engine, tables=[ArrangementVendor.__table__])
+    return {"status": "ok", "message": "手配業者マスタ作成完了"}
+
+
 @app.get("/setup-schedule-dates")
 def setup_schedule_dates():
     """工程表明細に start_date/end_date（絶対日付）を追加し、既存の月内日付から移行"""
