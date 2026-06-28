@@ -241,10 +241,12 @@ def export_schedule_pdf(schedule_id: str, db: Session = Depends(get_db)):
     s = db.query(WorkSchedule).options(joinedload(WorkSchedule.items)).filter(WorkSchedule.id == schedule_id).first()
     if not s: raise HTTPException(404)
     html = _build_schedule_html(s)
+    from urllib.parse import quote
+    fname = quote(f"工程表_{s.work_no or schedule_id}.html")
     return StreamingResponse(
         io.BytesIO(html.encode("utf-8")),
-        media_type="text/html",
-        headers={"Content-Disposition": f"inline; filename=工程表_{s.work_no or schedule_id}.html"}
+        media_type="text/html; charset=utf-8",
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{fname}"}
     )
 
 def _build_schedule_html(s: WorkSchedule) -> str:
