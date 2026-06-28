@@ -79,8 +79,11 @@ function PlansTab({ fiscalYear }: { fiscalYear: number }) {
   useEffect(() => { load(); }, [fiscalYear]);
 
   const handleAdd = async () => {
-    await manufacturingApi.createPlan(newData);
-    setShowAdd(false); setNewData({ status: '未着手' }); load();
+    if (!newData.project_order_id) { alert('案件ID / 子ID を選択してください'); return; }
+    try {
+      await manufacturingApi.createPlan(newData);
+      setShowAdd(false); setNewData({ status: '未着手' }); load();
+    } catch (e: any) { alert(e.response?.data?.detail || '登録に失敗しました'); }
   };
   const handleSave = async (id: string) => {
     await manufacturingApi.updatePlan(id, editData);

@@ -1,7 +1,8 @@
 """製造計画 API — 製造計画・生産能力マスタ・製品所要工数マスタ"""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func, extract
+from sqlalchemy import func, extract, or_, and_
+import calendar as _cal
 from app.db.models import get_db, ManufacturingPlan, ProductionCapacity, ProductHours, ProjectOrder
 from datetime import date
 
@@ -11,11 +12,17 @@ router = APIRouter()
 
 @router.get("/plans")
 def list_plans(year: int = Query(None), status: str = Query(None), db: Session = Depends(get_db)):
+    """year は年度(3月〜翌2月)。期間内の計画＋日付未設定(未スケジュール)の計画を表示。"""
     q = db.query(ManufacturingPlan).options(joinedload(ManufacturingPlan.project_order))
     if year:
+        fy_start = date(year, 3, 1)
+        fy_end = date(year + 1, 2, _cal.monthrange(year + 1, 2)[1])
         q = q.filter(
-            (extract('year', ManufacturingPlan.planned_start) == year) |
-            (extract('year', ManufacturingPlan.planned_end) == year)
+            or_(
+                and_(ManufacturingPlan.planned_start >= fy_start, ManufacturingPlan.planned_start <= fy_end),
+                and_(ManufacturingPlan.planned_end >= fy_start, ManufacturingPlan.planned_end <= fy_end),
+                and_(ManufacturingPlan.planned_start.is_(None), ManufacturingPlan.planned_end.is_(None)),
+            )
         )
     if status: q = q.filter(ManufacturingPlan.status == status)
     plans = q.order_by(ManufacturingPlan.planned_start).all()
@@ -23,6 +30,8 @@ def list_plans(year: int = Query(None), status: str = Query(None), db: Session =
 
 @router.post("/plans")
 def create_plan(data: dict, db: Session = Depends(get_db)):
+    if not data.get("project_order_id"):
+        raise HTTPException(400, "案件子IDを選択してください")
     p = ManufacturingPlan(
         project_order_id=data["project_order_id"],
         product_type=data.get("product_type"),
