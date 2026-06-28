@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { processApi } from '../api';
-import { Plus, Trash2, Edit2, Check, X, Printer, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X, Printer, ChevronDown, ChevronUp, Eye } from 'lucide-react';
 import OrderSearchInput from '../components/common/OrderSearchInput';
 
 const PRODUCT_TYPES = ['BFR', 'BFP', 'SCA', 'LCA', 'SRR', 'FLT', 'CY', 'LRG'];
@@ -87,6 +87,7 @@ function SchedulesTab() {
   const [yearFilter, setYearFilter] = useState(currentYear());
   const [monthFilter, setMonthFilter] = useState<number | ''>('');
   const [editModal, setEditModal] = useState<any>(null); // null | { isNew, schedule }
+  const [previewId, setPreviewId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const load = () => {
@@ -176,6 +177,7 @@ function SchedulesTab() {
                 </td>
                 <td className="border border-gray-200 px-2 py-2">
                   <div className="flex gap-1 items-center">
+                    <button onClick={() => setPreviewId(s.id)} className="p-1 text-teal-500 hover:bg-teal-50 rounded" title="簡易表示"><Eye size={14} /></button>
                     <button onClick={() => openEdit(s.id)} className="p-1 text-blue-500 hover:bg-blue-50 rounded" title="編集"><Edit2 size={13} /></button>
                     <span className="flex items-center gap-0.5 border border-purple-200 rounded px-1 py-0.5" title="印刷（単位を選択）">
                       <Printer size={12} className="text-purple-500" />
@@ -202,6 +204,98 @@ function SchedulesTab() {
           onSaved={() => { setEditModal(null); load(); }}
         />
       )}
+      {previewId && <SchedulePreviewModal id={previewId} onClose={() => setPreviewId(null)} />}
+    </div>
+  );
+}
+
+// ========== 工程表 簡易プレビュー（読み取り専用ガント） ==========
+function SchedulePreviewModal({ id, onClose }: { id: string; onClose: () => void }) {
+  const [s, setS] = useState<any>(null);
+  const [unit, setUnit] = useState<'day' | 'week' | 'month'>('day');
+  useEffect(() => { processApi.getSchedule(id).then(r => setS(r.data)).catch(() => {}); }, [id]);
+
+  if (!s) {
+    return <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"><div className="bg-white rounded-xl p-8 text-gray-400">読み込み中...</div></div>;
+  }
+
+  const wy = Number(s.work_year), wm = Number(s.work_month);
+  const items = (s.items || []).map((it: any) => {
+    const n = { ...it };
+    if (!n.start_date && n.start_day && wy && wm) n.start_date = toISO(new Date(wy, wm - 1, n.start_day));
+    if (!n.end_date && n.end_day && wy && wm) n.end_date = toISO(new Date(wy, wm - 1, n.end_day));
+    return n;
+  });
+  const dates: Date[] = items.flatMap((it: any) => [it.start_date, it.end_date]).filter(Boolean).map(fromISO);
+  let rs: Date, re: Date;
+  if (dates.length) { rs = new Date(Math.min(...dates.map(d => +d))); re = new Date(Math.max(...dates.map(d => +d))); }
+  else if (s.delivery_date) { const d = fromISO(s.delivery_date); rs = new Date(d.getFullYear(), d.getMonth(), 1); re = new Date(d.getFullYear(), d.getMonth() + 1, 0); }
+  else { rs = new Date(wy || currentYear(), (wm || 1) - 1, 1); re = new Date(wy || currentYear(), (wm || 1) - 1, daysInMonth(wy || currentYear(), wm || 1)); }
+  rs = addDays(rs, -2); re = addDays(re, 2);
+  const cols = buildCols(unit, rs, re);
+  const monthBand: { label: string; span: number }[] = [];
+  cols.forEach(c => {
+    const key = `${c.start.getFullYear()}/${c.start.getMonth() + 1}`;
+    const last = monthBand[monthBand.length - 1];
+    if (last && last.label === key) last.span += 1; else monthBand.push({ label: key, span: 1 });
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-6xl max-h-[92vh] flex flex-col">
+        <div className="p-4 border-b flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-gray-800">{s.work_name || '工程表'}</h2>
+            <p className="text-xs text-gray-500">工番 {s.work_no || '—'} ／ 納入先 {s.customer_name || '—'} ／ 納期 {s.delivery_date || '—'}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+              {([['day', '日'], ['week', '週'], ['month', '月']] as const).map(([u, lbl]) => (
+                <button key={u} onClick={() => setUnit(u)}
+                  className={`px-2.5 py-1 text-xs ${unit === u ? 'bg-purple-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>{lbl}</button>
+              ))}
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X size={20} /></button>
+          </div>
+        </div>
+        <div className="overflow-auto flex-1 p-4">
+          <table className="text-xs border-collapse">
+            <thead>
+              <tr className="bg-gray-200">
+                <th className="border border-gray-300 px-2" colSpan={2}></th>
+                {monthBand.map((b, i) => <th key={i} colSpan={b.span} className="border border-gray-300 text-center" style={{ fontSize: '9px', padding: '1px 0' }}>{b.label}</th>)}
+              </tr>
+              <tr className="bg-gray-100">
+                <th className="border border-gray-300 px-2 py-1 w-40 text-left">工程名</th>
+                <th className="border border-gray-300 px-2 py-1 w-16 text-left">機材</th>
+                {cols.map((c, i) => (
+                  <th key={i} style={{ background: c.bg, width: `${c.w}px` }} className="border border-gray-300 text-center">
+                    <div style={{ fontSize: '9px' }}>{c.label}</div>
+                    <div style={{ fontSize: '8px', color: c.color }}>{c.sub}</div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {items.filter((it: any) => it.row_type !== 'blank').map((it: any, i: number) => {
+                const sd = it.start_date ? fromISO(it.start_date) : null;
+                const ed = it.end_date ? fromISO(it.end_date) : sd;
+                return (
+                  <tr key={i} className="h-7">
+                    <td className="border border-gray-300 px-2 whitespace-nowrap">{it.step_name}</td>
+                    <td className="border border-gray-300 px-2 text-gray-500 whitespace-nowrap">{it.equipment || ''}</td>
+                    {cols.map((c, ci) => {
+                      const inRange = !!sd && !!ed && sd <= c.end && ed >= c.start;
+                      return <td key={ci} style={{ background: inRange ? (it.color || '#3b82f6') : 'white', border: '1px solid #d1d5db' }} />;
+                    })}
+                  </tr>
+                );
+              })}
+              {items.length === 0 && <tr><td colSpan={2 + cols.length} className="text-center py-6 text-gray-400">工程行がありません</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

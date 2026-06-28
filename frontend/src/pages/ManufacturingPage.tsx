@@ -215,14 +215,14 @@ function PlansTab({ fiscalYear }: { fiscalYear: number }) {
         <table className="text-xs w-full border-collapse">
           <thead>
             <tr className="bg-gray-50">
-              {['案件ID','案件名','顧客','製品','型番','開始予定','完了予定','担当','ステータス','ガント（年度）',''].map(h => (
+              {['案件ID','案件名','顧客','製品','型番','開始予定','完了予定','担当','ステータス','計画工数','ガント（年度）',''].map(h => (
                 <th key={h} className="border border-gray-200 px-2 py-2 text-left font-medium text-gray-600 whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {plans.length === 0 ? (
-              <tr><td colSpan={11} className="text-center py-8 text-gray-400">製造計画なし</td></tr>
+              <tr><td colSpan={12} className="text-center py-8 text-gray-400">製造計画なし</td></tr>
             ) : plans.map(p => editing === p.id ? (
               <tr key={p.id} className="bg-green-50">
                 <td className="border border-gray-200 px-2 py-1 font-mono">{p.child_no}</td>
@@ -257,6 +257,7 @@ function PlansTab({ fiscalYear }: { fiscalYear: number }) {
                     {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
                   </select>
                 </td>
+                <td className="border border-gray-200 px-2 py-1 text-right">{p.total_hours ? `${p.total_hours}h` : '—'}</td>
                 <td className="border border-gray-200 px-2 py-1"></td>
                 <td className="border border-gray-200 px-1 py-1">
                   <button onClick={() => handleSave(p.id)} className="p-1 text-green-600 rounded"><Check size={12} /></button>
@@ -276,15 +277,23 @@ function PlansTab({ fiscalYear }: { fiscalYear: number }) {
                 <td className="border border-gray-200 px-2 py-1">
                   <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[p.status] || 'bg-gray-100'}`}>{p.status}</span>
                 </td>
+                <td className="border border-gray-200 px-2 py-1 whitespace-nowrap text-right">
+                  <div className="font-semibold text-gray-800">{p.total_hours ? `${p.total_hours}h` : '—'}</div>
+                  {p.monthly_hours && Object.keys(p.monthly_hours).length > 0 && (
+                    <div className="text-[10px] text-gray-400 leading-tight">
+                      {Object.entries(p.monthly_hours).map(([m, h]: any) => `${m}月 ${h}h`).join(' / ')}
+                    </div>
+                  )}
+                </td>
                 <td className="border border-gray-200 px-2 py-1" style={{ minWidth: '180px' }}>
                   {p.planned_start && p.planned_end && (
                     <div className="relative h-4 bg-gray-100 rounded">
-                      <div className="absolute h-full rounded"
+                      <div className="absolute h-full rounded flex items-center justify-center text-[9px] text-white font-medium overflow-hidden"
                         style={{
                           left: `${toPercent(p.planned_start)}%`,
                           width: `${Math.max(2, toPercent(p.planned_end) - toPercent(p.planned_start))}%`,
                           backgroundColor: p.status === '完了' ? '#22c55e' : p.status === '製造中' ? '#3b82f6' : '#94a3b8',
-                        }} />
+                        }}>{p.total_hours ? `${p.total_hours}h` : ''}</div>
                       {/* today line */}
                       <div className="absolute top-0 h-full w-px bg-red-400"
                         style={{ left: `${toPercent(today)}%` }} />

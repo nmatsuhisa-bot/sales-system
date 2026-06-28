@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, extract, or_, and_
 import calendar as _cal
 from app.db.models import get_db, ManufacturingPlan, ProductionCapacity, ProductHours, ProjectOrder
-from datetime import date
+from datetime import date, timedelta
 
 router = APIRouter()
 
@@ -17,6 +17,31 @@ def _norm_model(product_type, model):
     if pt and m.startswith(pt):
         m = m[len(pt):]
     return m
+
+def _build_ph_lookup(db: Session):
+    """所要工数マスタを正規化キーで引けるmap と 製品種別平均 を返す"""
+    all_ph = db.query(ProductHours).all()
+    ph_map = {(h.product_type, _norm_model(h.product_type, h.model_no)): float(h.required_hours or 0) for h in all_ph}
+    pt_sum, pt_cnt = {}, {}
+    for h in all_ph:
+        pt_sum[h.product_type] = pt_sum.get(h.product_type, 0) + float(h.required_hours or 0)
+        pt_cnt[h.product_type] = pt_cnt.get(h.product_type, 0) + 1
+    pt_avg = {k: pt_sum[k] / pt_cnt[k] for k in pt_sum if pt_cnt[k]}
+    return ph_map, pt_avg
+
+def _plan_required_hours(plan, ph_map, pt_avg):
+    """計画の所要工数（正規化突合→無ければ種別平均）と、月別按分の内訳を返す"""
+    hrs = ph_map.get((plan.product_type, _norm_model(plan.product_type, plan.model_no)))
+    if not hrs:
+        hrs = pt_avg.get(plan.product_type, 0)
+    monthly = {}
+    if plan.planned_start and plan.planned_end and hrs:
+        td = max((plan.planned_end - plan.planned_start).days, 0) + 1
+        cur = plan.planned_start
+        while cur <= plan.planned_end:
+            monthly[cur.month] = round(monthly.get(cur.month, 0) + hrs / td, 1)
+            cur += timedelta(days=1)
+    return round(hrs or 0, 1), monthly
 
 # ---- 製造計画 ----
 
@@ -36,7 +61,15 @@ def list_plans(year: int = Query(None), status: str = Query(None), db: Session =
         )
     if status: q = q.filter(ManufacturingPlan.status == status)
     plans = q.order_by(ManufacturingPlan.planned_start).all()
-    return [_plan_dict(p) for p in plans]
+    ph_map, pt_avg = _build_ph_lookup(db)
+    out = []
+    for p in plans:
+        d = _plan_dict(p)
+        total, monthly = _plan_required_hours(p, ph_map, pt_avg)
+        d["total_hours"] = total
+        d["monthly_hours"] = monthly
+        out.append(d)
+    return out
 
 @router.post("/plans")
 def create_plan(data: dict, db: Session = Depends(get_db)):
@@ -238,32 +271,14 @@ def get_monthly_load(year: int = Query(...), factory: str = Query("小牧"), db:
 
     # 製造計画の期間から月別工数を集計
     plans = db.query(ManufacturingPlan).options(joinedload(ManufacturingPlan.project_order)).all()
-    all_ph = db.query(ProductHours).all()
-    # 正規化キーで突合
-    ph_map = {(h.product_type, _norm_model(h.product_type, h.model_no)): float(h.required_hours) for h in all_ph}
-    # 製品種別ごとの平均（正確な型番が無いときの代替）
-    pt_sum, pt_cnt = {}, {}
-    for h in all_ph:
-        pt_sum[h.product_type] = pt_sum.get(h.product_type, 0) + float(h.required_hours or 0)
-        pt_cnt[h.product_type] = pt_cnt.get(h.product_type, 0) + 1
-    pt_avg = {k: pt_sum[k] / pt_cnt[k] for k in pt_sum if pt_cnt[k]}
+    ph_map, pt_avg = _build_ph_lookup(db)
 
     monthly_load = {}
     for p in plans:
         if not p.planned_start or not p.planned_end: continue
-        hrs = ph_map.get((p.product_type, _norm_model(p.product_type, p.model_no)))
-        if not hrs:
-            hrs = pt_avg.get(p.product_type, 0)   # 正確な型番が無ければ製品種別平均で代替
-        if not hrs: continue
-        # 製造期間を月ごとに按分
-        start = p.planned_start; end = p.planned_end
-        total_days = max((end - start).days, 1)
-        cur = start
-        while cur <= end:
-            m = cur.month
-            monthly_load[m] = monthly_load.get(m, 0) + hrs / total_days
-            from datetime import timedelta
-            cur += timedelta(days=1)
+        _, monthly = _plan_required_hours(p, ph_map, pt_avg)
+        for m, h in monthly.items():
+            monthly_load[m] = monthly_load.get(m, 0) + h
 
     # 3月始まり月順
     month_list = [3,4,5,6,7,8,9,10,11,12,1,2]
