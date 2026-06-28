@@ -85,29 +85,29 @@ function SchedulesTab() {
   const [schedules, setSchedules] = useState<any[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
   const [yearFilter, setYearFilter] = useState(currentYear());
-  const [monthFilter, setMonthFilter] = useState<number>(new Date().getMonth() + 1);
-  const [spanFilter, setSpanFilter] = useState<number>(3);
+  const [monthFilter, setMonthFilter] = useState<number | ''>('');
+  const [printMenu, setPrintMenu] = useState<string | null>(null);
   const [editModal, setEditModal] = useState<any>(null); // null | { isNew, schedule }
   const [loading, setLoading] = useState(false);
 
   const load = () => {
     setLoading(true);
     Promise.all([
-      processApi.listSchedules(yearFilter, monthFilter, undefined, spanFilter),
+      processApi.listSchedules(yearFilter, monthFilter || undefined),
       processApi.listTemplates(),
     ]).then(([s, t]) => { setSchedules(s.data); setTemplates(t.data); })
       .catch(() => {}).finally(() => setLoading(false));
   };
-  useEffect(() => { load(); }, [yearFilter, monthFilter, spanFilter]);
+  useEffect(() => { load(); }, [yearFilter, monthFilter]);
 
   const handleDelete = async (id: string) => {
     if (!confirm('削除しますか？')) return;
     await processApi.deleteSchedule(id); load();
   };
 
-  const handlePrint = (id: string) => {
-    const url = processApi.pdfUrl(id);
-    window.open(url, '_blank');
+  const handlePrint = (id: string, unit: string) => {
+    setPrintMenu(null);
+    window.open(processApi.pdfUrl(id, unit), '_blank');
   };
 
   const openNew = () => {
@@ -134,23 +134,15 @@ function SchedulesTab() {
   return (
     <div>
       <div className="flex items-center gap-2 mb-3 flex-wrap">
-        <span className="text-xs text-gray-500">表示開始</span>
         <select value={yearFilter} onChange={e => setYearFilter(Number(e.target.value))}
           className="border rounded px-2 py-1 text-sm">
           {[thisYear-1, thisYear, thisYear+1].map(y => <option key={y} value={y}>{y}年</option>)}
         </select>
-        <select value={monthFilter} onChange={e => setMonthFilter(Number(e.target.value))}
+        <select value={monthFilter} onChange={e => setMonthFilter(e.target.value ? Number(e.target.value) : '')}
           className="border rounded px-2 py-1 text-sm">
+          <option value="">全月</option>
           {Array.from({length:12}, (_,i) => i+1).map(m => <option key={m} value={m}>{m}月</option>)}
         </select>
-        <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-          {[1, 3, 6, 12].map(sp => (
-            <button key={sp} onClick={() => setSpanFilter(sp)}
-              className={`px-3 py-1 text-sm ${spanFilter === sp ? 'bg-purple-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-              {sp}ヶ月
-            </button>
-          ))}
-        </div>
         <button onClick={openNew}
           className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white text-sm rounded hover:bg-purple-700">
           <Plus size={14} />工程表作成
@@ -185,9 +177,23 @@ function SchedulesTab() {
                   }`}>{s.status}</span>
                 </td>
                 <td className="border border-gray-200 px-2 py-2">
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 items-center">
                     <button onClick={() => openEdit(s.id)} className="p-1 text-blue-500 hover:bg-blue-50 rounded" title="編集"><Edit2 size={13} /></button>
-                    <button onClick={() => handlePrint(s.id)} className="p-1 text-purple-500 hover:bg-purple-50 rounded" title="印刷"><Printer size={13} /></button>
+                    <div className="relative">
+                      <button onClick={() => setPrintMenu(printMenu === s.id ? null : s.id)} className="p-1 text-purple-500 hover:bg-purple-50 rounded" title="印刷"><Printer size={13} /></button>
+                      {printMenu === s.id && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setPrintMenu(null)} />
+                          <div className="absolute right-0 top-7 z-20 bg-white border rounded-lg shadow-lg py-1 w-28">
+                            <div className="px-3 py-1 text-[10px] text-gray-400">印刷単位</div>
+                            {([['day','日単位'],['week','週単位'],['month','月単位']] as const).map(([u, lbl]) => (
+                              <button key={u} onClick={() => handlePrint(s.id, u)}
+                                className="block w-full text-left px-3 py-1.5 text-xs hover:bg-purple-50">{lbl}</button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
                     <button onClick={() => handleDelete(s.id)} className="p-1 text-red-400 hover:bg-red-50 rounded" title="削除"><Trash2 size={13} /></button>
                   </div>
                 </td>

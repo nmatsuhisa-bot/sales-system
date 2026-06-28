@@ -253,7 +253,7 @@ export const processApi = {
   updateSchedule: (id: string, data: any) => api.put(`/process/schedules/${id}`, data),
   deleteSchedule: (id: string) => api.delete(`/process/schedules/${id}`),
   generateSchedule: (data: any) => api.post('/process/schedules/generate', data),
-  pdfUrl: (id: string) => `${API_BASE}/process/schedules/${id}/pdf`,
+  pdfUrl: (id: string, unit?: string) => `${API_BASE}/process/schedules/${id}/pdf${unit ? `?unit=${unit}` : ''}`,
 };
 
 // =============================================
