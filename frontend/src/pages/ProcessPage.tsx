@@ -86,7 +86,6 @@ function SchedulesTab() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [yearFilter, setYearFilter] = useState(currentYear());
   const [monthFilter, setMonthFilter] = useState<number | ''>('');
-  const [printMenu, setPrintMenu] = useState<string | null>(null);
   const [editModal, setEditModal] = useState<any>(null); // null | { isNew, schedule }
   const [loading, setLoading] = useState(false);
 
@@ -106,7 +105,6 @@ function SchedulesTab() {
   };
 
   const handlePrint = (id: string, unit: string) => {
-    setPrintMenu(null);
     window.open(processApi.pdfUrl(id, unit), '_blank');
   };
 
@@ -179,21 +177,13 @@ function SchedulesTab() {
                 <td className="border border-gray-200 px-2 py-2">
                   <div className="flex gap-1 items-center">
                     <button onClick={() => openEdit(s.id)} className="p-1 text-blue-500 hover:bg-blue-50 rounded" title="編集"><Edit2 size={13} /></button>
-                    <div className="relative">
-                      <button onClick={() => setPrintMenu(printMenu === s.id ? null : s.id)} className="p-1 text-purple-500 hover:bg-purple-50 rounded" title="印刷"><Printer size={13} /></button>
-                      {printMenu === s.id && (
-                        <>
-                          <div className="fixed inset-0 z-10" onClick={() => setPrintMenu(null)} />
-                          <div className="absolute right-0 top-7 z-20 bg-white border rounded-lg shadow-lg py-1 w-28">
-                            <div className="px-3 py-1 text-[10px] text-gray-400">印刷単位</div>
-                            {([['day','日単位'],['week','週単位'],['month','月単位']] as const).map(([u, lbl]) => (
-                              <button key={u} onClick={() => handlePrint(s.id, u)}
-                                className="block w-full text-left px-3 py-1.5 text-xs hover:bg-purple-50">{lbl}</button>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
+                    <span className="flex items-center gap-0.5 border border-purple-200 rounded px-1 py-0.5" title="印刷（単位を選択）">
+                      <Printer size={12} className="text-purple-500" />
+                      {([['day','日'],['week','週'],['month','月']] as const).map(([u, lbl]) => (
+                        <button key={u} onClick={() => handlePrint(s.id, u)}
+                          className="text-[11px] px-1 rounded text-purple-600 hover:bg-purple-100">{lbl}</button>
+                      ))}
+                    </span>
                     <button onClick={() => handleDelete(s.id)} className="p-1 text-red-400 hover:bg-red-50 rounded" title="削除"><Trash2 size={13} /></button>
                   </div>
                 </td>
