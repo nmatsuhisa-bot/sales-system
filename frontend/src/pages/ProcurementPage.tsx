@@ -108,6 +108,11 @@ function PurchaseOrdersTab({ initialOrder }: { initialOrder?: any }) {
 
   const setPoStatus = async (id: string, status: string) => { await procurementApi.updatePoStatus(id, status); load(); };
   const delPo = async (id: string) => { if (confirm('この発注書を削除しますか？')) { await procurementApi.deletePurchaseOrder(id); load(); } };
+  const receivePo = async (id: string) => {
+    if (!confirm('この発注書を入荷登録します（在庫引当の明細を除き、各明細を在庫に加算）。よろしいですか？')) return;
+    try { const r = await procurementApi.receivePoStock(id); alert(r.data.message); load(); }
+    catch (e: any) { alert(e.response?.data?.detail || 'エラー'); }
+  };
   const toggleExpand = (po: any) => {
     setExpanded(e => { const n = { ...e }; if (n[po.id]) delete n[po.id]; else n[po.id] = true; return n; });
   };
@@ -222,6 +227,10 @@ function PurchaseOrdersTab({ initialOrder }: { initialOrder?: any }) {
                       <button onClick={() => setPoStatus(po.id, '発注済')}
                         className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 mr-1">発注確定</button>
                     )}
+                    {(po.status === '発注済' || po.status === '一部入荷') && (
+                      <button onClick={() => receivePo(po.id)}
+                        className="px-2 py-1 bg-teal-600 text-white text-xs rounded hover:bg-teal-700 mr-1">入荷登録</button>
+                    )}
                     <a href={procurementApi.poPdfUrl(po.id)} target="_blank" rel="noreferrer"
                       className="inline-flex items-center gap-1 px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 mr-1"><FileText size={12} />発注書</a>
                     <button onClick={() => delPo(po.id)} className="text-red-400"><Trash2 size={13} /></button>
@@ -294,6 +303,11 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
     reload(); onChange();
   };
   const delLine = async (id: string) => { await procurementApi.deleteMaterialOrder(id); reload(); onChange(); };
+  const allocate = async (l: any) => {
+    if (!confirm(`「${l.material_name}」を在庫から引き当てます（数量 ${l.order_qty}）。よろしいですか？`)) return;
+    try { await procurementApi.allocateFromStock(l.id); reload(); onChange(); }
+    catch (e: any) { alert(e.response?.data?.detail || 'エラー'); }
+  };
   const updLineLocal = (id: string, patch: any) =>
     setPo((p: any) => ({ ...p, lines: p.lines.map((l: any) => l.id === id ? { ...l, ...patch } : l) }));
 
@@ -343,7 +357,14 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
               <td className="px-1 py-1"><input disabled={!editable} type="number" value={l.unit_price ?? ''} onChange={e => updLineLocal(l.id, { unit_price: e.target.value })} onBlur={() => editable && saveLine(l)} className="border rounded px-1 w-24 text-right disabled:bg-gray-50 disabled:border-transparent" /></td>
               <td className="px-2 py-1 text-right">¥{Number((Number(l.order_qty) || 0) * (Number(l.unit_price) || 0)).toLocaleString()}</td>
               <td className="px-1 py-1"><input disabled={!editable} type="date" value={l.due_date || ''} onChange={e => updLineLocal(l.id, { due_date: e.target.value })} onBlur={() => editable && saveLine(l)} className="border rounded px-1 text-xs disabled:bg-gray-50 disabled:border-transparent" /></td>
-              <td className="px-1 py-1">{editable && <button onClick={() => delLine(l.id)} className="text-red-400"><Trash2 size={12} /></button>}</td>
+              <td className="px-1 py-1 whitespace-nowrap">
+                {l.status === '在庫引当'
+                  ? <span className="text-xs text-orange-600 font-medium">在庫引当</span>
+                  : <>
+                      {editable && <button onClick={() => allocate(l)} className="text-orange-500 hover:text-orange-700 mr-1.5 text-[11px]" title="在庫から引当">在庫引当</button>}
+                      {editable && <button onClick={() => delLine(l.id)} className="text-red-400"><Trash2 size={12} /></button>}
+                    </>}
+              </td>
             </tr>
           ))}
           {(po.lines || []).length === 0 && <tr><td colSpan={8} className="px-2 py-2 text-gray-400">明細なし。下で追加してください。</td></tr>}

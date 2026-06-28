@@ -787,6 +787,22 @@ class MaterialOrder(Base):
     supplier = relationship("Supplier", foreign_keys=[supplier_id])
     purchase_order = relationship("MaterialPurchaseOrder", back_populates="lines")
 
+
+class MaterialStockMovement(Base):
+    """部材在庫の入出庫履歴（在庫数 = quantityの合計。入荷=+ / 利用・引当=- / 調整=±）"""
+    __tablename__ = "material_stock_movements"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    material_id = Column(UUID(as_uuid=True), ForeignKey("material_masters.id"), nullable=False)
+    movement_type = Column(String(20), nullable=False)   # 入荷 / 利用 / 引当 / 調整
+    quantity = Column(Numeric(12, 3), nullable=False)     # 符号付き（+入庫 / -出庫）
+    movement_date = Column(Date)
+    project_order_id = Column(UUID(as_uuid=True), ForeignKey("project_orders.id"))
+    purchase_order_id = Column(UUID(as_uuid=True), ForeignKey("material_purchase_orders.id"))
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    material = relationship("MaterialMaster")
+    project_order = relationship("ProjectOrder")
+
 # =============================================
 # ② 製造計画
 # =============================================

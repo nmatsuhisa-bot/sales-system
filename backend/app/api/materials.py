@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, func as safunc
 from app.db.models import (
     get_db, MaterialMaster, BomItem, MaterialOrder, Supplier, ProjectOrder,
-    UnitMaster, UnitMaterialBom, QuotationHeader, MaterialPurchaseOrder,
+    UnitMaster, UnitMaterialBom, QuotationHeader, MaterialPurchaseOrder, MaterialStockMovement,
 )
 import uuid, io
 from datetime import date
@@ -369,6 +369,26 @@ def update_material_order(mo_id: str, data: dict, db: Session = Depends(get_db))
     db.commit(); db.refresh(mo)
     return _mo_dict(mo)
 
+@router.post("/material-orders/{mo_id}/allocate-stock")
+def allocate_from_stock(mo_id: str, db: Session = Depends(get_db)):
+    """発注明細を在庫から引き当て（在庫を order_qty 分減算し、明細を「在庫引当」にする）"""
+    mo = db.query(MaterialOrder).filter(MaterialOrder.id == mo_id).first()
+    if not mo: raise HTTPException(404)
+    qty = float(mo.order_qty or 0)
+    if qty <= 0: raise HTTPException(400, "数量が未設定です")
+    db.add(MaterialStockMovement(
+        material_id=mo.material_id, movement_type="引当", quantity=-qty,
+        movement_date=date.today().isoformat(),
+        project_order_id=mo.project_order_id,
+        purchase_order_id=mo.purchase_order_id,
+        notes=f"発注明細から在庫引当",
+    ))
+    mo.status = "在庫引当"
+    db.commit()
+    stock = db.query(safunc.coalesce(safunc.sum(MaterialStockMovement.quantity), 0)).filter(
+        MaterialStockMovement.material_id == mo.material_id).scalar()
+    return {"ok": True, "stock": float(stock or 0)}
+
 @router.delete("/material-orders/{mo_id}")
 def delete_material_order(mo_id: str, db: Session = Depends(get_db)):
     mo = db.query(MaterialOrder).filter(MaterialOrder.id == mo_id).first()
@@ -491,6 +511,34 @@ def update_po_status(po_id: str, status: str = Query(...), db: Session = Depends
             l.status = "入荷済" if status == "入荷済" else ("未発注" if status == "キャンセル" else "発注済")
     db.commit()
     return {"ok": True, "status": po.status}
+
+@router.post("/purchase-orders/{po_id}/receive-stock")
+def receive_po_stock(po_id: str, db: Session = Depends(get_db)):
+    """発注書の入荷登録：各明細を在庫に加算（入荷）し、発注書を入荷済にする。在庫引当の明細は除外。"""
+    po = db.query(MaterialPurchaseOrder).filter(MaterialPurchaseOrder.id == po_id).first()
+    if not po: raise HTTPException(404)
+    dup = db.query(MaterialStockMovement).filter(
+        MaterialStockMovement.purchase_order_id == po_id,
+        MaterialStockMovement.movement_type == "入荷").first()
+    if dup:
+        raise HTTPException(400, "この発注書は既に入荷登録済みです")
+    created = 0
+    for l in po.lines:
+        if l.status == "在庫引当":
+            continue
+        qty = float(l.order_qty or 0)
+        if qty <= 0:
+            continue
+        db.add(MaterialStockMovement(
+            material_id=l.material_id, movement_type="入荷", quantity=qty,
+            movement_date=date.today().isoformat(),
+            project_order_id=l.project_order_id, purchase_order_id=po.id, notes="発注入荷",
+        ))
+        l.status = "入荷済"
+        created += 1
+    po.status = "入荷済"
+    db.commit()
+    return {"ok": True, "created": created, "message": f"{created}明細を入荷登録しました"}
 
 @router.delete("/purchase-orders/{po_id}")
 def delete_purchase_order(po_id: str, db: Session = Depends(get_db)):

@@ -165,6 +165,14 @@ def setup_manufacturing_tables():
         db.close()
 
 
+@app.get("/setup-material-stock")
+def setup_material_stock():
+    """部材在庫の入出庫履歴テーブルを作成"""
+    from app.db.models import engine, Base, MaterialStockMovement
+    Base.metadata.create_all(engine, tables=[MaterialStockMovement.__table__])
+    return {"status": "ok", "message": "部材在庫テーブル作成完了"}
+
+
 @app.get("/setup-arrangement-vendors")
 def setup_arrangement_vendors():
     """手配業者マスタテーブルを作成"""

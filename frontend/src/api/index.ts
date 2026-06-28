@@ -90,6 +90,10 @@ export const inventoryApi = {
   list: () => api.get('/inventory'),
   addMovement: (data: any) => api.post('/inventory/movements', data),
   getMovements: (productId: string) => api.get(`/inventory/movements/${productId}`),
+  // 部材在庫（入荷−利用）
+  listMaterialStock: (search?: string, low_only?: boolean) => api.get('/inventory/materials', { params: { search, low_only } }),
+  addMaterialMovement: (data: any) => api.post('/inventory/material-movements', data),
+  materialHistory: (materialId: string) => api.get(`/inventory/material-movements/${materialId}`),
 };
 
 // =============================================
@@ -225,6 +229,8 @@ export const procurementApi = {
   deletePurchaseOrder: (id: string) => api.delete(`/procurement/purchase-orders/${id}`),
   createPOsFromUnits: (data: any) => api.post('/procurement/purchase-orders/from-units', data),
   poPdfUrl: (id: string) => `${API_BASE}/procurement/purchase-orders/${id}/pdf`,
+  allocateFromStock: (moId: string) => api.post(`/procurement/material-orders/${moId}/allocate-stock`),
+  receivePoStock: (poId: string) => api.post(`/procurement/purchase-orders/${poId}/receive-stock`),
 };
 
 // =============================================
