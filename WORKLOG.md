@@ -15,6 +15,12 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-06-28（夜） — Claude(Cowork) — 検証ラン（push後の動作確認）
+- フロント修正(921e0dd)をpush済み→Render自動デプロイ。
+- ライブAPI確認: `/suppliers`=[]（仕入先未登録）, `/material-orders`=10件OK, `/bom`=1件OK。**P-02は本番に影響なし**（order_no/project_unit_id 列は既に存在＝/setup-bom-master-tables 実行済み、ユニット取込データあり）。
+- 注意: 匿名GET `/materials`(検索なし)が[]を返すが、`?search=208005167`では該当部材が返り、orders/bomも同部材を参照。`list_materials`のコードは全履歴で同一・正しい。未知クエリparamが手前で除去されており、**匿名エンドポイント前段のキャッシュによる stale [] の可能性が高い**（実バグではない見込み）。要・実UI（部材マスタタブ）での目視確認。毎朝タスクがChromeで確認する。
+
+
 ### 2026-06-28 — Claude(Cowork) — /procurement バグ検証・修正
 **対象**: https://sales-frontend-ybzn.onrender.com/procurement
 **触ったファイル**: `frontend/src/pages/ProcurementPage.tsx`, `backend/migrations/manufacturing_procurement.sql`, `WORKLOG.md`（新規）
