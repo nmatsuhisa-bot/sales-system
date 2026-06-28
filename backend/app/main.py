@@ -165,6 +165,40 @@ def setup_manufacturing_tables():
         db.close()
 
 
+@app.get("/setup-schedule-dates")
+def setup_schedule_dates():
+    """工程表明細に start_date/end_date（絶対日付）を追加し、既存の月内日付から移行"""
+    from app.db.models import engine
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE work_schedule_items ADD COLUMN IF NOT EXISTS start_date DATE"))
+            conn.execute(text("ALTER TABLE work_schedule_items ADD COLUMN IF NOT EXISTS end_date DATE"))
+            conn.commit()
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+        # 既存データ移行（無効日付はスキップ）
+        migrated = 0
+        try:
+            r1 = conn.execute(text("""
+                UPDATE work_schedule_items wi SET start_date = make_date(ws.work_year, ws.work_month, wi.start_day)
+                FROM work_schedules ws
+                WHERE wi.schedule_id = ws.id AND wi.start_date IS NULL AND wi.start_day IS NOT NULL
+                  AND ws.work_year IS NOT NULL AND ws.work_month IS NOT NULL AND wi.start_day BETWEEN 1 AND 28
+            """))
+            r2 = conn.execute(text("""
+                UPDATE work_schedule_items wi SET end_date = make_date(ws.work_year, ws.work_month, wi.end_day)
+                FROM work_schedules ws
+                WHERE wi.schedule_id = ws.id AND wi.end_date IS NULL AND wi.end_day IS NOT NULL
+                  AND ws.work_year IS NOT NULL AND ws.work_month IS NOT NULL AND wi.end_day BETWEEN 1 AND 28
+            """))
+            conn.commit()
+            migrated = (r1.rowcount or 0) + (r2.rowcount or 0)
+        except Exception as e:
+            return {"status": "partial", "message": f"列追加OK・移行スキップ: {e}"}
+    return {"status": "ok", "message": f"start_date/end_date 追加完了（移行 {migrated} 件）"}
+
+
 @app.get("/setup-purchase-order-tables")
 def setup_purchase_order_tables():
     """発注書ヘッダーテーブルを作成し、material_orders に purchase_order_id を追加"""

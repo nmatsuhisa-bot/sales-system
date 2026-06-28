@@ -120,6 +120,8 @@ def create_schedule(data: dict, db: Session = Depends(get_db)):
             step_name=item["step_name"],
             start_day=item.get("start_day"),
             end_day=item.get("end_day"),
+            start_date=item.get("start_date"),
+            end_date=item.get("end_date"),
             equipment=item.get("equipment"),
             color=item.get("color", "#3b82f6"),
             notes=item.get("notes"),
@@ -152,6 +154,8 @@ def update_schedule(schedule_id: str, data: dict, db: Session = Depends(get_db))
                 step_name=item["step_name"],
                 start_day=item.get("start_day"),
                 end_day=item.get("end_day"),
+                start_date=item.get("start_date"),
+                end_date=item.get("end_date"),
                 equipment=item.get("equipment"),
                 color=item.get("color", "#3b82f6"),
                 notes=item.get("notes"),
@@ -185,14 +189,12 @@ def generate_from_template(data: dict, db: Session = Depends(get_db)):
 
     items = []
     for step in t.steps:
-        start_date = delivery + timedelta(days=step.offset_start_days)
-        end_date = start_date + timedelta(days=step.duration_days - 1)
-        # 同月内にクランプ
-        start_day = max(1, start_date.day) if start_date.month == month else (1 if start_date < delivery else None)
-        end_day = min(end_date.day, calendar.monthrange(year, month)[1]) if end_date.month == month else (calendar.monthrange(year, month)[1] if end_date > delivery else None)
+        sd = delivery + timedelta(days=step.offset_start_days)
+        ed = sd + timedelta(days=step.duration_days - 1)
         items.append({
             "step_no": step.step_no, "row_type": "task", "step_name": step.step_name,
-            "start_day": start_day, "end_day": end_day,
+            "start_date": str(sd), "end_date": str(ed),
+            "start_day": sd.day, "end_day": ed.day,  # 後方互換
             "equipment": step.equipment, "color": step.color or "#3b82f6", "notes": None,
         })
 
@@ -229,6 +231,8 @@ def _item_dict(i: WorkScheduleItem):
     return {
         "id": str(i.id), "step_no": i.step_no, "row_type": i.row_type,
         "step_name": i.step_name, "start_day": i.start_day, "end_day": i.end_day,
+        "start_date": str(i.start_date) if i.start_date else None,
+        "end_date": str(i.end_date) if i.end_date else None,
         "equipment": i.equipment, "color": i.color, "notes": i.notes,
     }
 
@@ -237,10 +241,10 @@ def _item_dict(i: WorkScheduleItem):
 # =============================================
 
 @router.get("/schedules/{schedule_id}/pdf")
-def export_schedule_pdf(schedule_id: str, db: Session = Depends(get_db)):
+def export_schedule_pdf(schedule_id: str, unit: str = Query("day"), db: Session = Depends(get_db)):
     s = db.query(WorkSchedule).options(joinedload(WorkSchedule.items)).filter(WorkSchedule.id == schedule_id).first()
     if not s: raise HTTPException(404)
-    html = _build_schedule_html(s)
+    html = _build_schedule_html(s, unit if unit in ("day", "week", "month") else "day")
     from urllib.parse import quote
     fname = quote(f"工程表_{s.work_no or schedule_id}.html")
     return StreamingResponse(
@@ -249,66 +253,112 @@ def export_schedule_pdf(schedule_id: str, db: Session = Depends(get_db)):
         headers={"Content-Disposition": f"inline; filename*=UTF-8''{fname}"}
     )
 
-def _build_schedule_html(s: WorkSchedule) -> str:
+def _build_schedule_html(s: WorkSchedule, unit: str = "day") -> str:
     import calendar as cal
-    year = s.work_year or date.today().year
-    month = s.work_month or date.today().month
-    days_in_month = cal.monthrange(year, month)[1]
-    days = list(range(1, days_in_month + 1))
-    WEEKDAYS_JP = ['月','火','水','木','金','土','日']
+    from datetime import date as _date, timedelta as _td
+    WEEKDAYS_JP = ['月', '火', '水', '木', '金', '土', '日']
 
-    def dow(d: int) -> str:
-        wd = cal.weekday(year, month, d)
-        return WEEKDAYS_JP[wd]
+    def _item_range(item):
+        sd = item.start_date; ed = item.end_date
+        if sd is None and item.start_day and s.work_year and s.work_month:
+            try: sd = _date(s.work_year, s.work_month, int(item.start_day))
+            except Exception: sd = None
+        if ed is None and item.end_day and s.work_year and s.work_month:
+            try: ed = _date(s.work_year, s.work_month, int(item.end_day))
+            except Exception: ed = None
+        if sd and not ed: ed = sd
+        if ed and not sd: sd = ed
+        return sd, ed
 
-    def dow_color(d: int) -> str:
-        wd = cal.weekday(year, month, d)
-        if wd == 5: return '#bfdbfe'   # 土: 水色
-        if wd == 6: return '#fecaca'   # 日: 赤
-        return 'white'
+    ranges = [_item_range(i) for i in s.items if i.row_type != 'blank']
+    starts = [r[0] for r in ranges if r[0]]
+    ends = [r[1] for r in ranges if r[1]]
+    if starts and ends:
+        rng_start, rng_end = min(starts), max(ends)
+    else:
+        d = s.delivery_date if isinstance(s.delivery_date, _date) else None
+        if d is None:
+            y = s.work_year or _date.today().year; m = s.work_month or _date.today().month
+            rng_start = _date(y, m, 1); rng_end = _date(y, m, cal.monthrange(y, m)[1])
+        else:
+            rng_start = _date(d.year, d.month, 1)
+            rng_end = _date(d.year, d.month, cal.monthrange(d.year, d.month)[1])
+    rng_start -= _td(days=2); rng_end += _td(days=2)
 
-    # ヘッダー行のday columns
-    day_header = ''.join(
-        f'<td style="width:20px;text-align:center;background:{dow_color(d)};border:1px solid #999;font-size:9px;padding:1px 0">{d}</td>'
-        for d in days
-    )
-    dow_row = ''.join(
-        f'<td style="width:20px;text-align:center;background:{dow_color(d)};border:1px solid #999;font-size:8px;padding:1px 0;color:{"#1d4ed8" if cal.weekday(year,month,d)==5 else "#dc2626" if cal.weekday(year,month,d)==6 else "#444"}">{dow(d)}</td>'
-        for d in days
-    )
+    # 列を単位別に生成
+    cols = []  # {start, end, label, sub, bg, color, w}
+    if unit == "month":
+        cur = _date(rng_start.year, rng_start.month, 1)
+        while cur <= rng_end:
+            last = _date(cur.year, cur.month, cal.monthrange(cur.year, cur.month)[1])
+            cols.append({"start": cur, "end": last, "label": f"{cur.year}/{cur.month}", "sub": "", "bg": "#f0f0f0", "color": "#000", "w": 70})
+            cur = last + _td(days=1)
+    elif unit == "week":
+        cur = rng_start - _td(days=rng_start.weekday())
+        while cur <= rng_end:
+            we = cur + _td(days=6)
+            cols.append({"start": cur, "end": we, "label": f"{cur.month}/{cur.day}", "sub": "週", "bg": "#f0f0f0", "color": "#000", "w": 42})
+            cur += _td(days=7)
+    else:  # day
+        cur = rng_start
+        while cur <= rng_end:
+            wd = cur.weekday()
+            bg = '#bfdbfe' if wd == 5 else '#fecaca' if wd == 6 else 'white'
+            color = '#1d4ed8' if wd == 5 else '#dc2626' if wd == 6 else '#444'
+            cols.append({"start": cur, "end": cur, "label": str(cur.day), "sub": WEEKDAYS_JP[wd], "bg": bg, "color": color, "w": 16})
+            cur += _td(days=1)
+
+    ncol = len(cols)
+    # 月バンド（日・週単位のとき）
+    month_band = ''
+    if unit in ("day", "week"):
+        i = 0
+        band_cells = ''
+        while i < ncol:
+            ym = (cols[i]["start"].year, cols[i]["start"].month)
+            j = i
+            while j < ncol and (cols[j]["start"].year, cols[j]["start"].month) == ym:
+                j += 1
+            band_cells += f'<td colspan="{j-i}" style="border:1px solid #999;background:#e5e7eb;font-size:9px;text-align:center;padding:1px 0">{ym[0]}年{ym[1]}月</td>'
+            i = j
+        month_band = f'<tr><td colspan="2" style="border:1px solid #999;background:#e5e7eb"></td>{band_cells}</tr>'
+
+    head_cells = ''.join(
+        f'<td style="text-align:center;background:{c["bg"]};border:1px solid #999;font-size:9px;padding:1px 0">{c["label"]}</td>' for c in cols)
+    sub_cells = ''.join(
+        f'<td style="text-align:center;background:{c["bg"]};border:1px solid #999;font-size:8px;padding:1px 0;color:{c["color"]}">{c["sub"]}</td>' for c in cols)
 
     def gantt_cells(item) -> str:
+        sd, ed = _item_range(item)
         cells = []
-        for d in days:
-            in_range = (item.start_day is not None and item.end_day is not None
-                       and item.start_day <= d <= item.end_day)
-            color = item.color or '#3b82f6'
-            if in_range:
-                cells.append(f'<td style="background:{color};border:1px solid #999;padding:0"></td>')
+        for c in cols:
+            overlap = (sd is not None and ed is not None and sd <= c["end"] and ed >= c["start"])
+            if overlap:
+                cells.append(f'<td style="background:{item.color or "#3b82f6"};border:1px solid #999;padding:0"></td>')
             else:
-                cells.append(f'<td style="border:1px solid #ccc;padding:0"></td>')
+                cells.append('<td style="border:1px solid #ccc;padding:0"></td>')
         return ''.join(cells)
 
-    # 工程表明細行
     item_rows = ''
     for item in s.items:
         if item.row_type == 'blank':
-            item_rows += f'<tr style="height:14px"><td colspan="{2+len(days)}" style="border:1px solid #ddd"></td></tr>'
+            item_rows += f'<tr style="height:14px"><td colspan="{2+ncol}" style="border:1px solid #ddd"></td></tr>'
             continue
         item_rows += f'''<tr style="height:18px">
-            <td style="border:1px solid #999;padding:1px 4px;font-size:9px;white-space:nowrap;max-width:200px;overflow:hidden">{item.step_name}</td>
+            <td style="border:1px solid #999;padding:1px 4px;font-size:9px;white-space:nowrap;overflow:hidden">{item.step_name}</td>
             <td style="border:1px solid #999;padding:1px 4px;font-size:8px;white-space:nowrap;color:#555">{item.equipment or ""}</td>
             {gantt_cells(item)}
         </tr>'''
 
-    # 注記行（※マーク付き）
     note_rows = ''
     if s.notes:
         for note in s.notes.split('\n'):
             if note.strip():
-                note_rows += f'<tr style="height:16px"><td colspan="{2+len(days)}" style="border:1px solid #ddd;padding:1px 4px;font-size:9px">※ {note}</td></tr>'
+                note_rows += f'<tr style="height:16px"><td colspan="{2+ncol}" style="border:1px solid #ddd;padding:1px 4px;font-size:9px">※ {note}</td></tr>'
 
     created = str(s.created_date or '') if s.created_date else ''
+    unit_label = {"day": "日単位", "week": "週単位", "month": "月単位"}.get(unit, "日単位")
+    colgroup = '<col style="width:160px"><col style="width:70px">' + ''.join(f'<col style="width:{c["w"]}px">' for c in cols)
 
     html = f'''<!DOCTYPE html>
 <html lang="ja">
@@ -323,10 +373,9 @@ table {{ border-collapse: collapse; }}
 </style>
 </head>
 <body>
-<div style="text-align:right;font-size:10px;margin-bottom:2px">作成日 {created}</div>
+<div style="text-align:right;font-size:10px;margin-bottom:2px">作成日 {created}　［{unit_label}］</div>
 <div style="text-align:center;font-size:18px;font-weight:bold;margin-bottom:4px">工 程 表</div>
 
-<!-- ヘッダー情報 -->
 <table style="width:100%;margin-bottom:4px;border-collapse:collapse">
 <tr>
   <td style="border:1px solid #999;padding:3px 6px;font-size:10px;width:60px;font-weight:bold">納入先</td>
@@ -344,35 +393,28 @@ table {{ border-collapse: collapse; }}
 </tr>
 </table>
 
-<!-- ガントチャート -->
 <table style="width:100%;table-layout:fixed">
-<colgroup>
-  <col style="width:180px">
-  <col style="width:80px">
-  {''.join(f'<col style="width:20px">' for _ in days)}
-</colgroup>
+<colgroup>{colgroup}</colgroup>
 <thead>
+  {month_band}
   <tr style="background:#f0f0f0">
-    <th style="border:1px solid #999;padding:2px 4px;font-size:10px;text-align:left">{year}年 {month}月</th>
+    <th style="border:1px solid #999;padding:2px 4px;font-size:10px;text-align:left">工程名</th>
     <th style="border:1px solid #999;padding:2px 4px;font-size:9px;text-align:center">機材</th>
-    {day_header}
+    {head_cells}
   </tr>
   <tr>
-    <td style="border:1px solid #999;padding:1px 4px;font-size:9px">工事名称</td>
+    <td style="border:1px solid #999;padding:1px 4px;font-size:9px"></td>
     <td style="border:1px solid #999"></td>
-    {dow_row}
+    {sub_cells}
   </tr>
 </thead>
 <tbody>
 {item_rows}
 {note_rows}
-<!-- 空白行 -->
-<tr style="height:14px"><td colspan="{2+len(days)}" style="border:1px solid #ddd"></td></tr>
-<tr style="height:14px"><td colspan="{2+len(days)}" style="border:1px solid #ddd"></td></tr>
+<tr style="height:14px"><td colspan="{2+ncol}" style="border:1px solid #ddd"></td></tr>
 </tbody>
 </table>
 
-<!-- 検印欄 -->
 <table style="margin-top:6px;border-collapse:collapse">
 <tr>
   <td style="border:1px solid #999;padding:2px 8px;font-size:9px;text-align:center;font-weight:bold">営業</td>

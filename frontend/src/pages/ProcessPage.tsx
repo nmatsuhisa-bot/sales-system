@@ -25,6 +25,42 @@ function dayOfWeek(year: number, month: number, day: number) {
   return new Date(year, month - 1, day).getDay(); // 0=Sun
 }
 
+// ===== 日付ユーティリティ（絶対日付ガント用） =====
+const DOW_JP = ['日', '月', '火', '水', '木', '金', '土'];
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const toISO = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const fromISO = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, (m || 1) - 1, d || 1); };
+const addDays = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+
+type GCol = { start: Date; end: Date; label: string; sub: string; w: number; bg: string; color: string };
+function buildCols(unit: 'day' | 'week' | 'month', start: Date, end: Date): GCol[] {
+  const cols: GCol[] = [];
+  if (unit === 'month') {
+    let c = new Date(start.getFullYear(), start.getMonth(), 1);
+    while (c <= end) {
+      const last = new Date(c.getFullYear(), c.getMonth() + 1, 0);
+      cols.push({ start: new Date(c), end: last, label: `${c.getFullYear()}/${c.getMonth() + 1}`, sub: '', w: 64, bg: '#f3f4f6', color: '#374151' });
+      c = new Date(c.getFullYear(), c.getMonth() + 1, 1);
+    }
+  } else if (unit === 'week') {
+    let c = addDays(start, -((start.getDay() + 6) % 7)); // 月曜始まり
+    while (c <= end) {
+      const we = addDays(c, 6);
+      cols.push({ start: new Date(c), end: we, label: `${c.getMonth() + 1}/${c.getDate()}`, sub: '週', w: 44, bg: '#f3f4f6', color: '#374151' });
+      c = addDays(c, 7);
+    }
+  } else {
+    let c = new Date(start);
+    while (c <= end) {
+      const wd = c.getDay();
+      cols.push({ start: new Date(c), end: new Date(c), label: `${c.getDate()}`, sub: DOW_JP[wd], w: 22,
+        bg: wd === 0 ? '#fecaca' : wd === 6 ? '#bfdbfe' : '#f9fafb', color: wd === 0 ? '#dc2626' : wd === 6 ? '#1d4ed8' : '#666' });
+      c = addDays(c, 1);
+    }
+  }
+  return cols;
+}
+
 export default function ProcessPage() {
   const [tab, setTab] = useState<'schedules' | 'templates'>('schedules');
   return (
@@ -176,10 +212,19 @@ function SchedulesTab() {
 
 // ========== 工程表編集モーダル ==========
 function ScheduleEditModal({ schedule: initSchedule, isNew, templates, onClose, onSaved }: any) {
+  // 旧データ（start_day）を絶対日付に正規化して読み込み
+  const normItems = (initSchedule.items || []).map((it: any) => {
+    const wy = Number(initSchedule.work_year), wm = Number(initSchedule.work_month);
+    const n = { ...it };
+    if (!n.start_date && n.start_day && wy && wm) n.start_date = toISO(new Date(wy, wm - 1, n.start_day));
+    if (!n.end_date && n.end_day && wy && wm) n.end_date = toISO(new Date(wy, wm - 1, n.end_day));
+    return n;
+  });
   const [form, setForm] = useState<any>({ ...initSchedule });
-  const [items, setItems] = useState<any[]>(initSchedule.items || []);
+  const [items, setItems] = useState<any[]>(normItems);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [saving, setSaving] = useState(false);
+  const [viewUnit, setViewUnit] = useState<'day' | 'week' | 'month'>('day');
   const handleOrderSelect = (o: any) => {
     const deliveryDate = o.sales_date || '';
     const salesYear = deliveryDate ? Number(deliveryDate.slice(0, 4)) : currentYear();
@@ -199,8 +244,48 @@ function ScheduleEditModal({ schedule: initSchedule, isNew, templates, onClose, 
 
   const year = Number(form.work_year) || currentYear();
   const month = Number(form.work_month) || currentMonth();
-  const totalDays = daysInMonth(year, month);
-  const days = Array.from({length: totalDays}, (_, i) => i + 1);
+
+  // ガント表示範囲を明細日付（無ければ納期月）から算出し、単位別に列生成
+  const itemDates: Date[] = items.flatMap((it: any) => [it.start_date, it.end_date]).filter(Boolean).map(fromISO);
+  let rngStart: Date, rngEnd: Date;
+  if (itemDates.length) {
+    rngStart = new Date(Math.min(...itemDates.map(d => +d)));
+    rngEnd = new Date(Math.max(...itemDates.map(d => +d)));
+  } else if (form.delivery_date) {
+    const d = fromISO(form.delivery_date);
+    rngStart = new Date(d.getFullYear(), d.getMonth(), 1);
+    rngEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+  } else {
+    rngStart = new Date(year, month - 1, 1);
+    rngEnd = new Date(year, month - 1, daysInMonth(year, month));
+  }
+  rngStart = addDays(rngStart, -2); rngEnd = addDays(rngEnd, 2);
+  const cols = buildCols(viewUnit, rngStart, rngEnd);
+  const ganttWidth = 280 + cols.reduce((s, c) => s + c.w, 0);
+
+  // 月バンド（連続列を年月でまとめる）
+  const monthBand: { label: string; span: number }[] = [];
+  cols.forEach(c => {
+    const key = `${c.start.getFullYear()}/${c.start.getMonth() + 1}`;
+    const last = monthBand[monthBand.length - 1];
+    if (last && last.label === key) last.span += 1;
+    else monthBand.push({ label: key, span: 1 });
+  });
+
+  const setItemDates = (i: number, start_date: string | null, end_date: string | null) =>
+    setItems(prev => prev.map((it, idx) => idx === i ? { ...it, start_date, end_date } : it));
+
+  const onCellClick = (i: number, col: GCol) => {
+    const it = items[i];
+    const cs = toISO(col.start), ce = toISO(col.end);
+    if (!it.start_date) { setItemDates(i, cs, ce); return; }
+    const curS = fromISO(it.start_date);
+    const curE = it.end_date ? fromISO(it.end_date) : curS;
+    // 選択が1バケット内に収まりそのバケットを再クリック → 解除
+    if (curS >= col.start && curE <= col.end) { setItemDates(i, null, null); return; }
+    if (col.start < curS) setItemDates(i, cs, it.end_date || ce);   // 開始を前へ
+    else setItemDates(i, it.start_date, ce);                         // 終了を後へ
+  };
 
   const applyTemplate = async () => {
     if (!selectedTemplateId || !form.delivery_date) {
@@ -227,7 +312,7 @@ function ScheduleEditModal({ schedule: initSchedule, isNew, templates, onClose, 
   const addItem = () => {
     setItems(prev => [...prev, {
       step_no: prev.length + 1, row_type: 'task',
-      step_name: '', start_day: null, end_day: null,
+      step_name: '', start_date: null, end_date: null,
       equipment: '', color: '#3b82f6', notes: '',
     }]);
   };
@@ -355,35 +440,45 @@ function ScheduleEditModal({ schedule: initSchedule, isNew, templates, onClose, 
           </div>
 
           {/* ガントチャートエディタ */}
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3 flex items-center justify-between flex-wrap gap-2">
             <h3 className="text-sm font-semibold text-gray-700">工程行 ({items.length}行)</h3>
-            <button onClick={addItem}
-              className="flex items-center gap-1 px-2 py-1 border border-purple-300 text-purple-600 text-xs rounded hover:bg-purple-50">
-              <Plus size={12} />行追加
-            </button>
+            <div className="flex items-center gap-2">
+              <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                {([['day','日'],['week','週'],['month','月']] as const).map(([u, lbl]) => (
+                  <button key={u} onClick={() => setViewUnit(u)}
+                    className={`px-3 py-1 text-xs ${viewUnit === u ? 'bg-purple-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                    {lbl}単位
+                  </button>
+                ))}
+              </div>
+              <button onClick={addItem}
+                className="flex items-center gap-1 px-2 py-1 border border-purple-300 text-purple-600 text-xs rounded hover:bg-purple-50">
+                <Plus size={12} />行追加
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto border rounded-lg">
-            <table className="text-xs w-full border-collapse" style={{minWidth: `${300 + totalDays * 22}px`}}>
+            <table className="text-xs border-collapse" style={{minWidth: `${ganttWidth}px`}}>
               <thead>
+                <tr className="bg-gray-200">
+                  <th className="border border-gray-300" colSpan={4}></th>
+                  {monthBand.map((b, idx) => (
+                    <th key={idx} colSpan={b.span} className="border border-gray-300 text-center" style={{ fontSize: '9px', padding: '1px 0' }}>{b.label}</th>
+                  ))}
+                  <th className="border border-gray-300"></th>
+                </tr>
                 <tr className="bg-gray-100">
                   <th className="border border-gray-300 px-1 py-1 w-8 text-center">種別</th>
-                  <th className="border border-gray-300 px-2 py-1 w-48 text-left">工程名</th>
+                  <th className="border border-gray-300 px-2 py-1 w-44 text-left">工程名</th>
                   <th className="border border-gray-300 px-1 py-1 w-6 text-center">色</th>
-                  <th className="border border-gray-300 px-1 py-1 w-20 text-left">機材</th>
-                  {days.map(d => {
-                    const wd = dayOfWeek(year, month, d);
-                    const bg = wd === 0 ? '#fecaca' : wd === 6 ? '#bfdbfe' : '#f9fafb';
-                    return (
-                      <th key={d} style={{background: bg, width: '22px'}}
-                        className="border border-gray-300 text-center" title={`${d}日`}>
-                        <div style={{fontSize:'9px'}}>{d}</div>
-                        <div style={{fontSize:'8px', color: wd===0?'#dc2626':wd===6?'#1d4ed8':'#666'}}>
-                          {DOW_LABELS[wd]}
-                        </div>
-                      </th>
-                    );
-                  })}
+                  <th className="border border-gray-300 px-1 py-1 w-16 text-left">機材</th>
+                  {cols.map((c, ci) => (
+                    <th key={ci} style={{ background: c.bg, width: `${c.w}px` }} className="border border-gray-300 text-center">
+                      <div style={{ fontSize: '9px' }}>{c.label}</div>
+                      <div style={{ fontSize: '8px', color: c.color }}>{c.sub}</div>
+                    </th>
+                  ))}
                   <th className="border border-gray-300 px-1 py-1 w-16 text-center">操作</th>
                 </tr>
               </thead>
@@ -391,7 +486,7 @@ function ScheduleEditModal({ schedule: initSchedule, isNew, templates, onClose, 
                 {items.map((item, i) => (
                   <tr key={i} className={item.row_type === 'blank' ? 'h-4' : 'h-8'}>
                     {item.row_type === 'blank' ? (
-                      <td colSpan={4 + totalDays + 1} className="border border-gray-200 px-1">
+                      <td colSpan={4 + cols.length + 1} className="border border-gray-200 px-1">
                         <button onClick={() => removeItem(i)} className="text-red-300 hover:text-red-500"><X size={11}/></button>
                       </td>
                     ) : (
@@ -414,32 +509,15 @@ function ScheduleEditModal({ schedule: initSchedule, isNew, templates, onClose, 
                           <input value={item.equipment || ''} onChange={e => updateItem(i, 'equipment', e.target.value)}
                             className="text-xs border-0 w-full outline-none" placeholder="機材" />
                         </td>
-                        {days.map(d => {
-                          const inRange = item.start_day != null && item.end_day != null
-                            && item.start_day <= d && d <= item.end_day;
-                          const wd = dayOfWeek(year, month, d);
-                          const bgBase = wd === 0 ? '#fff1f2' : wd === 6 ? '#eff6ff' : 'white';
+                        {cols.map((c, ci) => {
+                          const sd = item.start_date ? fromISO(item.start_date) : null;
+                          const ed = item.end_date ? fromISO(item.end_date) : sd;
+                          const inRange = !!sd && !!ed && sd <= c.end && ed >= c.start;
                           return (
-                            <td key={d}
-                              style={{
-                                background: inRange ? (item.color || '#3b82f6') : bgBase,
-                                cursor: 'pointer',
-                                border: '1px solid #d1d5db',
-                              }}
-                              onClick={() => {
-                                if (item.start_day == null) {
-                                  updateItem(i, 'start_day', d);
-                                  updateItem(i, 'end_day', d);
-                                } else if (item.end_day == null || d < item.start_day) {
-                                  updateItem(i, 'start_day', d);
-                                  updateItem(i, 'end_day', d);
-                                } else if (d === item.start_day && d === item.end_day) {
-                                  updateItem(i, 'start_day', null);
-                                  updateItem(i, 'end_day', null);
-                                } else {
-                                  updateItem(i, 'end_day', d);
-                                }
-                              }}
+                            <td key={ci}
+                              style={{ background: inRange ? (item.color || '#3b82f6') : 'white', cursor: 'pointer', border: '1px solid #d1d5db' }}
+                              title={`${toISO(c.start)}${viewUnit !== 'day' ? '〜' + toISO(c.end) : ''}`}
+                              onClick={() => onCellClick(i, c)}
                             />
                           );
                         })}
@@ -456,7 +534,7 @@ function ScheduleEditModal({ schedule: initSchedule, isNew, templates, onClose, 
                 ))}
                 {items.length === 0 && (
                   <tr>
-                    <td colSpan={4 + totalDays + 1} className="text-center py-6 text-gray-400 text-xs">
+                    <td colSpan={4 + cols.length + 1} className="text-center py-6 text-gray-400 text-xs">
                       行がありません。「行追加」またはテンプレートから生成してください。
                     </td>
                   </tr>
@@ -464,7 +542,7 @@ function ScheduleEditModal({ schedule: initSchedule, isNew, templates, onClose, 
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-gray-400 mt-1">ガントセルをクリックで開始日→終了日を設定。同じ日をクリックで解除。</p>
+          <p className="text-xs text-gray-400 mt-1">日/週/月で表示単位を切替。セルをクリックで開始→終了を設定、選択範囲内を再クリックで解除。複数月にまたがって設定できます。</p>
 
           {/* 備考 */}
           <div className="mt-3">

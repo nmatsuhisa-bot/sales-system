@@ -876,8 +876,10 @@ class WorkScheduleItem(Base):
     step_no = Column(Integer, nullable=False)
     row_type = Column(String(20), default="task")    # task / equipment / note / blank
     step_name = Column(String(300), nullable=False)
-    start_day = Column(Integer)                       # 開始日（日付）
-    end_day = Column(Integer)                         # 終了日（日付）
+    start_day = Column(Integer)                       # 開始日（旧・月内の日）
+    end_day = Column(Integer)                         # 終了日（旧・月内の日）
+    start_date = Column(Date)                         # 開始日（絶対日付・複数月対応）
+    end_date = Column(Date)                           # 終了日（絶対日付・複数月対応）
     equipment = Column(String(200))                   # 機材情報
     color = Column(String(20), default="#3b82f6")
     notes = Column(Text)
