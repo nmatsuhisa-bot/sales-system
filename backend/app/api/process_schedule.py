@@ -80,13 +80,21 @@ def _step_dict(s: ProcessTemplateStep):
 # =============================================
 
 @router.get("/schedules")
-def list_schedules(year: int = Query(None), month: int = Query(None),
+def list_schedules(year: int = Query(None), month: int = Query(None), span: int = Query(None),
                    order_id: str = Query(None), db: Session = Depends(get_db)):
+    """span（1/3/6/12ヶ月）指定時は year/month を起点に複数月を表示。未指定時は従来通り。"""
     q = db.query(WorkSchedule).options(joinedload(WorkSchedule.project_order))
-    if year: q = q.filter(WorkSchedule.work_year == year)
-    if month: q = q.filter(WorkSchedule.work_month == month)
-    if order_id: q = q.filter(WorkSchedule.project_order_id == order_id)
-    return [_sched_dict(s, include_items=False) for s in q.order_by(WorkSchedule.work_year, WorkSchedule.work_month).all()]
+    if order_id:
+        q = q.filter(WorkSchedule.project_order_id == order_id)
+    elif span and year and month:
+        start_ord = year * 12 + (month - 1)
+        end_ord = start_ord + span - 1
+        ordinal = WorkSchedule.work_year * 12 + WorkSchedule.work_month - 1
+        q = q.filter(ordinal >= start_ord, ordinal <= end_ord)
+    else:
+        if year: q = q.filter(WorkSchedule.work_year == year)
+        if month: q = q.filter(WorkSchedule.work_month == month)
+    return [_sched_dict(s, include_items=False) for s in q.order_by(WorkSchedule.work_year, WorkSchedule.work_month, WorkSchedule.work_no).all()]
 
 @router.post("/schedules")
 def create_schedule(data: dict, db: Session = Depends(get_db)):
@@ -159,7 +167,7 @@ def delete_schedule(schedule_id: str, db: Session = Depends(get_db)):
 
 @router.post("/schedules/generate")
 def generate_from_template(data: dict, db: Session = Depends(get_db)):
-    """テンプレートと納期から工程表を自動生成"""
+    """テンプレートと納期から工程表をプレビュー生成（DBには保存しない。保存は別途）"""
     template_id = data.get("template_id")
     delivery = date.fromisoformat(data["delivery_date"])
     t = db.query(ProcessTemplate).options(joinedload(ProcessTemplate.steps)).filter(
@@ -175,35 +183,30 @@ def generate_from_template(data: dict, db: Session = Depends(get_db)):
     if data.get("project_order_id"):
         po = db.query(ProjectOrder).filter(ProjectOrder.id == data["project_order_id"]).first()
 
-    s = WorkSchedule(
-        project_order_id=data.get("project_order_id"),
-        customer_name=data.get("customer_name") or (po.customer_name if po else None),
-        delivery_name=data.get("delivery_name"),
-        work_name=data.get("work_name") or (po.project_name if po else None),
-        work_no=data.get("work_no") or (po.child_no if po else None),
-        responsible_person=data.get("responsible_person") or (po.sales_person_name if po else None),
-        work_year=year, work_month=month,
-        delivery_date=delivery,
-        created_date=date.today().isoformat(),
-        status="作成中",
-    )
-    db.add(s); db.flush()
-
+    items = []
     for step in t.steps:
         start_date = delivery + timedelta(days=step.offset_start_days)
         end_date = start_date + timedelta(days=step.duration_days - 1)
         # 同月内にクランプ
         start_day = max(1, start_date.day) if start_date.month == month else (1 if start_date < delivery else None)
         end_day = min(end_date.day, calendar.monthrange(year, month)[1]) if end_date.month == month else (calendar.monthrange(year, month)[1] if end_date > delivery else None)
-        db.add(WorkScheduleItem(
-            schedule_id=s.id, step_no=step.step_no,
-            row_type="task", step_name=step.step_name,
-            start_day=start_day, end_day=end_day,
-            equipment=step.equipment, color=step.color or "#3b82f6",
-        ))
+        items.append({
+            "step_no": step.step_no, "row_type": "task", "step_name": step.step_name,
+            "start_day": start_day, "end_day": end_day,
+            "equipment": step.equipment, "color": step.color or "#3b82f6", "notes": None,
+        })
 
-    db.commit(); db.refresh(s)
-    return _sched_dict(s)
+    return {
+        "project_order_id": data.get("project_order_id"),
+        "customer_name": data.get("customer_name") or (po.customer_name if po else None),
+        "delivery_name": data.get("delivery_name"),
+        "work_name": data.get("work_name") or (po.project_name if po else None),
+        "work_no": data.get("work_no") or (po.child_no if po else None),
+        "responsible_person": data.get("responsible_person") or (po.sales_person_name if po else None),
+        "work_year": year, "work_month": month,
+        "delivery_date": str(delivery), "status": "作成中",
+        "items": items,
+    }
 
 def _sched_dict(s: WorkSchedule, include_items: bool = True):
     d = {

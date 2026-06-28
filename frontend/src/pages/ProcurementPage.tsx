@@ -298,28 +298,34 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
     setPo((p: any) => ({ ...p, lines: p.lines.map((l: any) => l.id === id ? { ...l, ...patch } : l) }));
 
   if (!po) return <div className="text-xs text-gray-400 py-2">読込中...</div>;
+  const editable = po.status === '作成中';
   const total = (po.lines || []).reduce((s: number, l: any) => s + (Number(l.order_qty) || 0) * (Number(l.unit_price) || 0), 0);
 
   return (
     <div>
+      {!editable && (
+        <div className="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+          ステータスが「{po.status}」のため編集できません。編集するにはステータスを「作成中」に戻してください。
+        </div>
+      )}
       {/* ヘッダー編集 */}
       <div className="flex flex-wrap gap-2 items-end mb-3">
         <div>
           <label className="block text-[10px] text-gray-500">発注先</label>
-          <select value={hdr.supplier_id} onChange={e => { setHdr({ ...hdr, supplier_id: e.target.value }); setHdrDirty(true); }} className="border rounded px-2 py-1 text-xs min-w-[160px]">
+          <select disabled={!editable} value={hdr.supplier_id} onChange={e => { setHdr({ ...hdr, supplier_id: e.target.value }); setHdrDirty(true); }} className="border rounded px-2 py-1 text-xs min-w-[160px] disabled:bg-gray-100">
             <option value="">（未指定）</option>
             {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </div>
         <div><label className="block text-[10px] text-gray-500">注文日</label>
-          <input type="date" value={hdr.order_date} onChange={e => { setHdr({ ...hdr, order_date: e.target.value }); setHdrDirty(true); }} className="border rounded px-2 py-1 text-xs" /></div>
+          <input disabled={!editable} type="date" value={hdr.order_date} onChange={e => { setHdr({ ...hdr, order_date: e.target.value }); setHdrDirty(true); }} className="border rounded px-2 py-1 text-xs disabled:bg-gray-100" /></div>
         <div><label className="block text-[10px] text-gray-500">納入場所</label>
-          <input value={hdr.delivery_place} onChange={e => { setHdr({ ...hdr, delivery_place: e.target.value }); setHdrDirty(true); }} className="border rounded px-2 py-1 text-xs w-36" /></div>
+          <input disabled={!editable} value={hdr.delivery_place} onChange={e => { setHdr({ ...hdr, delivery_place: e.target.value }); setHdrDirty(true); }} className="border rounded px-2 py-1 text-xs w-36 disabled:bg-gray-100" /></div>
         <div><label className="block text-[10px] text-gray-500">製番</label>
-          <input value={hdr.seiban} onChange={e => { setHdr({ ...hdr, seiban: e.target.value }); setHdrDirty(true); }} className="border rounded px-2 py-1 text-xs w-28" /></div>
+          <input disabled={!editable} value={hdr.seiban} onChange={e => { setHdr({ ...hdr, seiban: e.target.value }); setHdrDirty(true); }} className="border rounded px-2 py-1 text-xs w-28 disabled:bg-gray-100" /></div>
         <div className="flex-1 min-w-[160px]"><label className="block text-[10px] text-gray-500">件名</label>
-          <input value={hdr.title} onChange={e => { setHdr({ ...hdr, title: e.target.value }); setHdrDirty(true); }} className="border rounded px-2 py-1 text-xs w-full" /></div>
-        {hdrDirty && <button onClick={saveHdr} className="px-3 py-1 bg-blue-600 text-white text-xs rounded">ヘッダー保存</button>}
+          <input disabled={!editable} value={hdr.title} onChange={e => { setHdr({ ...hdr, title: e.target.value }); setHdrDirty(true); }} className="border rounded px-2 py-1 text-xs w-full disabled:bg-gray-100" /></div>
+        {editable && hdrDirty && <button onClick={saveHdr} className="px-3 py-1 bg-blue-600 text-white text-xs rounded">ヘッダー保存</button>}
       </div>
 
       {/* 明細編集 */}
@@ -332,12 +338,12 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
             <tr key={l.id} className="border-t border-gray-200 bg-white">
               <td className="px-2 py-1 font-mono text-amber-700">{l.material_code}</td>
               <td className="px-2 py-1">{l.material_name}</td>
-              <td className="px-1 py-1"><input type="number" value={l.order_qty ?? ''} onChange={e => updLineLocal(l.id, { order_qty: e.target.value })} onBlur={() => saveLine(l)} className="border rounded px-1 w-16 text-right" /></td>
+              <td className="px-1 py-1"><input disabled={!editable} type="number" value={l.order_qty ?? ''} onChange={e => updLineLocal(l.id, { order_qty: e.target.value })} onBlur={() => editable && saveLine(l)} className="border rounded px-1 w-16 text-right disabled:bg-gray-50 disabled:border-transparent" /></td>
               <td className="px-2 py-1">{l.unit}</td>
-              <td className="px-1 py-1"><input type="number" value={l.unit_price ?? ''} onChange={e => updLineLocal(l.id, { unit_price: e.target.value })} onBlur={() => saveLine(l)} className="border rounded px-1 w-24 text-right" /></td>
+              <td className="px-1 py-1"><input disabled={!editable} type="number" value={l.unit_price ?? ''} onChange={e => updLineLocal(l.id, { unit_price: e.target.value })} onBlur={() => editable && saveLine(l)} className="border rounded px-1 w-24 text-right disabled:bg-gray-50 disabled:border-transparent" /></td>
               <td className="px-2 py-1 text-right">¥{Number((Number(l.order_qty) || 0) * (Number(l.unit_price) || 0)).toLocaleString()}</td>
-              <td className="px-1 py-1"><input type="date" value={l.due_date || ''} onChange={e => updLineLocal(l.id, { due_date: e.target.value })} onBlur={() => saveLine(l)} className="border rounded px-1 text-xs" /></td>
-              <td className="px-1 py-1"><button onClick={() => delLine(l.id)} className="text-red-400"><Trash2 size={12} /></button></td>
+              <td className="px-1 py-1"><input disabled={!editable} type="date" value={l.due_date || ''} onChange={e => updLineLocal(l.id, { due_date: e.target.value })} onBlur={() => editable && saveLine(l)} className="border rounded px-1 text-xs disabled:bg-gray-50 disabled:border-transparent" /></td>
+              <td className="px-1 py-1">{editable && <button onClick={() => delLine(l.id)} className="text-red-400"><Trash2 size={12} /></button>}</td>
             </tr>
           ))}
           {(po.lines || []).length === 0 && <tr><td colSpan={8} className="px-2 py-2 text-gray-400">明細なし。下で追加してください。</td></tr>}
@@ -346,6 +352,7 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
       </table>
 
       {/* 明細追加 */}
+      {editable && (
       <div className="mt-2 flex flex-wrap items-end gap-2 bg-white border rounded p-2">
         <div className="relative">
           <label className="block text-[10px] text-gray-500">部材を検索して追加</label>
@@ -368,6 +375,7 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
           <input type="date" value={newLine.due_date || ''} onChange={e => setNewLine({ ...newLine, due_date: e.target.value })} className="border rounded px-2 py-1 text-xs" /></div>
         <button onClick={addLine} className="flex items-center gap-1 px-3 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700"><Plus size={12} />明細追加</button>
       </div>
+      )}
     </div>
   );
 }

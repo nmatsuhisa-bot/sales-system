@@ -246,8 +246,8 @@ export const processApi = {
   createTemplate: (data: any) => api.post('/process/templates', data),
   updateTemplate: (id: string, data: any) => api.put(`/process/templates/${id}`, data),
   deleteTemplate: (id: string) => api.delete(`/process/templates/${id}`),
-  listSchedules: (year?: number, month?: number, order_id?: string) =>
-    api.get('/process/schedules', { params: { year, month, order_id } }),
+  listSchedules: (year?: number, month?: number, order_id?: string, span?: number) =>
+    api.get('/process/schedules', { params: { year, month, order_id, span } }),
   createSchedule: (data: any) => api.post('/process/schedules', data),
   getSchedule: (id: string) => api.get(`/process/schedules/${id}`),
   updateSchedule: (id: string, data: any) => api.put(`/process/schedules/${id}`, data),

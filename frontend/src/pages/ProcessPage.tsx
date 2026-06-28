@@ -49,19 +49,20 @@ function SchedulesTab() {
   const [schedules, setSchedules] = useState<any[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
   const [yearFilter, setYearFilter] = useState(currentYear());
-  const [monthFilter, setMonthFilter] = useState<number | ''>('');
+  const [monthFilter, setMonthFilter] = useState<number>(new Date().getMonth() + 1);
+  const [spanFilter, setSpanFilter] = useState<number>(3);
   const [editModal, setEditModal] = useState<any>(null); // null | { isNew, schedule }
   const [loading, setLoading] = useState(false);
 
   const load = () => {
     setLoading(true);
     Promise.all([
-      processApi.listSchedules(yearFilter, monthFilter || undefined),
+      processApi.listSchedules(yearFilter, monthFilter, undefined, spanFilter),
       processApi.listTemplates(),
     ]).then(([s, t]) => { setSchedules(s.data); setTemplates(t.data); })
       .catch(() => {}).finally(() => setLoading(false));
   };
-  useEffect(() => { load(); }, [yearFilter, monthFilter]);
+  useEffect(() => { load(); }, [yearFilter, monthFilter, spanFilter]);
 
   const handleDelete = async (id: string) => {
     if (!confirm('削除しますか？')) return;
@@ -97,15 +98,23 @@ function SchedulesTab() {
   return (
     <div>
       <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <span className="text-xs text-gray-500">表示開始</span>
         <select value={yearFilter} onChange={e => setYearFilter(Number(e.target.value))}
           className="border rounded px-2 py-1 text-sm">
           {[thisYear-1, thisYear, thisYear+1].map(y => <option key={y} value={y}>{y}年</option>)}
         </select>
-        <select value={monthFilter} onChange={e => setMonthFilter(e.target.value ? Number(e.target.value) : '')}
+        <select value={monthFilter} onChange={e => setMonthFilter(Number(e.target.value))}
           className="border rounded px-2 py-1 text-sm">
-          <option value="">全月</option>
           {Array.from({length:12}, (_,i) => i+1).map(m => <option key={m} value={m}>{m}月</option>)}
         </select>
+        <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+          {[1, 3, 6, 12].map(sp => (
+            <button key={sp} onClick={() => setSpanFilter(sp)}
+              className={`px-3 py-1 text-sm ${spanFilter === sp ? 'bg-purple-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+              {sp}ヶ月
+            </button>
+          ))}
+        </div>
         <button onClick={openNew}
           className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white text-sm rounded hover:bg-purple-700">
           <Plus size={14} />工程表作成
