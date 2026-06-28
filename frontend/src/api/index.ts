@@ -210,6 +210,14 @@ export const procurementApi = {
   createOrdersFromUnit: (data: any) => api.post('/procurement/material-orders/from-unit', data),
   adoptedUnits: (project_order_id: string) => api.get('/procurement/adopted-units', { params: { project_order_id } }),
   createOrdersFromUnits: (data: any) => api.post('/procurement/material-orders/from-units', data),
+  // 発注書（発注番号ヘッダー）
+  listPurchaseOrders: (status?: string, project_order_id?: string) => api.get('/procurement/purchase-orders', { params: { status, project_order_id } }),
+  getPurchaseOrder: (id: string) => api.get(`/procurement/purchase-orders/${id}`),
+  updatePurchaseOrder: (id: string, data: any) => api.put(`/procurement/purchase-orders/${id}`, data),
+  updatePoStatus: (id: string, status: string) => api.patch(`/procurement/purchase-orders/${id}/status`, null, { params: { status } }),
+  deletePurchaseOrder: (id: string) => api.delete(`/procurement/purchase-orders/${id}`),
+  createPOsFromUnits: (data: any) => api.post('/procurement/purchase-orders/from-units', data),
+  poPdfUrl: (id: string) => `${API_BASE}/procurement/purchase-orders/${id}/pdf`,
 };
 
 // =============================================

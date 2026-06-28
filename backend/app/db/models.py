@@ -724,11 +724,32 @@ class BomItem(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     material = relationship("MaterialMaster")
 
+class MaterialPurchaseOrder(Base):
+    """発注書ヘッダー（発注番号単位。1案件子IDに複数発注。仕入先ごとに1発注書）"""
+    __tablename__ = "material_purchase_orders"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    po_no = Column(String(50), unique=True, nullable=False)          # 発注番号（発番）
+    project_order_id = Column(UUID(as_uuid=True), ForeignKey("project_orders.id"))  # 案件子ID
+    supplier_id = Column(UUID(as_uuid=True), ForeignKey("suppliers.id"))            # 発注先
+    order_date = Column(Date)                                        # 注文日
+    delivery_place = Column(String(300))                            # 納入場所
+    seiban = Column(String(100))                                    # 製番
+    title = Column(String(500))                                     # 件名
+    status = Column(String(20), default="未発注")                  # 未発注/発注済/一部入荷/入荷済/キャンセル
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    project_order = relationship("ProjectOrder")
+    supplier = relationship("Supplier", foreign_keys=[supplier_id])
+    lines = relationship("MaterialOrder", back_populates="purchase_order", cascade="all, delete-orphan")
+
+
 class MaterialOrder(Base):
-    """部材発注"""
+    """部材発注（明細）"""
     __tablename__ = "material_orders"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    order_no = Column(String(100))                                  # 発注NO（採番）
+    order_no = Column(String(100))                                  # 発注NO（採番・旧）
+    purchase_order_id = Column(UUID(as_uuid=True), ForeignKey("material_purchase_orders.id"))  # 発注書ヘッダー
     project_order_id = Column(UUID(as_uuid=True), ForeignKey("project_orders.id"))
     project_unit_id = Column(UUID(as_uuid=True), ForeignKey("project_units.id"))  # 案件ユニット紐付け
     material_id = Column(UUID(as_uuid=True), ForeignKey("material_masters.id"), nullable=False)
@@ -745,6 +766,7 @@ class MaterialOrder(Base):
     project_order = relationship("ProjectOrder")
     material = relationship("MaterialMaster")
     supplier = relationship("Supplier", foreign_keys=[supplier_id])
+    purchase_order = relationship("MaterialPurchaseOrder", back_populates="lines")
 
 # =============================================
 # ② 製造計画

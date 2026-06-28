@@ -165,6 +165,21 @@ def setup_manufacturing_tables():
         db.close()
 
 
+@app.get("/setup-purchase-order-tables")
+def setup_purchase_order_tables():
+    """発注書ヘッダーテーブルを作成し、material_orders に purchase_order_id を追加"""
+    from app.db.models import engine, Base, MaterialPurchaseOrder
+    from sqlalchemy import text
+    Base.metadata.create_all(engine, tables=[MaterialPurchaseOrder.__table__])
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE material_orders ADD COLUMN IF NOT EXISTS purchase_order_id UUID"))
+            conn.commit()
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    return {"status": "ok", "message": "発注書テーブル作成完了"}
+
+
 @app.get("/setup-bom-master-tables")
 def setup_bom_master_tables():
     """製品BOM階層マスタ＋案件適用テーブルを作成し、material_orders に発注NO/ユニット紐付け列を追加"""

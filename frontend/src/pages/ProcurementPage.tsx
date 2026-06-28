@@ -1,14 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Fragment } from 'react';
+import { useLocation } from 'react-router-dom';
 import { procurementApi } from '../api';
 import OrderSearchInput from '../components/common/OrderSearchInput';
-import { Plus, Trash2, Edit2, Check, X, Search, Boxes } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X, Search, Boxes, FileText, ChevronDown, ChevronRight } from 'lucide-react';
 
 const STATUS_OPTIONS = ['未発注', '発注済', '入荷済'];
 const STATUS_COLORS: Record<string, string> = {
   '未発注': 'bg-yellow-100 text-yellow-700',
   '発注済': 'bg-blue-100 text-blue-700',
+  '一部入荷': 'bg-orange-100 text-orange-700',
   '入荷済': 'bg-green-100 text-green-700',
+  'キャンセル': 'bg-gray-100 text-gray-500',
 };
+const PO_STATUS = ['未発注', '発注済', '一部入荷', '入荷済', 'キャンセル'];
 
 const PRODUCT_TYPES = ['BFR', 'BFP', 'SCA', 'LCA', 'SRR', 'FLT', 'CY', 'LRG'];
 
@@ -18,22 +22,229 @@ function Field({ label, children }: any) {
 }
 
 export default function ProcurementPage() {
-  const [tab, setTab] = useState<'orders' | 'materials' | 'bom'>('orders');
+  const [tab, setTab] = useState<'po' | 'orders' | 'materials' | 'bom'>('po');
+  const location = useLocation();
+  const initialOrder = (location.state as any)?.childOrder || null;
 
   return (
     <div className="p-4">
       <h1 className="text-xl font-bold text-gray-800 mb-4">仕入（発注）管理</h1>
       <div className="flex gap-1 mb-5 border-b border-gray-200">
-        {([['orders', '発注管理'], ['materials', '部材マスタ'], ['bom', 'BOMマスタ']] as const).map(([key, label]) => (
+        {([['po', '発注書（発注番号）'], ['orders', '発注明細'], ['materials', '部材マスタ'], ['bom', 'BOMマスタ']] as const).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === key ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
             {label}
           </button>
         ))}
       </div>
+      {tab === 'po' && <PurchaseOrdersTab initialOrder={initialOrder} />}
       {tab === 'orders' && <OrdersTab />}
       {tab === 'materials' && <MaterialsTab />}
       {tab === 'bom' && <BomTab />}
+    </div>
+  );
+}
+
+// ========== 発注書（発注番号ヘッダー）タブ ==========
+function PurchaseOrdersTab({ initialOrder }: { initialOrder?: any }) {
+  const [pos, setPos] = useState<any[]>([]);
+  const [statusFilter, setStatusFilter] = useState('');
+  const [expanded, setExpanded] = useState<Record<string, any>>({});
+  // 取込パネル
+  const [showImport, setShowImport] = useState(false);
+  const [units, setUnits] = useState<any[]>([]);
+  const [unitRows, setUnitRows] = useState<any[]>([]);
+  const [addUnitId, setAddUnitId] = useState('');
+  const [importOrder, setImportOrder] = useState<any>(null);
+  const [importDue, setImportDue] = useState('');
+  const [autoMsg, setAutoMsg] = useState('');
+  const [importMsg, setImportMsg] = useState('');
+
+  const load = () => procurementApi.listPurchaseOrders(statusFilter || undefined).then(r => setPos(r.data)).catch(() => {});
+  useEffect(() => { load(); }, [statusFilter]);
+
+  // 案件管理からの遷移で自動オープン
+  useEffect(() => {
+    if (initialOrder) { openImport(); onSelectImportOrder(initialOrder); }
+    // eslint-disable-next-line
+  }, []);
+
+  const openImport = () => {
+    setShowImport(true);
+    procurementApi.listBomUnits().then(r => setUnits(r.data)).catch(() => {});
+  };
+  const onSelectImportOrder = (o: any) => {
+    setImportOrder(o); setImportMsg(''); setAutoMsg('読込中...');
+    procurementApi.adoptedUnits(o.id).then(r => {
+      const us = (r.data.units || []).map((u: any) => ({ ...u, multiplier: u.quantity || 1 }));
+      setUnitRows(us);
+      setAutoMsg(us.length ? `採用見積 ${r.data.quotation_no || ''} から ${us.length}ユニットを自動セット` : (r.data.message || '受注採用見積にユニットがありません'));
+    }).catch(() => setAutoMsg('取得に失敗しました'));
+  };
+  const addUnitRow = () => {
+    if (!addUnitId) return;
+    const u = units.find(x => x.id === addUnitId);
+    if (!u || unitRows.some(r => r.unit_id === u.id)) { setAddUnitId(''); return; }
+    setUnitRows(rows => [...rows, { unit_id: u.id, unit_code: u.unit_code, unit_name: u.unit_name, unit_type: u.unit_type, model_no: u.model_no, material_count: u.material_count, multiplier: 1 }]);
+    setAddUnitId('');
+  };
+  const updateRowMult = (idx: number, v: string) => setUnitRows(rows => rows.map((r, i) => i === idx ? { ...r, multiplier: v } : r));
+  const removeUnitRow = (idx: number) => setUnitRows(rows => rows.filter((_, i) => i !== idx));
+
+  const createPOs = async () => {
+    if (!importOrder) { alert('案件子IDを選択してください'); return; }
+    if (!unitRows.length) { alert('ユニットがありません'); return; }
+    try {
+      const r = await procurementApi.createPOsFromUnits({
+        project_order_id: importOrder.id,
+        due_date: importDue || null,
+        units: unitRows.map(r => ({ unit_id: r.unit_id, multiplier: Number(r.multiplier) || 1 })),
+      });
+      if (!r.data.created_pos?.length) { setImportMsg(`⚠ ${r.data.message}`); return; }
+      setImportMsg(`✓ ${r.data.message}`);
+      setUnitRows([]); setShowImport(false); load();
+    } catch (e: any) { setImportMsg(`❌ ${e.response?.data?.detail || 'エラー'}`); }
+  };
+
+  const setPoStatus = async (id: string, status: string) => { await procurementApi.updatePoStatus(id, status); load(); };
+  const delPo = async (id: string) => { if (confirm('この発注書を削除しますか？')) { await procurementApi.deletePurchaseOrder(id); load(); } };
+  const toggleExpand = async (po: any) => {
+    if (expanded[po.id]) { setExpanded(e => { const n = { ...e }; delete n[po.id]; return n; }); return; }
+    const r = await procurementApi.getPurchaseOrder(po.id);
+    setExpanded(e => ({ ...e, [po.id]: r.data }));
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border rounded px-2 py-1 text-sm">
+          <option value="">全ステータス</option>
+          {PO_STATUS.map(s => <option key={s}>{s}</option>)}
+        </select>
+        <span className="text-xs text-gray-500">{pos.length}件</span>
+        <button onClick={() => (showImport ? setShowImport(false) : openImport())}
+          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700">
+          <Boxes size={14} />ユニットから発注書作成
+        </button>
+      </div>
+
+      {showImport && (
+        <div className="mb-4 p-3 border border-indigo-200 rounded-lg bg-indigo-50">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-indigo-700">受注採用見積のユニットを自動セット → 編集 → 仕入先ごとに発注書を発番作成</span>
+            <button onClick={() => { setShowImport(false); setImportMsg(''); setAutoMsg(''); setUnitRows([]); }} className="text-gray-400"><X size={14} /></button>
+          </div>
+          <div className="flex flex-wrap gap-2 items-end mb-2">
+            <div className="min-w-[280px]">
+              <label className="block text-xs text-gray-500 mb-0.5">案件ID / 子ID</label>
+              <OrderSearchInput onSelect={onSelectImportOrder} placeholder="案件ID または 子ID で検索" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-0.5">納期（一括）</label>
+              <input type="date" value={importDue} onChange={e => setImportDue(e.target.value)} className="border rounded px-2 py-1 text-sm" />
+            </div>
+            {autoMsg && <span className="text-xs text-indigo-600 pb-1.5">{autoMsg}</span>}
+          </div>
+          <div className="bg-white border rounded">
+            <table className="w-full text-xs">
+              <thead><tr className="bg-gray-50 text-gray-600">
+                {['ユニット', '種別', '型式', '部材数', '台数', ''].map(h => <th key={h} className="px-2 py-1.5 text-left font-medium border-b">{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {unitRows.length === 0 ? (
+                  <tr><td colSpan={6} className="text-center py-4 text-gray-400">案件を選ぶと採用見積のユニットが入ります（手動追加も可）</td></tr>
+                ) : unitRows.map((r, idx) => (
+                  <tr key={r.unit_id} className="border-b last:border-0">
+                    <td className="px-2 py-1.5"><span className="font-mono text-indigo-700">{r.unit_code}</span> {r.unit_name}</td>
+                    <td className="px-2 py-1.5">{r.unit_type || '—'}</td>
+                    <td className="px-2 py-1.5">{r.model_no || '—'}</td>
+                    <td className="px-2 py-1.5 text-center">{r.material_count === 0 ? <span className="text-red-500">未登録</span> : r.material_count}</td>
+                    <td className="px-2 py-1.5"><input type="number" value={r.multiplier} onChange={e => updateRowMult(idx, e.target.value)} className="border rounded px-1 py-0.5 w-16 text-right" /></td>
+                    <td className="px-2 py-1.5"><button onClick={() => removeUnitRow(idx)} className="text-red-400"><Trash2 size={13} /></button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="flex items-center gap-2 px-2 py-1.5 border-t bg-gray-50">
+              <span className="text-xs text-gray-400">ユニット追加:</span>
+              <select value={addUnitId} onChange={e => setAddUnitId(e.target.value)} className="border rounded px-2 py-1 text-xs min-w-[240px]">
+                <option value="">— ユニット選択 —</option>
+                {units.map(u => <option key={u.id} value={u.id}>{u.unit_code} / {u.unit_name}（部材{u.material_count}件）</option>)}
+              </select>
+              <button onClick={addUnitRow} className="flex items-center gap-1 px-2 py-1 bg-gray-700 text-white text-xs rounded hover:bg-gray-800"><Plus size={12} />追加</button>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <button onClick={createPOs} disabled={!unitRows.length}
+              className="flex items-center gap-1 px-4 py-1.5 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700 disabled:opacity-50">
+              <Check size={14} />発注書を作成（仕入先ごと）
+            </button>
+            <span className="text-xs text-gray-400">※部材の優先仕入先ごとに発注書が分かれます</span>
+            {importMsg && <span className={`text-xs ${importMsg.startsWith('✓') ? 'text-green-700' : 'text-red-500'}`}>{importMsg}</span>}
+          </div>
+        </div>
+      )}
+
+      <table className="w-full text-sm border-collapse">
+        <thead><tr className="bg-gray-50">
+          {['', '発注番号', '案件子ID', '発注先', '注文日', '明細', '金額', 'ステータス', ''].map(h =>
+            <th key={h} className="border border-gray-200 px-2 py-2 text-left text-xs font-medium text-gray-600">{h}</th>)}
+        </tr></thead>
+        <tbody>
+          {pos.length === 0 ? <tr><td colSpan={9} className="text-center py-8 text-gray-400">発注書なし</td></tr>
+            : pos.map(po => (
+              <Fragment key={po.id}>
+                <tr className="hover:bg-gray-50">
+                  <td className="border px-1 py-1 text-center">
+                    <button onClick={() => toggleExpand(po)} className="text-gray-400">{expanded[po.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button>
+                  </td>
+                  <td className="border px-2 py-1.5 font-mono font-bold text-indigo-700">{po.po_no}</td>
+                  <td className="border px-2 py-1.5 font-mono text-xs">{po.child_no || '—'}</td>
+                  <td className="border px-2 py-1.5">{po.supplier_name || '（未指定）'}</td>
+                  <td className="border px-2 py-1.5 text-xs">{po.order_date || '—'}</td>
+                  <td className="border px-2 py-1.5 text-center">{po.line_count}</td>
+                  <td className="border px-2 py-1.5 text-right">¥{Number(po.total_amount).toLocaleString()}</td>
+                  <td className="border px-2 py-1.5">
+                    <select value={po.status} onChange={e => setPoStatus(po.id, e.target.value)}
+                      className={`text-xs rounded px-1.5 py-0.5 border-0 ${STATUS_COLORS[po.status] || 'bg-gray-100'}`}>
+                      {PO_STATUS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </td>
+                  <td className="border px-1 py-1.5 whitespace-nowrap">
+                    <a href={procurementApi.poPdfUrl(po.id)} target="_blank" rel="noreferrer"
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 mr-1"><FileText size={12} />発注書</a>
+                    <button onClick={() => delPo(po.id)} className="text-red-400"><Trash2 size={13} /></button>
+                  </td>
+                </tr>
+                {expanded[po.id] && (
+                  <tr>
+                    <td></td>
+                    <td colSpan={8} className="border border-gray-200 bg-gray-50 px-3 py-2">
+                      <table className="w-full text-xs">
+                        <thead><tr className="text-gray-500">
+                          {['部材コード', '部材名', '数量', '単位', '単価', '金額', '納期'].map(h => <th key={h} className="text-left px-2 py-1">{h}</th>)}
+                        </tr></thead>
+                        <tbody>
+                          {(expanded[po.id].lines || []).map((l: any) => (
+                            <tr key={l.id} className="border-t border-gray-200">
+                              <td className="px-2 py-1 font-mono text-amber-700">{l.material_code}</td>
+                              <td className="px-2 py-1">{l.material_name}</td>
+                              <td className="px-2 py-1 text-right">{l.order_qty}</td>
+                              <td className="px-2 py-1">{l.unit}</td>
+                              <td className="px-2 py-1 text-right">{l.unit_price != null ? `¥${Number(l.unit_price).toLocaleString()}` : '—'}</td>
+                              <td className="px-2 py-1 text-right">¥{Number((l.order_qty || 0) * (l.unit_price || 0)).toLocaleString()}</td>
+                              <td className="px-2 py-1">{l.due_date || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            ))}
+        </tbody>
+      </table>
     </div>
   );
 }
