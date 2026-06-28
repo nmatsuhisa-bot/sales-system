@@ -8,6 +8,16 @@ from datetime import date
 
 router = APIRouter()
 
+def _norm_model(product_type, model):
+    """型番の表記ゆれを吸収（全角×→X・空白除去・製品種別の接頭辞除去・大文字化）"""
+    if not model:
+        return ""
+    m = str(model).upper().replace("×", "X").replace(" ", "").replace("　", "")
+    pt = (product_type or "").upper()
+    if pt and m.startswith(pt):
+        m = m[len(pt):]
+    return m
+
 # ---- 製造計画 ----
 
 @router.get("/plans")
@@ -86,14 +96,15 @@ def draft_from_estimate(data: dict, db: Session = Depends(get_db)):
         if exists:
             skipped += 1
             continue
-        # 仮工期: 所要工数から概算（2名×8h想定）、無ければ14日
-        ph = db.query(ProductHours).filter(
-            ProductHours.product_type == ptype, ProductHours.model_no == model
-        ).first()
-        if ph and ph.required_hours:
-            days = max(7, int(math.ceil(float(ph.required_hours) / 16.0)))
-        else:
-            days = 14
+        # 仮工期: 所要工数から概算（2名×8h想定）、無ければ14日。型番は正規化突合＋種別平均で代替
+        target = _norm_model(ptype, model)
+        cand = db.query(ProductHours).filter(ProductHours.product_type == ptype).all()
+        req = next((float(h.required_hours) for h in cand
+                    if _norm_model(h.product_type, h.model_no) == target and h.required_hours), None)
+        if req is None and cand:
+            vals = [float(h.required_hours) for h in cand if h.required_hours]
+            req = (sum(vals) / len(vals)) if vals else None
+        days = max(7, int(math.ceil(req / 16.0))) if req else 14
         planned_start = (end - timedelta(days=days)) if end else None
         db.add(ManufacturingPlan(
             project_order_id=po.id, product_type=ptype, model_no=model,
@@ -227,14 +238,23 @@ def get_monthly_load(year: int = Query(...), factory: str = Query("小牧"), db:
 
     # 製造計画の期間から月別工数を集計
     plans = db.query(ManufacturingPlan).options(joinedload(ManufacturingPlan.project_order)).all()
-    ph_map = {(h.product_type, h.model_no): float(h.required_hours)
-              for h in db.query(ProductHours).all()}
+    all_ph = db.query(ProductHours).all()
+    # 正規化キーで突合
+    ph_map = {(h.product_type, _norm_model(h.product_type, h.model_no)): float(h.required_hours) for h in all_ph}
+    # 製品種別ごとの平均（正確な型番が無いときの代替）
+    pt_sum, pt_cnt = {}, {}
+    for h in all_ph:
+        pt_sum[h.product_type] = pt_sum.get(h.product_type, 0) + float(h.required_hours or 0)
+        pt_cnt[h.product_type] = pt_cnt.get(h.product_type, 0) + 1
+    pt_avg = {k: pt_sum[k] / pt_cnt[k] for k in pt_sum if pt_cnt[k]}
 
     monthly_load = {}
     for p in plans:
         if not p.planned_start or not p.planned_end: continue
-        hrs = ph_map.get((p.product_type, p.model_no), 0)
-        if hrs == 0: continue
+        hrs = ph_map.get((p.product_type, _norm_model(p.product_type, p.model_no)))
+        if not hrs:
+            hrs = pt_avg.get(p.product_type, 0)   # 正確な型番が無ければ製品種別平均で代替
+        if not hrs: continue
         # 製造期間を月ごとに按分
         start = p.planned_start; end = p.planned_end
         total_days = max((end - start).days, 1)
