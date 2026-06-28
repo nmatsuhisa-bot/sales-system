@@ -735,7 +735,7 @@ class MaterialPurchaseOrder(Base):
     delivery_place = Column(String(300))                            # 納入場所
     seiban = Column(String(100))                                    # 製番
     title = Column(String(500))                                     # 件名
-    status = Column(String(20), default="未発注")                  # 未発注/発注済/一部入荷/入荷済/キャンセル
+    status = Column(String(20), default="作成中")                  # 作成中/発注済/一部入荷/入荷済/キャンセル
     notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

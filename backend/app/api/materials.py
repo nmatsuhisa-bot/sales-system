@@ -12,7 +12,7 @@ from datetime import date
 
 router = APIRouter()
 
-PO_STATUS = ["未発注", "発注済", "一部入荷", "入荷済", "キャンセル"]
+PO_STATUS = ["作成中", "発注済", "一部入荷", "入荷済", "キャンセル"]
 
 # ---- 部材マスタ ----
 
@@ -177,10 +177,20 @@ def list_material_orders(order_id: str = Query(None), status: str = Query(None),
 
 @router.post("/material-orders")
 def create_material_order(data: dict, db: Session = Depends(get_db)):
+    po_id = data.get("purchase_order_id") or None
+    project_order_id = data.get("project_order_id")
+    supplier_id = data.get("supplier_id")
+    # 発注書配下の明細は、案件子ID・仕入先をヘッダーから継承（未指定時）
+    if po_id:
+        po = db.query(MaterialPurchaseOrder).filter(MaterialPurchaseOrder.id == po_id).first()
+        if po:
+            project_order_id = project_order_id or (str(po.project_order_id) if po.project_order_id else None)
+            supplier_id = supplier_id or (str(po.supplier_id) if po.supplier_id else None)
     mo = MaterialOrder(
-        project_order_id=data.get("project_order_id"),
+        purchase_order_id=po_id,
+        project_order_id=project_order_id,
         material_id=data["material_id"],
-        supplier_id=data.get("supplier_id"),
+        supplier_id=supplier_id,
         order_qty=data.get("order_qty"),
         unit_price=data.get("unit_price"),
         order_date=data.get("order_date"),
@@ -426,6 +436,23 @@ def _po_dict(po: MaterialPurchaseOrder, with_lines: bool = False):
         d["lines"] = [_mo_dict(l) for l in sorted(lines, key=lambda x: str(x.created_at))]
     return d
 
+@router.post("/purchase-orders")
+def create_purchase_order(data: dict, db: Session = Depends(get_db)):
+    """発注書を手動で新規作成（発番）。明細は別途 material-orders で追加。"""
+    header = MaterialPurchaseOrder(
+        po_no=_gen_po_no(db),
+        project_order_id=data.get("project_order_id") or None,
+        supplier_id=data.get("supplier_id") or None,
+        order_date=data.get("order_date") or date.today(),
+        delivery_place=data.get("delivery_place"),
+        seiban=data.get("seiban"),
+        title=data.get("title"),
+        status=data.get("status", "作成中"),
+        notes=data.get("notes"),
+    )
+    db.add(header); db.commit(); db.refresh(header)
+    return _po_dict(header)
+
 @router.get("/purchase-orders")
 def list_purchase_orders(status: str = Query(None), project_order_id: str = Query(None), db: Session = Depends(get_db)):
     q = db.query(MaterialPurchaseOrder).options(
@@ -510,7 +537,7 @@ def po_from_units(data: dict, db: Session = Depends(get_db)):
             delivery_place=(po.customer_name if po else None),
             seiban=(po.child_no if po else None),
             title=(po.project_name if po else None),
-            status="未発注",
+            status="作成中",
         )
         db.add(header); db.flush()
         for r, mult, unit in items:

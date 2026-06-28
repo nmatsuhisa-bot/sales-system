@@ -211,6 +211,7 @@ export const procurementApi = {
   adoptedUnits: (project_order_id: string) => api.get('/procurement/adopted-units', { params: { project_order_id } }),
   createOrdersFromUnits: (data: any) => api.post('/procurement/material-orders/from-units', data),
   // 発注書（発注番号ヘッダー）
+  createPurchaseOrder: (data: any) => api.post('/procurement/purchase-orders', data),
   listPurchaseOrders: (status?: string, project_order_id?: string) => api.get('/procurement/purchase-orders', { params: { status, project_order_id } }),
   getPurchaseOrder: (id: string) => api.get(`/procurement/purchase-orders/${id}`),
   updatePurchaseOrder: (id: string, data: any) => api.put(`/procurement/purchase-orders/${id}`, data),
