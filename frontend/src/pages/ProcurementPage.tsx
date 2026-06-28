@@ -49,6 +49,7 @@ function OrdersTab() {
   const [showAdd, setShowAdd] = useState(false);
   const [newData, setNewData] = useState<any>({ status: '未発注' });
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   // 方式B: ユニットから一括取込（受注採用見積から自動セット＋編集）
   const [showUnitImport, setShowUnitImport] = useState(false);
@@ -62,13 +63,16 @@ function OrdersTab() {
 
   const load = () => {
     setLoading(true);
+    setError('');
     Promise.all([
       procurementApi.listMaterialOrders(undefined, statusFilter || undefined),
       procurementApi.listMaterials(),
       procurementApi.listSuppliers(),
     ]).then(([o, m, s]) => {
       setOrders(o.data); setMaterials(m.data); setSuppliers(s.data);
-    }).catch(() => {}).finally(() => setLoading(false));
+    }).catch((e) => {
+      setError('発注データの取得に失敗しました（' + (e?.response?.status || e?.message || 'error') + '）。/setup-bom-master-tables 未実行の可能性があります。');
+    }).finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, [statusFilter]);
 
@@ -122,8 +126,13 @@ function OrdersTab() {
     setEditing(null); load();
   };
   const handleAdd = async () => {
-    await procurementApi.createMaterialOrder(newData);
-    setShowAdd(false); setNewData({ status: '未発注' }); load();
+    if (!newData.material_id) { setError('部材を選択してください。'); return; }
+    try {
+      await procurementApi.createMaterialOrder(newData);
+      setShowAdd(false); setNewData({ status: '未発注' }); load();
+    } catch (e: any) {
+      setError('発注の登録に失敗しました（' + (e?.response?.status || e?.message || 'error') + '）。');
+    }
   };
   const handleDelete = async (id: string) => {
     if (!confirm('削除しますか？')) return;
@@ -132,6 +141,7 @@ function OrdersTab() {
 
   return (
     <div>
+      {error && <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
           className="border rounded px-2 py-1 text-sm">
@@ -350,11 +360,15 @@ function MaterialsTab() {
   const [editData, setEditData] = useState<any>({});
   const [showAdd, setShowAdd] = useState(false);
   const [newData, setNewData] = useState<any>({ unit: '個', standard_lead_days: 14 });
+  const [error, setError] = useState('');
 
-  const load = () => Promise.all([
-    procurementApi.listMaterials(search || undefined),
-    procurementApi.listSuppliers(),
-  ]).then(([m, s]) => { setMaterials(m.data); setSuppliers(s.data); });
+  const load = () => { setError('');
+    return Promise.all([
+      procurementApi.listMaterials(search || undefined),
+      procurementApi.listSuppliers(),
+    ]).then(([m, s]) => { setMaterials(m.data); setSuppliers(s.data); })
+      .catch((e) => { setError('部材マスタの取得に失敗しました（' + (e?.response?.status || e?.message || 'error') + '）。'); });
+  };
 
   useEffect(() => { load(); }, [search]);
 
@@ -373,6 +387,7 @@ function MaterialsTab() {
 
   return (
     <div>
+      {error && <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
       <div className="flex items-center gap-2 mb-3">
         <div className="relative">
           <Search size={14} className="absolute left-2.5 top-2 text-gray-400" />
@@ -491,11 +506,15 @@ function BomTab() {
   const [editData, setEditData] = useState<any>({});
   const [showAdd, setShowAdd] = useState(false);
   const [newData, setNewData] = useState<any>({ quantity: 1 });
+  const [error, setError] = useState('');
 
-  const load = () => Promise.all([
-    procurementApi.listBom(filterType || undefined),
-    procurementApi.listMaterials(),
-  ]).then(([b, m]) => { setBoms(b.data); setMaterials(m.data); });
+  const load = () => { setError('');
+    return Promise.all([
+      procurementApi.listBom(filterType || undefined),
+      procurementApi.listMaterials(),
+    ]).then(([b, m]) => { setBoms(b.data); setMaterials(m.data); })
+      .catch((e) => { setError('BOMマスタの取得に失敗しました（' + (e?.response?.status || e?.message || 'error') + '）。'); });
+  };
 
   useEffect(() => { load(); }, [filterType]);
 
@@ -514,6 +533,7 @@ function BomTab() {
 
   return (
     <div>
+      {error && <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
       <div className="flex items-center gap-2 mb-3">
         <select value={filterType} onChange={e => setFilterType(e.target.value)}
           className="border rounded px-2 py-1 text-sm">

@@ -26,7 +26,9 @@ CREATE TABLE IF NOT EXISTS bom_items (
 
 CREATE TABLE IF NOT EXISTS material_orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_no VARCHAR(100),
     project_order_id UUID REFERENCES project_orders(id),
+    project_unit_id UUID,
     material_id UUID NOT NULL REFERENCES material_masters(id),
     supplier_id UUID REFERENCES suppliers(id),
     order_qty NUMERIC(10,3),
