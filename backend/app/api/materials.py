@@ -389,6 +389,26 @@ def allocate_from_stock(mo_id: str, db: Session = Depends(get_db)):
         MaterialStockMovement.material_id == mo.material_id).scalar()
     return {"ok": True, "stock": float(stock or 0)}
 
+@router.post("/material-orders/{mo_id}/receive")
+def receive_material_order_line(mo_id: str, data: dict, db: Session = Depends(get_db)):
+    """発注明細の入荷登録：実入荷数量を在庫に加算（入荷）し、明細を入荷済にする。"""
+    mo = db.query(MaterialOrder).filter(MaterialOrder.id == mo_id).first()
+    if not mo: raise HTTPException(404)
+    qty = float(data.get("quantity") if data.get("quantity") not in (None, "") else (mo.order_qty or 0))
+    if qty <= 0: raise HTTPException(400, "入荷数量が未設定です")
+    db.add(MaterialStockMovement(
+        material_id=mo.material_id, movement_type="入荷", quantity=qty,
+        movement_date=data.get("received_date") or date.today().isoformat(),
+        project_order_id=mo.project_order_id, purchase_order_id=mo.purchase_order_id,
+        notes="発注入荷",
+    ))
+    mo.received_date = data.get("received_date") or date.today().isoformat()
+    mo.status = "入荷済"
+    db.commit()
+    stock = db.query(safunc.coalesce(safunc.sum(MaterialStockMovement.quantity), 0)).filter(
+        MaterialStockMovement.material_id == mo.material_id).scalar()
+    return {"ok": True, "stock": float(stock or 0)}
+
 @router.delete("/material-orders/{mo_id}")
 def delete_material_order(mo_id: str, db: Session = Depends(get_db)):
     mo = db.query(MaterialOrder).filter(MaterialOrder.id == mo_id).first()

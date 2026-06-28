@@ -308,6 +308,14 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
     try { await procurementApi.allocateFromStock(l.id); reload(); onChange(); }
     catch (e: any) { alert(e.response?.data?.detail || 'エラー'); }
   };
+  const receiveLine = async (l: any) => {
+    const input = window.prompt(`「${l.material_name}」の入荷数量を入力（在庫に加算）`, String(l.order_qty ?? ''));
+    if (input == null) return;
+    const qty = Number(input);
+    if (!qty || qty <= 0) { alert('数量を正しく入力してください'); return; }
+    try { await procurementApi.receiveLine(l.id, qty); reload(); onChange(); }
+    catch (e: any) { alert(e.response?.data?.detail || 'エラー'); }
+  };
   const updLineLocal = (id: string, patch: any) =>
     setPo((p: any) => ({ ...p, lines: p.lines.map((l: any) => l.id === id ? { ...l, ...patch } : l) }));
 
@@ -360,7 +368,10 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
               <td className="px-1 py-1 whitespace-nowrap">
                 {l.status === '在庫引当'
                   ? <span className="text-xs text-orange-600 font-medium">在庫引当</span>
+                  : l.status === '入荷済'
+                  ? <span className="text-xs text-teal-600 font-medium">入荷済</span>
                   : <>
+                      <button onClick={() => receiveLine(l)} className="text-teal-600 hover:text-teal-800 mr-1.5 text-[11px]" title="入荷を在庫に登録">入荷</button>
                       {editable && <button onClick={() => allocate(l)} className="text-orange-500 hover:text-orange-700 mr-1.5 text-[11px]" title="在庫から引当">在庫引当</button>}
                       {editable && <button onClick={() => delLine(l.id)} className="text-red-400"><Trash2 size={12} /></button>}
                     </>}

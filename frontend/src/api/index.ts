@@ -230,6 +230,7 @@ export const procurementApi = {
   createPOsFromUnits: (data: any) => api.post('/procurement/purchase-orders/from-units', data),
   poPdfUrl: (id: string) => `${API_BASE}/procurement/purchase-orders/${id}/pdf`,
   allocateFromStock: (moId: string) => api.post(`/procurement/material-orders/${moId}/allocate-stock`),
+  receiveLine: (moId: string, quantity?: number) => api.post(`/procurement/material-orders/${moId}/receive`, { quantity }),
   receivePoStock: (poId: string) => api.post(`/procurement/purchase-orders/${poId}/receive-stock`),
 };
 
