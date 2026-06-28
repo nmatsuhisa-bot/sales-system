@@ -3,10 +3,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
 from app.db.models import (
-    get_db, ProductMaster, UnitMaster, ProductUnitBom, UnitMaterialBom,
+    get_db, ProductMaster, UnitMaster, ProductUnitBom, UnitMaterialBom, MaterialMaster, MaterialOrder,
 )
 
 router = APIRouter()
+
+# サンプル取込データの識別タグ（notes先頭に付与し、一括削除に使う）
+SAMPLE_TAG = "〔サンプル取込〕"
 
 # =============================================
 # 製品マスタ
@@ -209,6 +212,94 @@ def _um_dict(r: UnitMaterialBom):
 
 def _pick(data: dict, keys: list):
     return {k: data.get(k) for k in keys if k in data}
+
+
+# =============================================
+# サンプル一括取込（部品マスタ / ユニット＋部品紐付け）— notes先頭にタグを付け一括削除可能
+# =============================================
+
+@router.post("/import/materials")
+def import_materials(data: dict, db: Session = Depends(get_db)):
+    """部品マスタを一括登録。既存コードはスキップ。notes先頭にサンプルタグを付与。"""
+    tag = data.get("tag", SAMPLE_TAG)
+    materials = data.get("materials", [])
+    existing = {row[0] for row in db.query(MaterialMaster.material_code).all()}
+    created = 0
+    for m in materials:
+        code = str(m.get("material_code", "")).strip()
+        if not code or code in existing:
+            continue
+        existing.add(code)
+        name = (m.get("material_name") or code).strip()[:300]
+        extra = m.get("note_extra") or ""
+        db.add(MaterialMaster(
+            material_code=code, material_name=name,
+            unit=(m.get("unit") or "個")[:20],
+            notes=(tag + " " + extra).strip(),
+        ))
+        created += 1
+    db.commit()
+    return {"ok": True, "created": created, "skipped": len(materials) - created}
+
+@router.post("/import/units")
+def import_units(data: dict, db: Session = Depends(get_db)):
+    """ユニット＋部品紐付け（ユニット構成BOM）を一括登録。部品はコードで突合。"""
+    tag = data.get("tag", SAMPLE_TAG)
+    units = data.get("units", [])
+    existing_u = {row[0] for row in db.query(UnitMaster.unit_code).all()}
+    mat_map = {mc: mid for mc, mid in db.query(MaterialMaster.material_code, MaterialMaster.id).all()}
+    created_u, created_links, missing = 0, 0, 0
+    for u in units:
+        ucode = str(u.get("unit_code", "")).strip()
+        if not ucode or ucode in existing_u:
+            continue
+        existing_u.add(ucode)
+        um = UnitMaster(
+            unit_code=ucode[:50], unit_name=(u.get("unit_name") or ucode)[:300],
+            unit_type=u.get("unit_type"), model_no=(u.get("model_no") or None),
+            notes=tag,
+        )
+        db.add(um); db.flush()
+        created_u += 1
+        for idx, it in enumerate(u.get("items", [])):
+            code = str(it.get("material_code", "")).strip()
+            mid = mat_map.get(code)
+            if not mid:
+                missing += 1
+                continue
+            db.add(UnitMaterialBom(
+                unit_id=um.id, material_id=mid,
+                quantity=it.get("quantity", 1) or 1, sort_order=idx, notes=it.get("notes"),
+            ))
+            created_links += 1
+    db.commit()
+    return {"ok": True, "units": created_u, "links": created_links, "missing_materials": missing}
+
+@router.get("/import/sample-count")
+def sample_count(db: Session = Depends(get_db)):
+    mc = db.query(MaterialMaster).filter(MaterialMaster.notes.like(SAMPLE_TAG + "%")).count()
+    uc = db.query(UnitMaster).filter(UnitMaster.notes.like(SAMPLE_TAG + "%")).count()
+    return {"materials": mc, "units": uc}
+
+@router.delete("/import/sample-data")
+def delete_sample_data(db: Session = Depends(get_db)):
+    """サンプルタグの付いたユニット・部品マスタを一括削除（紐付けはカスケード/明示削除）。"""
+    # サンプルユニット削除（UnitMaterialBomはカスケード）
+    sample_units = db.query(UnitMaster).filter(UnitMaster.notes.like(SAMPLE_TAG + "%")).all()
+    deleted_units = len(sample_units)
+    for u in sample_units:
+        db.delete(u)
+    db.flush()
+    # サンプル部品: 残存する紐付け・発注を外してから削除
+    mat_ids = [m.id for m in db.query(MaterialMaster.id).filter(MaterialMaster.notes.like(SAMPLE_TAG + "%")).all()]
+    if mat_ids:
+        db.query(UnitMaterialBom).filter(UnitMaterialBom.material_id.in_(mat_ids)).delete(synchronize_session=False)
+        db.query(MaterialOrder).filter(MaterialOrder.material_id.in_(mat_ids)).delete(synchronize_session=False)
+    deleted_materials = db.query(MaterialMaster).filter(
+        MaterialMaster.notes.like(SAMPLE_TAG + "%")
+    ).delete(synchronize_session=False)
+    db.commit()
+    return {"ok": True, "deleted_units": deleted_units, "deleted_materials": deleted_materials}
 
 
 # =============================================

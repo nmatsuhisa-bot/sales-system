@@ -21,14 +21,30 @@ export default function BomMasterPage() {
     finally { setSeeding(false); }
   };
 
+  const delSample = async () => {
+    try {
+      const c = await bomMasterApi.sampleCount();
+      if (!confirm(`サンプル取込データを削除します。\n部品マスタ ${c.data.materials}件 / ユニット ${c.data.units}件 が対象です。\nよろしいですか？`)) return;
+      const r = await bomMasterApi.deleteSampleData();
+      alert(`削除しました（部品 ${r.data.deleted_materials}件 / ユニット ${r.data.deleted_units}件）`);
+      setReloadKey(k => k + 1);
+    } catch (e: any) { alert(e.response?.data?.detail || 'エラー'); }
+  };
+
   return (
     <div className="p-4">
       <div className="flex items-start justify-between mb-1 gap-2">
         <h1 className="text-xl font-bold text-gray-800">製品BOMマスタ（型式 → ユニット → 部材）</h1>
-        <button onClick={seed} disabled={seeding}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-sm rounded hover:bg-emerald-700 disabled:opacity-60 shrink-0">
-          <Download size={14} />{seeding ? '取込中...' : '見積パターンから取込'}
-        </button>
+        <div className="flex gap-2 shrink-0">
+          <button onClick={delSample}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-red-300 text-red-600 text-sm rounded hover:bg-red-50">
+            <Trash2 size={14} />サンプル削除
+          </button>
+          <button onClick={seed} disabled={seeding}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-sm rounded hover:bg-emerald-700 disabled:opacity-60">
+            <Download size={14} />{seeding ? '取込中...' : '見積パターンから取込'}
+          </button>
+        </div>
       </div>
       <p className="text-xs text-gray-500 mb-4">型式・ユニット・部材の紐付けを定義します。型式は「見積パターンから取込」で既存の見積パターン（BFR本体・ファン等）から一括登録できます。各ユニットに部材を紐付けると、仕入管理で一括取込できます。</p>
       <div className="flex gap-1 mb-5 border-b border-gray-200 flex-wrap">
