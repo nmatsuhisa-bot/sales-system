@@ -21,7 +21,7 @@ function currentFiscalYear(): number {
 }
 
 export default function ManufacturingPage() {
-  const [tab, setTab] = useState<'plans' | 'capacity' | 'hours'>('plans');
+  const [tab, setTab] = useState<'plans' | 'gantt' | 'capacity' | 'hours'>('plans');
   const [fiscalYear, setFiscalYear] = useState(currentFiscalYear());
   const thisYear = new Date().getFullYear();
 
@@ -37,7 +37,7 @@ export default function ManufacturingPage() {
         </select>
       </div>
       <div className="flex gap-1 mb-5 border-b border-gray-200">
-        {([['plans', '製造計画'], ['capacity', '生産能力マスタ'], ['hours', '製品所要工数マスタ']] as const).map(([key, label]) => (
+        {([['plans', '製造計画'], ['gantt', 'ガント'], ['capacity', '生産能力マスタ'], ['hours', '製品所要工数マスタ']] as const).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === key ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
             {label}
@@ -45,8 +45,120 @@ export default function ManufacturingPage() {
         ))}
       </div>
       {tab === 'plans' && <PlansTab fiscalYear={fiscalYear} />}
+      {tab === 'gantt' && <GanttTab fiscalYear={fiscalYear} />}
       {tab === 'capacity' && <CapacityTab fiscalYear={fiscalYear} />}
       {tab === 'hours' && <ProductHoursTab />}
+    </div>
+  );
+}
+
+// ========== 製造計画ガント（旬単位グリッド・PDF準拠） ==========
+function GanttTab({ fiscalYear }: { fiscalYear: number }) {
+  const [plans, setPlans] = useState<any[]>([]);
+  const [loadData, setLoadData] = useState<any[]>([]);
+
+  useEffect(() => {
+    manufacturingApi.listPlans(fiscalYear).then(r => setPlans(r.data)).catch(() => {});
+    manufacturingApi.getMonthlyLoad(fiscalYear).then(r => setLoadData(r.data.monthly || [])).catch(() => {});
+  }, [fiscalYear]);
+
+  // 年度の旬カラム（3月〜翌2月、各月 1〜10/11〜20/21〜末）
+  const FY_MONTHS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2];
+  const lastDay = (y: number, m: number) => new Date(y, m, 0).getDate();
+  const cols: any[] = [];
+  FY_MONTHS.forEach(m => {
+    const y = m >= 3 ? fiscalYear : fiscalYear + 1;
+    [[1, 10], [11, 20], [21, lastDay(y, m)]].forEach(([s, e], i) => {
+      cols.push({ y, m, s, e, jun: i, label: ['上', '中', '下'][i] });
+    });
+  });
+
+  const toD = (iso: string) => { const [yy, mm, dd] = iso.split('-').map(Number); return new Date(yy, mm - 1, dd); };
+  const dayMs = 86400000;
+
+  // 計画ごとの旬別工数
+  const planCells = (p: any): number[] => {
+    const arr = new Array(cols.length).fill(0);
+    if (!p.planned_start || !p.planned_end || !p.total_hours) return arr;
+    const ps = toD(p.planned_start), pe = toD(p.planned_end);
+    const totalDays = Math.round((+pe - +ps) / dayMs) + 1;
+    const perDay = p.total_hours / Math.max(totalDays, 1);
+    cols.forEach((c, ci) => {
+      const cs = new Date(c.y, c.m - 1, c.s), ce = new Date(c.y, c.m - 1, c.e);
+      const ovS = Math.max(+ps, +cs), ovE = Math.min(+pe, +ce);
+      if (ovE >= ovS) arr[ci] = perDay * (Math.round((ovE - ovS) / dayMs) + 1);
+    });
+    return arr;
+  };
+
+  const rows = plans.map(p => ({ p, cells: planCells(p) }));
+  // 旬別合計
+  const colTotal = cols.map((_, ci) => rows.reduce((s, r) => s + r.cells[ci], 0));
+  // 旬別 使用可能（月の available を旬数で按分）
+  const capByMonth: Record<number, number> = {};
+  loadData.forEach((d: any) => { capByMonth[d.month] = d.available_hours || 0; });
+  const colCap = cols.map(c => Math.round((capByMonth[c.m] || 0) / 3));
+
+  const today = new Date();
+  const STATUS_BG: Record<string, string> = { '完了': '#dcfce7', '製造中': '#dbeafe', '未着手': '#f1f5f9' };
+
+  return (
+    <div>
+      <p className="text-xs text-gray-500 mb-2">行＝計画 ／ 横軸＝月×旬（上=1〜10・中=11〜20・下=21〜末）／ セル＝その旬の計画工数(h)。最下部は旬別の合計と使用可能時間（超過は赤）。</p>
+      <div className="overflow-x-auto border rounded-lg">
+        <table className="text-[11px] border-collapse" style={{ minWidth: `${360 + cols.length * 34}px` }}>
+          <thead>
+            <tr className="bg-gray-100">
+              <th rowSpan={2} className="border border-gray-300 px-2 py-1 sticky left-0 bg-gray-100 text-left" style={{ minWidth: '120px' }}>案件ID / 型番</th>
+              <th rowSpan={2} className="border border-gray-300 px-1 py-1 text-right" style={{ width: '52px' }}>計画工数</th>
+              {FY_MONTHS.map(m => (
+                <th key={m} colSpan={3} className="border border-gray-300 text-center py-0.5">{m}月</th>
+              ))}
+            </tr>
+            <tr className="bg-gray-50">
+              {cols.map((c, ci) => {
+                const isThis = today.getFullYear() === c.y && today.getMonth() + 1 === c.m &&
+                  today.getDate() >= c.s && today.getDate() <= c.e;
+                return <th key={ci} className={`border border-gray-300 text-center font-normal ${isThis ? 'bg-red-100' : ''}`} style={{ width: '34px' }}>{c.label}</th>;
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr><td colSpan={2 + cols.length} className="text-center py-8 text-gray-400">計画なし</td></tr>
+            ) : rows.map(({ p, cells }) => (
+              <tr key={p.id}>
+                <td className="border border-gray-300 px-2 py-1 sticky left-0 bg-white whitespace-nowrap">
+                  <span className="font-mono text-gray-700">{p.child_no}</span>
+                  <span className="text-gray-400 ml-1">{p.product_type}{p.model_no ? `/${p.model_no}` : ''}</span>
+                </td>
+                <td className="border border-gray-300 px-1 py-1 text-right font-semibold">{p.total_hours ? `${p.total_hours}h` : '—'}</td>
+                {cells.map((h, ci) => (
+                  <td key={ci} className="border border-gray-200 text-center"
+                    style={{ background: h > 0 ? (STATUS_BG[p.status] || '#dcfce7') : 'white' }}>
+                    {h > 0 ? Math.round(h) : ''}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="bg-gray-50 font-medium">
+              <td className="border border-gray-300 px-2 py-1 sticky left-0 bg-gray-50">旬別 計画工数</td>
+              <td className="border border-gray-300 px-1 py-1 text-right">{Math.round(colTotal.reduce((a, b) => a + b, 0))}h</td>
+              {colTotal.map((t, ci) => {
+                const over = colCap[ci] > 0 && t > colCap[ci];
+                return <td key={ci} className={`border border-gray-300 text-center ${over ? 'bg-red-200 text-red-700 font-bold' : ''}`}>{t > 0 ? Math.round(t) : ''}</td>;
+              })}
+            </tr>
+            <tr className="bg-white text-gray-500">
+              <td className="border border-gray-300 px-2 py-1 sticky left-0 bg-white">旬別 使用可能</td>
+              <td className="border border-gray-300"></td>
+              {colCap.map((c, ci) => <td key={ci} className="border border-gray-200 text-center">{c > 0 ? c : ''}</td>)}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </div>
   );
 }
