@@ -62,16 +62,21 @@ function GanttTab({ fiscalYear }: { fiscalYear: number }) {
     manufacturingApi.getMonthlyLoad(fiscalYear).then(r => setLoadData(r.data.monthly || [])).catch(() => {});
   }, [fiscalYear]);
 
-  // 年度の旬カラム（3月〜翌2月、各月 1〜10/11〜20/21〜末）
+  // 年度の週カラム（3月〜翌2月、各月を7日区切りの週に分割）
   const FY_MONTHS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2];
   const lastDay = (y: number, m: number) => new Date(y, m, 0).getDate();
   const cols: any[] = [];
   FY_MONTHS.forEach(m => {
     const y = m >= 3 ? fiscalYear : fiscalYear + 1;
-    [[1, 10], [11, 20], [21, lastDay(y, m)]].forEach(([s, e], i) => {
-      cols.push({ y, m, s, e, jun: i, label: ['上', '中', '下'][i] });
-    });
+    const ld = lastDay(y, m);
+    let s = 1, wk = 1;
+    while (s <= ld) {
+      const e = Math.min(s + 6, ld);
+      cols.push({ y, m, s, e, label: `${wk}週` });
+      s = e + 1; wk++;
+    }
   });
+  const monthCounts = FY_MONTHS.map(m => cols.filter(c => c.m === m).length);
 
   const toD = (iso: string) => { const [yy, mm, dd] = iso.split('-').map(Number); return new Date(yy, mm - 1, dd); };
   const dayMs = 86400000;
@@ -94,25 +99,25 @@ function GanttTab({ fiscalYear }: { fiscalYear: number }) {
   const rows = plans.map(p => ({ p, cells: planCells(p) }));
   // 旬別合計
   const colTotal = cols.map((_, ci) => rows.reduce((s, r) => s + r.cells[ci], 0));
-  // 旬別 使用可能（月の available を旬数で按分）
+  // 週別 使用可能（月の available を旬数で按分）
   const capByMonth: Record<number, number> = {};
   loadData.forEach((d: any) => { capByMonth[d.month] = d.available_hours || 0; });
-  const colCap = cols.map(c => Math.round((capByMonth[c.m] || 0) / 3));
+  const colCap = cols.map(c => Math.round((capByMonth[c.m] || 0) * (c.e - c.s + 1) / lastDay(c.y, c.m)));
 
   const today = new Date();
   const STATUS_BG: Record<string, string> = { '完了': '#dcfce7', '製造中': '#dbeafe', '未着手': '#f1f5f9' };
 
   return (
     <div>
-      <p className="text-xs text-gray-500 mb-2">行＝計画 ／ 横軸＝月×旬（上=1〜10・中=11〜20・下=21〜末）／ セル＝その旬の計画工数(h)。最下部は旬別の合計と使用可能時間（超過は赤）。</p>
+      <p className="text-xs text-gray-500 mb-2">行＝計画 ／ 横軸＝月×週 ／ セル＝その週の計画工数(h)。最下部は週別の合計と使用可能時間（超過は赤）。</p>
       <div className="overflow-x-auto border rounded-lg">
-        <table className="text-[11px] border-collapse" style={{ minWidth: `${360 + cols.length * 34}px` }}>
+        <table className="text-[11px] border-collapse" style={{ minWidth: `${360 + cols.length * 30}px` }}>
           <thead>
             <tr className="bg-gray-100">
               <th rowSpan={2} className="border border-gray-300 px-2 py-1 sticky left-0 bg-gray-100 text-left" style={{ minWidth: '120px' }}>案件ID / 型番</th>
               <th rowSpan={2} className="border border-gray-300 px-1 py-1 text-right" style={{ width: '52px' }}>計画工数</th>
-              {FY_MONTHS.map(m => (
-                <th key={m} colSpan={3} className="border border-gray-300 text-center py-0.5">{m}月</th>
+              {FY_MONTHS.map((m, i) => (
+                <th key={m} colSpan={monthCounts[i]} className="border border-gray-300 text-center py-0.5">{m}月</th>
               ))}
             </tr>
             <tr className="bg-gray-50">
@@ -144,7 +149,7 @@ function GanttTab({ fiscalYear }: { fiscalYear: number }) {
           </tbody>
           <tfoot>
             <tr className="bg-gray-50 font-medium">
-              <td className="border border-gray-300 px-2 py-1 sticky left-0 bg-gray-50">旬別 計画工数</td>
+              <td className="border border-gray-300 px-2 py-1 sticky left-0 bg-gray-50">週別 計画工数</td>
               <td className="border border-gray-300 px-1 py-1 text-right">{Math.round(colTotal.reduce((a, b) => a + b, 0))}h</td>
               {colTotal.map((t, ci) => {
                 const over = colCap[ci] > 0 && t > colCap[ci];
@@ -152,7 +157,7 @@ function GanttTab({ fiscalYear }: { fiscalYear: number }) {
               })}
             </tr>
             <tr className="bg-white text-gray-500">
-              <td className="border border-gray-300 px-2 py-1 sticky left-0 bg-white">旬別 使用可能</td>
+              <td className="border border-gray-300 px-2 py-1 sticky left-0 bg-white">週別 使用可能</td>
               <td className="border border-gray-300"></td>
               {colCap.map((c, ci) => <td key={ci} className="border border-gray-200 text-center">{c > 0 ? c : ''}</td>)}
             </tr>

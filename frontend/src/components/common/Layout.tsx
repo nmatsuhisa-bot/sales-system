@@ -8,8 +8,6 @@ import { useState } from 'react';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'ダッシュボード', end: true },
-  { to: '/customers', icon: Users, label: '顧客管理' },
-  { to: '/products', icon: Package, label: '商品管理' },
   { to: '/estimates', icon: FileText, label: '見積管理' },
   { to: '/orders', icon: ShoppingCart, label: '受注管理' },
   { to: '/purchase-orders', icon: Truck, label: '発注・仕入管理' },
