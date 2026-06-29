@@ -15,6 +15,14 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-06-30 — Claude(Cowork) — /procurement 検証・P-03修正
+**触ったファイル**: `backend/app/api/materials.py`, `WORKLOG.md`
+**修正済（通常・push）**:
+- **P-03** `_mo_dict` で `order_qty`/`unit_price` が **0 のとき truthiness判定で None化** → フロントが「—」表示になる不具合を修正（`if ... is not None` に変更）。発注数量0・単価0（無償部材等）が正しく 0 表示になる。非破壊・1ファイル・py_compile OK・全角なし。
+- ライブAPI確認は今回不可（サンドボックスproxyが対象ドメインを403/web_fetch provenance外、Chromeは複数接続で無人選択不可）。静的解析で対応。
+- フロント側 (ProcurementPage.tsx L706-707) は既に `!= null` 判定で正しく、退行なし。P-01(赤バナー)/P-04(発注バリデーション) のコードも現状維持を確認。
+
+
 ### 2026-06-28（夜） — Claude(Cowork) — 検証ラン（push後の動作確認）
 - フロント修正(921e0dd)をpush済み→Render自動デプロイ。
 - ライブAPI確認: `/suppliers`=[]（仕入先未登録）, `/material-orders`=10件OK, `/bom`=1件OK。**P-02は本番に影響なし**（order_no/project_unit_id 列は既に存在＝/setup-bom-master-tables 実行済み、ユニット取込データあり）。
