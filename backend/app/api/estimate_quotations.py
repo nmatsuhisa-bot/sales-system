@@ -401,13 +401,19 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
             sections[sec] = []
         sections[sec].append(item)
 
-    line_no = 1
-    for sec, items in sections.items():
+    for sec_no, (sec, items) in enumerate(sections.items(), 1):
         sec_total = sum(int(i.amount or 0) for i in items)
+        # 大分類の見出し行（番号付き）
+        items_html += f"""
+            <tr style="background:#e8eef5;font-weight:bold">
+                <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{sec_no}</td>
+                <td colspan="6" style="border:1px solid #ccc;padding:4px 8px">{sec or '（未分類）'}</td>
+            </tr>"""
+        item_no = 1  # 大分類ごとに 1〜 で付番
         for item in items:
             items_html += f"""
             <tr>
-                <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{line_no}</td>
+                <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{sec_no}-{item_no}</td>
                 <td style="border:1px solid #ccc;padding:4px 8px">{item.item_name}</td>
                 <td style="border:1px solid #ccc;padding:4px 8px;font-size:11px;white-space:pre-wrap">{item.spec_detail or ''}</td>
                 <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{int(item.quantity or 1)}</td>
@@ -415,11 +421,10 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
                 <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">{" " if not item.unit_price else f"¥{int(item.unit_price):,}"}</td>
                 <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">¥{int(item.amount or 0):,}</td>
             </tr>"""
-            line_no += 1
-        if sec:
-            items_html += f"""
+            item_no += 1
+        items_html += f"""
             <tr style="background:#f5f5f5;font-weight:bold">
-                <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:4px 8px">{sec} 小計金額</td>
+                <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:4px 8px">【{sec_no}】{sec or '（未分類）'} 小計金額</td>
                 <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">¥{sec_total:,}</td>
             </tr>"""
 
@@ -449,16 +454,18 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
             <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">¥{int(q.labor_total or 0):,}</td>
         </tr></table></div>"""
 
-    # ===== 頭紙（大分類別の内訳サマリー）=====
+    # ===== 頭紙（大分類別の内訳サマリー・番号付き）=====
     section_rows = ""
-    for sec, items in sections.items():
+    for sec_no, (sec, items) in enumerate(sections.items(), 1):
         label = sec or "（未分類）"
         sec_total = sum(int(i.amount or 0) for i in items)
         section_rows += f'''<tr>
+            <td style="border:1px solid #ccc;padding:6px 12px;text-align:center">{sec_no}</td>
             <td style="border:1px solid #ccc;padding:6px 12px">{label}</td>
             <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{sec_total:,}</td></tr>'''
     if q.labor_total:
         section_rows += f'''<tr>
+            <td style="border:1px solid #ccc;padding:6px 12px;text-align:center">—</td>
             <td style="border:1px solid #ccc;padding:6px 12px">工事工数</td>
             <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{int(q.labor_total):,}</td></tr>'''
 
@@ -473,20 +480,21 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
     <td style="font-size:16px;font-weight:bold">合計金額　￥<span style="font-size:22px">{int(q.total_amount or 0):,}</span>　<span style="font-size:11px;color:#888">(消費税込み)</span></td>
   </tr></table>
   <h3 style="font-size:14px;margin:10px 0 6px">■ 大分類別 内訳（総括）</h3>
-  <table style="width:65%;border-collapse:collapse;font-size:13px">
+  <table style="width:68%;border-collapse:collapse;font-size:13px">
     <tr style="background:#2c3e50;color:#fff">
+      <th style="border:1px solid #ccc;padding:6px 12px;text-align:center;width:50px">No.</th>
       <th style="border:1px solid #ccc;padding:6px 12px;text-align:left">大分類</th>
       <th style="border:1px solid #ccc;padding:6px 12px;text-align:right;width:170px">金額</th>
     </tr>
     {section_rows}
     <tr style="font-weight:bold;background:#f5f5f5">
-      <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">小計</td>
+      <td colspan="2" style="border:1px solid #ccc;padding:6px 12px;text-align:right">小計</td>
       <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{int((q.subtotal or 0)+(q.labor_total or 0)):,}</td></tr>
     <tr>
-      <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">消費税({int(q.tax_rate or 10)}%)</td>
+      <td colspan="2" style="border:1px solid #ccc;padding:6px 12px;text-align:right">消費税({int(q.tax_rate or 10)}%)</td>
       <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{int(q.tax_amount or 0):,}</td></tr>
     <tr style="font-weight:bold;background:#fff9c4;font-size:15px">
-      <td style="border:2px solid #000;padding:8px 12px;text-align:right">合計金額</td>
+      <td colspan="2" style="border:2px solid #000;padding:8px 12px;text-align:right">合計金額</td>
       <td style="border:2px solid #000;padding:8px 12px;text-align:right">¥{int(q.total_amount or 0):,}</td></tr>
   </table>
   <div style="margin-top:14px;font-size:11px;color:#666">※ 内訳明細は次ページ以降をご参照ください。</div>
