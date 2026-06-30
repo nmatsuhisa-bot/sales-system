@@ -84,19 +84,9 @@ export default function SalesPlanPage() {
   const kobanProjects = projects.filter(p => p.total >= TANBAN_MAX);
   const tanbanProjects = projects.filter(p => p.total < TANBAN_MAX);
 
-  // 顧客別（工番のみ一覧表示）
-  const customerMap: Record<string, { months: Record<number, number>; total: number }> = {};
-  for (const p of kobanProjects) {
-    if (!customerMap[p.customer]) customerMap[p.customer] = { months: {}, total: 0 };
-    for (const m of Object.keys(p.months)) customerMap[p.customer].months[+m] = (customerMap[p.customer].months[+m] || 0) + p.months[+m];
-    customerMap[p.customer].total += p.total;
-  }
-  const projectsByCustomer: Record<string, Proj[]> = {};
-  for (const p of kobanProjects) {
-    (projectsByCustomer[p.customer] = projectsByCustomer[p.customer] || []).push(p);
-  }
-  for (const arr of Object.values(projectsByCustomer)) arr.sort((a, b) => b.total - a.total);
-  const customerEntries = Object.entries(customerMap).sort((a, b) => b[1].total - a[1].total);
+  // 工番のみ一覧表示（顧客名→金額順。顧客小計は表示しない）
+  const sortedKoban = [...kobanProjects].sort((a, b) =>
+    (a.customer || '').localeCompare(b.customer || '') || b.total - a.total);
 
   // 単番（集計）
   const tanbanMonths: Record<number, number> = {};
@@ -144,16 +134,8 @@ export default function SalesPlanPage() {
       ${th('合計', `text-align:right;min-width:56px;background:${C.grandTotalBg}`)}
     </tr>`;
 
-    const dataRows = customerEntries.map(([customer, cg]) => {
-      const projects = projectsByCustomer[customer] || [];
-      const custRow = `<tr>
-        ${cell(customer, `background:${C.custBg};font-weight:700;color:${C.custText}`)}
-        <td colspan="5" style="border:1px solid ${C.border};background:${C.custBg}"></td>
-        ${MONTH_LIST.map(m => cell(M(cg.months[m] || 0), `text-align:right;font-weight:600;color:${C.custMonthText};background:${m === currentMonth ? C.curMonthBg : C.custBg}`)).join('')}
-        ${cell(M(cg.total), `text-align:right;font-weight:700;color:${C.custText};background:${C.curMonthBg}`)}
-      </tr>`;
-      const projRows = projects.map(p => `<tr>
-        ${cell('└', `color:${C.gray400};padding-left:12px`)}
+    const dataRows = sortedKoban.map(p => `<tr>
+        ${cell(p.customer, `font-weight:600;color:${C.custText}`)}
         ${cell(p.child_no, `font-family:monospace;color:${C.gray700}`)}
         ${cell(p.project_name || '—', `color:${C.gray700};max-width:170px;overflow:hidden;text-overflow:ellipsis`)}
         ${cell(p.delivery_name || '—', `color:${C.gray700}`)}
@@ -162,8 +144,6 @@ export default function SalesPlanPage() {
         ${MONTH_LIST.map(m => cell(M(p.months[m] || 0), `text-align:right;color:${C.gray700};background:${m === currentMonth ? C.curMonthBg : '#fff'}`)).join('')}
         ${cell(M(p.total), `text-align:right;font-weight:500;background:${C.projTotalBg}`)}
       </tr>`).join('');
-      return custRow + projRows;
-    }).join('');
 
     const tanbanRow = tanbanProjects.length ? `<tr style="background:${C.tanbanBg};font-weight:700">
       <td colspan="6" style="border:1px solid ${C.border};padding:4px 6px">単番（集計） ${tanbanProjects.length}件</td>
@@ -239,33 +219,23 @@ export default function SalesPlanPage() {
               </tr>
             </thead>
             <tbody>
-              {customerEntries.map(([customer, cg]) => {
-                const projects = projectsByCustomer[customer] || [];
-                return [
-                  <tr key={`cust-${customer}`} className="bg-blue-50 font-semibold">
-                    <td className="border border-gray-300 px-2 py-1.5 sticky left-0 bg-blue-50 z-10 text-blue-800">{customer}</td>
-                    <td className="border border-gray-300 px-2 py-1.5" colSpan={LEFT_COLS - 1}></td>
-                    {MONTH_LIST.map(m => (
-                      <td key={m} className={`border border-gray-300 px-2 py-1.5 text-right text-blue-700 ${m === currentMonth ? 'bg-blue-100' : ''}`}>{M(cg.months[m] || 0)}</td>
-                    ))}
-                    <td className="border border-gray-300 px-2 py-1.5 text-right bg-blue-100 text-blue-800">{M(cg.total)}</td>
-                  </tr>,
-                  ...projects.map(p => (
-                    <tr key={`proj-${p.child_no}`} className="hover:bg-gray-50">
-                      <td className="border border-gray-300 px-2 py-1 sticky left-0 bg-white z-10 text-gray-300 pl-4">└</td>
-                      <td className="border border-gray-300 px-2 py-1 font-mono text-gray-700">{p.child_no}</td>
-                      <td className="border border-gray-300 px-2 py-1 text-gray-700" title={p.project_name}>{p.project_name || '—'}</td>
-                      <td className="border border-gray-300 px-2 py-1 text-gray-700">{p.delivery_name || '—'}</td>
-                      <td className="border border-gray-300 px-2 py-1 text-gray-700">{p.sales_person || '—'}</td>
-                      <td className="border border-gray-300 px-2 py-1">
-                        <span className={`text-xs font-medium ${STATUS_PRINT_COLORS[p.status] || 'text-gray-600'}`}>{p.status}</span>
-                      </td>
-                      {MONTH_LIST.map(m => <td key={m} className={tdClass(m)}>{M(p.months[m] || 0)}</td>)}
-                      <td className="border border-gray-300 px-2 py-1 text-right font-medium bg-gray-50">{M(p.total)}</td>
-                    </tr>
-                  )),
-                ];
-              })}
+              {sortedKoban.map(p => (
+                <tr key={`proj-${p.child_no}`} className="hover:bg-gray-50">
+                  <td className="border border-gray-300 px-2 py-1 sticky left-0 bg-white z-10 text-blue-800 font-medium">{p.customer}</td>
+                  <td className="border border-gray-300 px-2 py-1 font-mono text-gray-700">{p.child_no}</td>
+                  <td className="border border-gray-300 px-2 py-1 text-gray-700" title={p.project_name}>{p.project_name || '—'}</td>
+                  <td className="border border-gray-300 px-2 py-1 text-gray-700">{p.delivery_name || '—'}</td>
+                  <td className="border border-gray-300 px-2 py-1 text-gray-700">{p.sales_person || '—'}</td>
+                  <td className="border border-gray-300 px-2 py-1">
+                    <span className={`text-xs font-medium ${STATUS_PRINT_COLORS[p.status] || 'text-gray-600'}`}>{p.status}</span>
+                  </td>
+                  {MONTH_LIST.map(m => <td key={m} className={tdClass(m)}>{M(p.months[m] || 0)}</td>)}
+                  <td className="border border-gray-300 px-2 py-1 text-right font-medium bg-gray-50">{M(p.total)}</td>
+                </tr>
+              ))}
+              {sortedKoban.length === 0 && (
+                <tr><td colSpan={LEFT_COLS + MONTH_LIST.length + 1} className="text-center py-8 text-gray-400">該当案件なし</td></tr>
+              )}
             </tbody>
             <tfoot>
               {tanbanProjects.length > 0 && (

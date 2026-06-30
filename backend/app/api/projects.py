@@ -154,6 +154,19 @@ def project_to_dict(p: Project, include_orders: bool = True) -> dict:
         d["total_quotation_amount"] = sum(_i(o.quotation_amount) or 0 for o in orders)
     return d
 
+def generate_project_no(db: Session) -> str:
+    """当年プレフィックス（YYYY-）で未使用の連番を採番。重複しない案件IDを返す。"""
+    from datetime import date as _date
+    year = _date.today().year
+    prefix = f"{year}-"
+    rows = db.query(Project.project_no).filter(Project.project_no.like(f"{prefix}%")).all()
+    max_seq = 0
+    for (no,) in rows:
+        tail = (no or "")[len(prefix):]
+        if tail.isdigit():
+            max_seq = max(max_seq, int(tail))
+    return f"{prefix}{(max_seq + 1):04d}"
+
 def generate_child_no(project_no: str, db: Session) -> str:
     from sqlalchemy import text as sa_text
     db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"child_no_{project_no}"})
@@ -166,7 +179,10 @@ def generate_child_no(project_no: str, db: Session) -> str:
     return f"{project_no}_{(max_seq + 1):02d}"
 
 def _make_order(data: ProjectOrderCreate, project_id, project_no: str, db: Session) -> ProjectOrder:
-    child_no = data.child_no or generate_child_no(project_no, db)
+    # 子IDは未指定または重複時にサーバ側で採番（重複防止）
+    child_no = (data.child_no or "").strip()
+    if not child_no or db.query(ProjectOrder).filter(ProjectOrder.child_no == child_no).first():
+        child_no = generate_child_no(project_no, db)
     fields = data.dict(exclude={"child_no", "linked_quotations"})
     o = ProjectOrder(child_no=child_no, project_id=project_id, project_no=project_no, **fields)
     db.add(o)
@@ -213,13 +229,17 @@ def list_projects(
 def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
     from sqlalchemy import text as sa_text
     db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext('project_no_lock'))"))
-    if db.query(Project).filter(Project.project_no == data.project_no).first():
-        raise HTTPException(400, f"案件NO {data.project_no} は既に存在します")
-    p = Project(**data.dict(exclude={"orders"}))
+    # 案件IDは未指定または重複時にサーバ側で採番（重複防止＝保存失敗を回避）
+    pno = (data.project_no or "").strip()
+    if not pno or db.query(Project).filter(Project.project_no == pno).first():
+        pno = generate_project_no(db)
+    fields = data.dict(exclude={"orders"})
+    fields["project_no"] = pno
+    p = Project(**fields)
     db.add(p)
     db.flush()
     for od in data.orders:
-        _make_order(od, p.id, data.project_no, db)
+        _make_order(od, p.id, pno, db)
     db.commit()
     db.refresh(p)
     return project_to_dict(p)
