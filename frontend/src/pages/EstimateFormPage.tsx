@@ -72,6 +72,7 @@ export default function EstimateFormPage() {
   const [laborDetails, setLaborDetails] = useState<LaborDetail[]>([]);
   const [activeTab, setActiveTab] = useState<'items' | 'labor'>('items');
   const [loading, setLoading] = useState(false);
+  const [loadedUpdatedAt, setLoadedUpdatedAt] = useState<string | null>(null);
 
   // パターン選択用
   const [showBfrPattern, setShowBfrPattern] = useState(false);
@@ -130,6 +131,7 @@ export default function EstimateFormPage() {
         });
         setLineItems(q.line_items || []);
         setLaborDetails(q.labor_details || []);
+        setLoadedUpdatedAt(q.updated_at || null);
       });
     }
   }, []);
@@ -261,13 +263,17 @@ export default function EstimateFormPage() {
         labor_details: laborDetails.map((l, idx) => ({ ...l, sort_order: idx })),
       };
       if (isEdit) {
-        await estimateApi.update(id!, payload);
+        await estimateApi.update(id!, { ...payload, expected_updated_at: loadedUpdatedAt });
       } else {
         await estimateApi.create(payload);
       }
       navigate(-1);
     } catch (e: any) {
       alert(e.response?.data?.detail || '保存に失敗しました');
+      // 楽観ロック衝突時は最新を再読込
+      if (e.response?.status === 409 && isEdit) {
+        estimateApi.get(id!).then(r => { setLoadedUpdatedAt(r.data.updated_at || null); }).catch(() => {});
+      }
     } finally {
       setLoading(false);
     }

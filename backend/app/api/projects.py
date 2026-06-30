@@ -42,6 +42,7 @@ class ProjectOrderCreate(BaseModel):
     quotation_issue_date: Optional[date] = None
     linked_quotations: List[ProjectOrderQuotationIn] = []
     notes: Optional[str] = None
+    expected_updated_at: Optional[str] = None   # 楽観ロック用（読込時の更新日時）
 
 class ProjectCreate(BaseModel):
     project_no: str
@@ -96,6 +97,12 @@ class ProjectUpdate(BaseModel):
     expected_order_date: Optional[date] = None
     expected_shipment_date: Optional[date] = None
     notes: Optional[str] = None
+    expected_updated_at: Optional[str] = None   # 楽観ロック用（読込時の更新日時）
+
+def _check_version(current_dt, expected: Optional[str]):
+    """楽観ロック: 読込時の更新日時(expected)と現在値が異なれば409。"""
+    if expected and current_dt and current_dt.isoformat() != expected:
+        raise HTTPException(409, "他のユーザーが更新しました。最新の内容を再読込してから保存してください。")
 
 def _d(v): return v.isoformat() if v else None
 def _i(v): return int(v) if v is not None else None
@@ -183,7 +190,7 @@ def _make_order(data: ProjectOrderCreate, project_id, project_no: str, db: Sessi
     child_no = (data.child_no or "").strip()
     if not child_no or db.query(ProjectOrder).filter(ProjectOrder.child_no == child_no).first():
         child_no = generate_child_no(project_no, db)
-    fields = data.dict(exclude={"child_no", "linked_quotations"})
+    fields = data.dict(exclude={"child_no", "linked_quotations", "expected_updated_at"})
     o = ProjectOrder(child_no=child_no, project_id=project_id, project_no=project_no, **fields)
     db.add(o)
     db.flush()
@@ -256,7 +263,8 @@ def get_project(project_id: str, db: Session = Depends(get_db)):
 def update_project(project_id: str, data: ProjectUpdate, db: Session = Depends(get_db)):
     p = db.query(Project).filter(or_(Project.id == project_id, Project.project_no == project_id)).first()
     if not p: raise HTTPException(404)
-    for k, v in data.dict(exclude_none=True).items():
+    _check_version(p.updated_at, data.expected_updated_at)
+    for k, v in data.dict(exclude={"expected_updated_at"}, exclude_none=True).items():
         setattr(p, k, v)
     db.commit()
     return project_to_dict(p, include_orders=False)
@@ -316,7 +324,8 @@ def get_project_order(order_id: str, db: Session = Depends(get_db)):
 def update_project_order(order_id: str, data: ProjectOrderCreate, db: Session = Depends(get_db)):
     o = db.query(ProjectOrder).filter(or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)).first()
     if not o: raise HTTPException(404)
-    for k, v in data.dict(exclude={"child_no", "linked_quotations"}, exclude_none=True).items():
+    _check_version(o.updated_at, data.expected_updated_at)
+    for k, v in data.dict(exclude={"child_no", "linked_quotations", "expected_updated_at"}, exclude_none=True).items():
         setattr(o, k, v)
     if data.linked_quotations is not None:
         for lq in o.linked_quotations: db.delete(lq)

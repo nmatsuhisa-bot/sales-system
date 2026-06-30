@@ -124,6 +124,7 @@ class QuotationHeaderCreate(BaseModel):
     sales_person_name: Optional[str] = None
     notes: Optional[str] = None
     internal_notes: Optional[str] = None
+    expected_updated_at: Optional[str] = None   # 楽観ロック用（読込時の更新日時）
     line_items: List[LineItemIn] = []
     labor_details: List[LaborDetailIn] = []
 
@@ -163,6 +164,7 @@ def _q_to_dict(q: QuotationHeader) -> dict:
         "notes": q.notes, "internal_notes": q.internal_notes,
         "is_adopted": q.status == "adopted",
         "created_at": q.created_at.isoformat() if q.created_at else None,
+        "updated_at": q.updated_at.isoformat() if q.updated_at else None,
         "line_items": sorted([{
             "id": str(i.id), "line_no": i.line_no, "section": i.section,
             "sub_section": i.sub_section, "item_name": i.item_name,
@@ -349,8 +351,11 @@ def get_quotation(quotation_id: str, db: Session = Depends(get_db)):
 def update_quotation(quotation_id: str, data: QuotationHeaderCreate, db: Session = Depends(get_db)):
     q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
     if not q: raise HTTPException(404)
+    # 楽観ロック: 読込時の更新日時と現在値が異なれば409
+    if data.expected_updated_at and q.updated_at and q.updated_at.isoformat() != data.expected_updated_at:
+        raise HTTPException(409, "他のユーザーが更新しました。最新の内容を再読込してから保存してください。")
     subtotal, labor_total, tax, total = _calc_totals(data.line_items, data.labor_details)
-    for k, v in data.dict(exclude={"line_items", "labor_details"}, exclude_none=True).items():
+    for k, v in data.dict(exclude={"line_items", "labor_details", "expected_updated_at"}, exclude_none=True).items():
         setattr(q, k, v)
     q.subtotal = subtotal; q.labor_total = labor_total; q.tax_amount = tax; q.total_amount = total
     for i in q.line_items: db.delete(i)

@@ -166,12 +166,13 @@ export default function ProjectsPage() {
       if (projectModal.isNew) {
         await projectApi.create({ ...payload, orders: [] });
       } else {
-        await projectApi.update(form.id, payload);
+        await projectApi.update(form.id, { ...payload, expected_updated_at: form.updated_at });
       }
       setProjectModal(null);
       load();
     } catch (e: any) {
       alert(e.response?.data?.detail || 'エラーが発生しました');
+      if (e.response?.status === 409) { setProjectModal(null); load(); }
     }
   };
 
@@ -181,7 +182,7 @@ export default function ProjectsPage() {
       Object.keys(payload).forEach(k => { if (payload[k] === '') payload[k] = null; });
       ['quotation_amount','budget_amount'].forEach(k => { if (payload[k]) payload[k] = Number(payload[k]); });
       if (orderModal.order?.id) {
-        await projectApi.updateOrder(orderModal.order.id, payload);
+        await projectApi.updateOrder(orderModal.order.id, { ...payload, expected_updated_at: orderForm.updated_at });
       } else {
         await projectApi.addOrder(orderModal.project.id, payload);
       }
@@ -189,6 +190,7 @@ export default function ProjectsPage() {
       load();
     } catch (e: any) {
       alert(e.response?.data?.detail || 'エラー');
+      if (e.response?.status === 409) { setOrderModal(null); load(); }
     }
   };
 
