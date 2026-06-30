@@ -449,6 +449,50 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
             <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">¥{int(q.labor_total or 0):,}</td>
         </tr></table></div>"""
 
+    # ===== 頭紙（大分類別の内訳サマリー）=====
+    section_rows = ""
+    for sec, items in sections.items():
+        label = sec or "（未分類）"
+        sec_total = sum(int(i.amount or 0) for i in items)
+        section_rows += f'''<tr>
+            <td style="border:1px solid #ccc;padding:6px 12px">{label}</td>
+            <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{sec_total:,}</td></tr>'''
+    if q.labor_total:
+        section_rows += f'''<tr>
+            <td style="border:1px solid #ccc;padding:6px 12px">工事工数</td>
+            <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{int(q.labor_total):,}</td></tr>'''
+
+    cover_html = f'''
+<div style="page-break-after:always">
+  <div style="text-align:right;font-size:12px">No. {q.quotation_no}</div>
+  <div style="text-align:right;font-size:12px;margin-bottom:4px">日付 {q.issue_date or '    '}</div>
+  <h1 style="text-align:center;font-size:24px;margin:6px 0 14px;letter-spacing:8px">御 見 積 書</h1>
+  <div style="font-size:18px;font-weight:bold;border-bottom:2px solid #000;padding-bottom:4px">{q.customer_name or ' '} &nbsp; 殿</div>
+  <div style="margin:8px 0 18px;font-size:12px">件名: {q.title or ' '}　／　納入先: {q.delivery_name or ' '}　／　担当: {q.sales_person_name or ' '}</div>
+  <table style="width:100%;margin-bottom:18px"><tr>
+    <td style="font-size:16px;font-weight:bold">合計金額　￥<span style="font-size:22px">{int(q.total_amount or 0):,}</span>　<span style="font-size:11px;color:#888">(消費税込み)</span></td>
+  </tr></table>
+  <h3 style="font-size:14px;margin:10px 0 6px">■ 大分類別 内訳（総括）</h3>
+  <table style="width:65%;border-collapse:collapse;font-size:13px">
+    <tr style="background:#2c3e50;color:#fff">
+      <th style="border:1px solid #ccc;padding:6px 12px;text-align:left">大分類</th>
+      <th style="border:1px solid #ccc;padding:6px 12px;text-align:right;width:170px">金額</th>
+    </tr>
+    {section_rows}
+    <tr style="font-weight:bold;background:#f5f5f5">
+      <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">小計</td>
+      <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{int((q.subtotal or 0)+(q.labor_total or 0)):,}</td></tr>
+    <tr>
+      <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">消費税({int(q.tax_rate or 10)}%)</td>
+      <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{int(q.tax_amount or 0):,}</td></tr>
+    <tr style="font-weight:bold;background:#fff9c4;font-size:15px">
+      <td style="border:2px solid #000;padding:8px 12px;text-align:right">合計金額</td>
+      <td style="border:2px solid #000;padding:8px 12px;text-align:right">¥{int(q.total_amount or 0):,}</td></tr>
+  </table>
+  <div style="margin-top:14px;font-size:11px;color:#666">※ 内訳明細は次ページ以降をご参照ください。</div>
+</div>
+'''
+
     return f"""<!DOCTYPE html>
 <html lang="ja"><head><meta charset="UTF-8">
 <title>{q.quotation_no} 御見積書</title>
@@ -466,7 +510,10 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
 <!-- ドラフト透かし(status=draftの場合のみ) -->
 {draft_watermark}
 
-<!-- 1枚目: ヘッダー -->
+<!-- 頭紙: 大分類別 内訳サマリー -->
+{cover_html}
+
+<!-- 内訳明細ページ: ヘッダー -->
 <div style="text-align:right;margin-bottom:8px">No. {q.quotation_no}</div>
 <div style="text-align:right;margin-bottom:4px">日付 {q.issue_date or '    '}</div>
 
