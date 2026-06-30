@@ -33,7 +33,7 @@ interface Row {
 
 interface Proj {
   customer: string; child_no: string; project_name: string; status: string;
-  delivery_name: string; sales_person: string;
+  delivery_name: string; sales_person: string; sales_date: string;
   months: Record<number, number>; total: number;
 }
 
@@ -74,7 +74,7 @@ export default function SalesPlanPage() {
       projectMap[key] = {
         customer: r.customer_name || '（未設定）', child_no: r.child_no, project_name: r.project_name,
         status: r.status, delivery_name: r.delivery_name || '', sales_person: r.sales_person_name || '',
-        months: {}, total: 0,
+        sales_date: r.sales_date || '', months: {}, total: 0,
       };
     }
     projectMap[key].months[r.month] = (projectMap[key].months[r.month] || 0) + r.amount;
@@ -84,9 +84,9 @@ export default function SalesPlanPage() {
   const kobanProjects = projects.filter(p => p.total >= TANBAN_MAX);
   const tanbanProjects = projects.filter(p => p.total < TANBAN_MAX);
 
-  // 工番のみ一覧表示（顧客名→金額順。顧客小計は表示しない）
+  // 工番のみ一覧表示（売上計上日順。顧客小計は表示しない）
   const sortedKoban = [...kobanProjects].sort((a, b) =>
-    (a.customer || '').localeCompare(b.customer || '') || b.total - a.total);
+    (a.sales_date || '').localeCompare(b.sales_date || '') || (a.customer || '').localeCompare(b.customer || ''));
 
   // 単番（集計）
   const tanbanMonths: Record<number, number> = {};
