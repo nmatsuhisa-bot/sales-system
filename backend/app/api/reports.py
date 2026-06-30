@@ -166,6 +166,8 @@ def sales_plan(year: int = Query(default=None), db: Session = Depends(get_db)):
             "project_name": o.project_name or "",
             "customer_name": o.customer_name or "",
             "agency_name": o.agency_name or "",
+            "delivery_name": o.customer_name or "",
+            "sales_person_name": o.sales_person_name or "",
             "status": o.status or "",
             "sales_date": str(o.sales_date),
             "month": o.sales_date.month,

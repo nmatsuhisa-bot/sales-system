@@ -406,7 +406,7 @@ def adopt_quotation(quotation_id: str, db: Session = Depends(get_db)):
         po.quotation_amount = q.total_amount
         po.quotation_issue_date = q.issue_date
         if po.status in ("営業中", None):
-            po.status = "見積発行"
+            po.status = "内示"
         db.flush()
         _sync_project_final_amount(po, db)
 

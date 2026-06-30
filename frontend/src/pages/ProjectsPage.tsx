@@ -4,14 +4,16 @@ import { projectApi, mastersApi } from '../api';
 import { Plus, ChevronDown, ChevronRight, Edit2, Trash2, FileText, Copy } from 'lucide-react';
 import ArrangementModal from '../components/ArrangementModal';
 
-const STATUS_OPTIONS = ['営業中', '見積発行', '受注', '失注', '請求済'];
+const STATUS_OPTIONS = ['営業中', '内示', '受注', '検収済', '請求済', '入金済', '失注'];
 const DIST_OPTIONS = ['直接', '代理店'];
 const STATUS_COLORS: Record<string, string> = {
   '営業中': 'bg-blue-100 text-blue-700',
-  '見積発行': 'bg-orange-100 text-orange-700',
+  '内示': 'bg-orange-100 text-orange-700',
   '受注': 'bg-yellow-100 text-yellow-700',
-  '失注': 'bg-gray-100 text-gray-500',
+  '検収済': 'bg-teal-100 text-teal-700',
   '請求済': 'bg-green-100 text-green-700',
+  '入金済': 'bg-emerald-100 text-emerald-700',
+  '失注': 'bg-gray-100 text-gray-500',
 };
 
 // ===== トップレベルコンポーネント（1文字入力バグ防止のため関数外に定義）=====
