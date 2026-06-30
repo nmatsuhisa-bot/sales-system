@@ -245,6 +245,49 @@ def create_quotation(data: QuotationHeaderCreate, db: Session = Depends(get_db))
     db.refresh(q)
     return _q_to_dict(q)
 
+@router.post("/{quotation_id}/duplicate")
+def duplicate_quotation(quotation_id: str, data: dict, db: Session = Depends(get_db)):
+    """見積を複製。案件子IDの紐付けは必須（複製先の子IDを指定）。"""
+    src = db.query(QuotationHeader).options(
+        joinedload(QuotationHeader.line_items), joinedload(QuotationHeader.labor_details)
+    ).filter(QuotationHeader.id == quotation_id).first()
+    if not src: raise HTTPException(404, "複製元の見積が見つかりません")
+
+    project_order_id = (data or {}).get("project_order_id")
+    if not project_order_id:
+        raise HTTPException(400, "案件子IDの選択は必須です")
+    po = db.query(ProjectOrder).filter(ProjectOrder.id == project_order_id).first()
+    if not po: raise HTTPException(404, "案件子IDが見つかりません")
+
+    new_q = QuotationHeader(
+        quotation_no=_gen_quotation_no(db),
+        project_order_id=po.id, child_no=po.child_no,
+        customer_name=src.customer_name, delivery_name=src.delivery_name,
+        title=src.title, delivery_terms=src.delivery_terms, payment_terms=src.payment_terms,
+        valid_until=src.valid_until, issue_date=date.today(),
+        sales_person_name=src.sales_person_name,
+        subtotal=src.subtotal, tax_rate=src.tax_rate, tax_amount=src.tax_amount,
+        total_amount=src.total_amount, labor_total=src.labor_total,
+        notes=src.notes, internal_notes=src.internal_notes,
+        status="draft",
+    )
+    db.add(new_q); db.flush()
+    for it in src.line_items:
+        db.add(QuotationLineItem(
+            quotation_id=new_q.id, line_no=it.line_no, section=it.section,
+            sub_section=it.sub_section, item_name=it.item_name, spec_detail=it.spec_detail,
+            quantity=it.quantity, unit=it.unit, unit_price=it.unit_price, amount=it.amount,
+            product_type=it.product_type, spec_json=it.spec_json,
+        ))
+    for l in src.labor_details:
+        db.add(QuotationLaborDetail(
+            quotation_id=new_q.id, labor_item_id=l.labor_item_id, item_name=l.item_name,
+            quantity=l.quantity, unit=l.unit, unit_price=l.unit_price, amount=l.amount,
+            crane_type=l.crane_type, notes=l.notes, sort_order=l.sort_order,
+        ))
+    db.commit(); db.refresh(new_q)
+    return {"id": str(new_q.id), "quotation_no": new_q.quotation_no, "child_no": new_q.child_no}
+
 @router.get("/order-tickets")
 def list_order_tickets(
     search: str = None, ticket_type: str = None, status_filter: str = "active",

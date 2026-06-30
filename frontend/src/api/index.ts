@@ -119,6 +119,7 @@ export const projectApi = {
   addOrder: (projectId: string, data: any) => api.post(`/projects/${projectId}/orders`, data),
   updateOrder: (orderId: string, data: any) => api.put(`/projects/orders/${orderId}`, data),
   deleteOrder: (orderId: string) => api.delete(`/projects/orders/${orderId}`),
+  duplicateOrder: (orderId: string) => api.post(`/projects/orders/${orderId}/duplicate`),
   linkQuotation: (orderId: string, quotationId: string) =>
     api.post(`/projects/orders/${orderId}/link-quotation`, null, { params: { quotation_id: quotationId } }),
 };
@@ -166,6 +167,7 @@ export const estimateApi = {
   listOrderTickets: (params?: any) => api.get("/estimate-quotations/order-tickets", { params }),
   adoptQuotation: (quotationId: string) => api.post(`/estimate-quotations/${quotationId}/adopt`),
   unadoptQuotation: (quotationId: string) => api.delete(`/estimate-quotations/${quotationId}/adopt`),
+  duplicate: (quotationId: string, project_order_id: string) => api.post(`/estimate-quotations/${quotationId}/duplicate`, { project_order_id }),
   cranePdf: (orderId: string) => `${API_BASE}/arrangements/crane/${orderId}/pdf`,
   shippingPdf: (orderId: string) => `${API_BASE}/arrangements/shipping/${orderId}/pdf`,
   hotelPdf: (orderId: string) => `${API_BASE}/arrangements/hotel/${orderId}/pdf`,

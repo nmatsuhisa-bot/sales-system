@@ -312,6 +312,27 @@ def delete_project_order(order_id: str, db: Session = Depends(get_db)):
     if not o: raise HTTPException(404)
     db.delete(o); db.commit()
 
+@router.post("/orders/{order_id}/duplicate", status_code=201)
+def duplicate_project_order(order_id: str, db: Session = Depends(get_db)):
+    """案件子IDを複製。同じ親案件の配下に新しい子IDを採番して作成。
+    見積/受注の紐付け（採用見積・受注金額等）は引き継がず、新しい子IDとして起票する。"""
+    src = db.query(ProjectOrder).filter(or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)).first()
+    if not src: raise HTTPException(404, "複製元の案件子IDが見つかりません")
+    new_child = generate_child_no(src.project_no, db)
+    copy_fields = [
+        "project_name", "project_summary", "customer_code", "customer_name",
+        "agency_code", "agency_name", "sales_person_name", "sales_person_code",
+        "status", "budget_amount", "quotation_amount",
+        "sales_date", "inquiry_date", "order_date", "expected_order_date",
+        "shipment_date", "expected_shipment_date", "notes",
+    ]
+    o = ProjectOrder(
+        child_no=new_child, project_id=src.project_id, project_no=src.project_no,
+        **{f: getattr(src, f, None) for f in copy_fields},
+    )
+    db.add(o); db.commit(); db.refresh(o)
+    return order_to_dict(o)
+
 @router.post("/orders/{order_id}/link-quotation")
 def link_quotation(order_id: str, quotation_id: str, db: Session = Depends(get_db)):
     # B003修正: 旧Quotationモデルから新QuotationHeaderモデルへ

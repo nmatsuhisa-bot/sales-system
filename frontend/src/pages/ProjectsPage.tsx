@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { projectApi, mastersApi } from '../api';
-import { Plus, ChevronDown, ChevronRight, Edit2, Trash2, FileText } from 'lucide-react';
+import { Plus, ChevronDown, ChevronRight, Edit2, Trash2, FileText, Copy } from 'lucide-react';
 import ArrangementModal from '../components/ArrangementModal';
 
 const STATUS_OPTIONS = ['営業中', '見積発行', '受注', '失注', '請求済'];
@@ -202,6 +202,15 @@ export default function ProjectsPage() {
     load();
   };
 
+  const handleDuplicateOrder = async (o: any) => {
+    if (!confirm(`案件子ID「${o.child_no}」を複製します。\n同じ案件の配下に新しい子IDが作成されます（見積・受注の紐付けは引き継ぎません）。\nよろしいですか？`)) return;
+    try {
+      const r = await projectApi.duplicateOrder(o.id);
+      alert(`複製しました: ${r.data.child_no}`);
+      load();
+    } catch (e: any) { alert(e.response?.data?.detail || '複製に失敗しました'); }
+  };
+
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
@@ -302,8 +311,9 @@ export default function ProjectsPage() {
                             className="text-purple-400 hover:text-purple-600 text-xs p-0.5" title="見積一覧">
                             一覧
                           </button>
-                          <button onClick={() => openOrderEdit(p, o)} className="text-blue-400 hover:text-blue-600 p-0.5"><Edit2 size={12} /></button>
-                          <button onClick={() => handleDeleteOrder(o.id)} className="text-red-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>
+                          <button onClick={() => openOrderEdit(p, o)} className="text-blue-400 hover:text-blue-600 p-0.5" title="編集"><Edit2 size={12} /></button>
+                          <button onClick={() => handleDuplicateOrder(o)} className="text-emerald-500 hover:text-emerald-700 p-0.5" title="複製"><Copy size={12} /></button>
+                          <button onClick={() => handleDeleteOrder(o.id)} className="text-red-300 hover:text-red-500 p-0.5" title="削除"><Trash2 size={12} /></button>
                         </div>
                         <div className="flex items-center gap-1">
                           <button onClick={() => setArrangeModal({ type: 'crane', orderId: o.id, childNo: o.child_no })}

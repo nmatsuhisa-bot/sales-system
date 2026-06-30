@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { estimateApi, API_BASE } from '../api';
-import { Plus, FileText, Search, Printer } from 'lucide-react';
+import { Plus, FileText, Search, Printer, Copy, X } from 'lucide-react';
+import OrderSearchInput from '../components/common/OrderSearchInput';
 
 const STATUS_LABELS: Record<string, string> = { draft: '下書き', submitted: '提出済', approved: '承認済' };
 const STATUS_COLORS: Record<string, string> = {
@@ -14,6 +15,18 @@ export default function EstimateListPage() {
   const [items, setItems] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
+  const [dupFor, setDupFor] = useState<any>(null); // 複製対象の見積
+  const navigate = useNavigate();
+
+  const doDuplicate = async (order: any) => {
+    if (!dupFor) return;
+    try {
+      const r = await estimateApi.duplicate(dupFor.id, order.id);
+      setDupFor(null);
+      alert(`複製しました: ${r.data.quotation_no}（子ID: ${r.data.child_no}）`);
+      navigate(`/estimates/${r.data.id}/edit`);
+    } catch (e: any) { alert(e.response?.data?.detail || '複製に失敗しました'); }
+  };
 
   const load = () => {
     estimateApi.list({ child_no: childNo || undefined, per_page: 50 })
@@ -141,6 +154,10 @@ export default function EstimateListPage() {
                         className="text-xs bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded hover:bg-gray-200">
                         制御盤
                       </button>
+                      <button onClick={() => setDupFor(q)}
+                        className="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded hover:bg-emerald-200 flex items-center gap-0.5">
+                        <Copy size={11} />複製
+                      </button>
                     </div>
                   </div>
                 </td>
@@ -150,6 +167,23 @@ export default function EstimateListPage() {
         </table>
         {items.length === 0 && <div className="text-center py-12 text-gray-400">見積書がありません</div>}
       </div>
+
+      {/* 見積複製モーダル（案件子ID必須） */}
+      {dupFor && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-bold text-gray-800">見積を複製</h2>
+              <button onClick={() => setDupFor(null)} className="text-gray-400"><X size={18} /></button>
+            </div>
+            <p className="text-xs text-gray-500 mb-1">複製元: <span className="font-mono">{dupFor.quotation_no}</span> {dupFor.title || ''}</p>
+            <p className="text-xs text-red-500 mb-2">複製先の案件子IDの選択は必須です。</p>
+            <label className="block text-xs text-gray-500 mb-1">複製先 案件ID / 子ID</label>
+            <OrderSearchInput onSelect={doDuplicate} placeholder="案件ID または 子ID で検索して選択" />
+            <p className="text-[11px] text-gray-400 mt-3">※ 選択するとその子IDに紐付いた新しい見積（下書き）が作成され、編集画面が開きます。</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
