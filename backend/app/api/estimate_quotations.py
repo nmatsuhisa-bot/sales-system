@@ -259,13 +259,19 @@ def duplicate_quotation(quotation_id: str, data: dict, db: Session = Depends(get
     po = db.query(ProjectOrder).filter(ProjectOrder.id == project_order_id).first()
     if not po: raise HTTPException(404, "案件子IDが見つかりません")
 
+    # 顧客名等は複製先の子IDから補完（新規作成時と同じ挙動）。無ければ複製元を踏襲。
+    customer_name = po.customer_name or po.agency_name or src.customer_name
+    delivery_name = po.customer_name or src.delivery_name
+    title = po.project_name or src.title
+    sales_person_name = po.sales_person_name or src.sales_person_name
+
     new_q = QuotationHeader(
         quotation_no=_gen_quotation_no(db),
         project_order_id=po.id, child_no=po.child_no,
-        customer_name=src.customer_name, delivery_name=src.delivery_name,
-        title=src.title, delivery_terms=src.delivery_terms, payment_terms=src.payment_terms,
+        customer_name=customer_name, delivery_name=delivery_name,
+        title=title, delivery_terms=src.delivery_terms, payment_terms=src.payment_terms,
         valid_until=src.valid_until, issue_date=date.today(),
-        sales_person_name=src.sales_person_name,
+        sales_person_name=sales_person_name,
         subtotal=src.subtotal, tax_rate=src.tax_rate, tax_amount=src.tax_amount,
         total_amount=src.total_amount, labor_total=src.labor_total,
         notes=src.notes, internal_notes=src.internal_notes,

@@ -284,7 +284,17 @@ export default function EstimateFormPage() {
       <div className="flex items-center gap-3 mb-4">
         <button onClick={() => navigate(-1)} className="text-gray-500 hover:text-gray-700"><ArrowLeft size={18} /></button>
         <h1 className="text-xl font-bold text-gray-800">{isEdit ? '見積書編集' : '新規見積書作成'}</h1>
-        {childNo && <span className="bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded-full">子ID: {childNo}</span>}
+        {(() => {
+          const cn = header.child_no || childNo;
+          if (!cn) return null;
+          const pn = cn.replace(/_[^_]*$/, '');
+          return (
+            <span className="flex items-center gap-1.5">
+              <span className="bg-slate-100 text-slate-700 text-xs px-2 py-1 rounded-full">案件ID: <strong>{pn}</strong></span>
+              <span className="bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded-full">子ID: <strong>{cn}</strong></span>
+            </span>
+          );
+        })()}
         <div className="ml-auto flex gap-2">
           {isEdit && (
             <button onClick={handlePdf}
