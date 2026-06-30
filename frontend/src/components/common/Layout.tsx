@@ -2,7 +2,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, FileText, ShoppingCart,
   Truck, BarChart3, LogOut, Menu, X, Boxes, Briefcase, Database, UserCog, Calendar,
-  ShoppingBag, Factory, ClipboardList, GitBranch
+  ShoppingBag, Factory, ClipboardList, GitBranch, HelpCircle
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -21,6 +21,7 @@ const navItems = [
   { to: '/procurement', icon: ShoppingBag, label: '仕入（発注）管理' },
   { to: '/manufacturing', icon: Factory, label: '製造計画' },
   { to: '/process', icon: ClipboardList, label: '工程管理' },
+  { to: '/help', icon: HelpCircle, label: 'ヘルプ' },
 ];
 
 export default function Layout() {
