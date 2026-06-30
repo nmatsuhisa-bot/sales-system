@@ -450,13 +450,18 @@ def _mo_dict(mo: MaterialOrder):
 # =============================================
 
 def _gen_po_no(db: Session) -> str:
+    # 同時作成での発注番号衝突を防ぐため採番をトランザクション内でロック
+    from sqlalchemy import text as sa_text
+    db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext('material_po_no_lock'))"))
     year = date.today().year
     prefix = f"PO{year}-"
-    last = db.query(MaterialPurchaseOrder).filter(
-        MaterialPurchaseOrder.po_no.like(f"{prefix}%")
-    ).order_by(MaterialPurchaseOrder.po_no.desc()).first()
-    seq = (int(last.po_no.split("-")[-1]) + 1) if last else 1
-    return f"{prefix}{seq:04d}"
+    rows = db.query(MaterialPurchaseOrder.po_no).filter(MaterialPurchaseOrder.po_no.like(f"{prefix}%")).all()
+    max_seq = 0
+    for (no,) in rows:
+        tail = (no or "").split("-")[-1]
+        if tail.isdigit():
+            max_seq = max(max_seq, int(tail))
+    return f"{prefix}{max_seq + 1:04d}"
 
 def _po_dict(po: MaterialPurchaseOrder, with_lines: bool = False):
     lines = po.lines or []
@@ -535,6 +540,9 @@ def update_po_status(po_id: str, status: str = Query(...), db: Session = Depends
 @router.post("/purchase-orders/{po_id}/receive-stock")
 def receive_po_stock(po_id: str, db: Session = Depends(get_db)):
     """発注書の入荷登録：各明細を在庫に加算（入荷）し、発注書を入荷済にする。在庫引当の明細は除外。"""
+    # 同時入荷登録による二重加算を防止（発注書単位でロック）
+    from sqlalchemy import text as sa_text
+    db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"po_receive_{po_id}"})
     po = db.query(MaterialPurchaseOrder).filter(MaterialPurchaseOrder.id == po_id).first()
     if not po: raise HTTPException(404)
     dup = db.query(MaterialStockMovement).filter(

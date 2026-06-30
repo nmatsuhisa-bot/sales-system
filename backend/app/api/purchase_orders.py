@@ -55,6 +55,8 @@ def list_purchase_orders(
 
 @router.post("/", status_code=201)
 def create_purchase_order(data: POCreate, db: Session = Depends(get_db)):
+    from sqlalchemy import text as sa_text
+    db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext('legacy_po_no_lock'))"))
     year = datetime.now().year
     prefix = f"PO{year}-"
     last = db.query(PurchaseOrder).filter(PurchaseOrder.purchase_order_no.like(f"{prefix}%")).order_by(desc(PurchaseOrder.purchase_order_no)).first()

@@ -296,6 +296,8 @@ def convert_to_order(quotation_id: str, db: Session = Depends(get_db)):
     if q.status == "converted":
         raise HTTPException(400, "既に受注変換済みです")
 
+    from sqlalchemy import text as sa_text
+    db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext('order_no_lock'))"))
     year = datetime.now().year
     prefix = f"SO{year}-"
     last = db.query(Order).filter(Order.order_no.like(f"{prefix}%")).order_by(desc(Order.order_no)).first()

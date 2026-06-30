@@ -79,6 +79,8 @@ def list_orders(
 @router.post("/", status_code=201)
 def create_order(data: OrderCreate, db: Session = Depends(get_db)):
     from datetime import datetime
+    from sqlalchemy import text as sa_text
+    db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext('order_no_lock'))"))
     year = datetime.now().year
     prefix = f"SO{year}-"
     last = db.query(Order).filter(Order.order_no.like(f"{prefix}%")).order_by(desc(Order.order_no)).first()
