@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import auth, customers, products, quotations, orders, purchase_orders, inventory, reports, projects, masters, estimate_quotations, arrangements, materials as procurement_api, manufacturing, process_schedule, bom_master
+from app.api import auth, customers, products, quotations, orders, purchase_orders, inventory, reports, projects, masters, estimate_quotations, arrangements, materials as procurement_api, manufacturing, process_schedule, bom_master, team_schedule
 
 app = FastAPI(
     title="販売管理・見積管理システム API",
@@ -32,6 +32,7 @@ app.include_router(procurement_api.router, prefix="/api/procurement", tags=["仕
 app.include_router(manufacturing.router, prefix="/api/manufacturing", tags=["製造計画"])
 app.include_router(process_schedule.router, prefix="/api/process", tags=["工程管理"])
 app.include_router(bom_master.router, prefix="/api/bom-master", tags=["製品BOMマスタ"])
+app.include_router(team_schedule.router, prefix="/api/schedules", tags=["スケジュール"])
 
 
 @app.get("/seed-users")
@@ -163,6 +164,13 @@ def setup_manufacturing_tables():
         return {"status": "ok", "message": "製造計画・仕入管理テーブル作成完了"}
     finally:
         db.close()
+
+
+@app.get("/setup-team-schedule")
+def setup_team_schedule():
+    from app.db.models import engine, Base, TeamSchedule
+    Base.metadata.create_all(engine, tables=[TeamSchedule.__table__])
+    return {"status": "ok", "message": "スケジュールテーブル作成完了"}
 
 
 @app.get("/setup-material-stock")

@@ -1,7 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'https://sales-backend-7nzg.onrender.com';
+import { authApi, mastersApi, scheduleApi } from '../api';
 
 interface User { id: string; full_name: string; email: string; }
 interface ScheduleEntry {
@@ -23,21 +21,18 @@ function getWeekDates(base: Date): Date[] {
   monday.setDate(base.getDate() - (day === 0 ? 6 : day - 1));
   return Array.from({ length: 7 }, (_, i) => { const d = new Date(monday); d.setDate(monday.getDate() + i); return d; });
 }
-function dateKey(d: Date): string { return d.toISOString().split('T')[0]; }
+function dateKey(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
 function formatDate(d: Date): string {
   const w = ['日','月','火','水','木','金','土'];
   return `${d.getMonth()+1}/${d.getDate()}\n(${w[d.getDay()]})`;
 }
-function loadData(): ScheduleEntry[] {
-  try { return JSON.parse(localStorage.getItem('inoue_schedules') || '[]'); } catch { return []; }
-}
-function saveData(entries: ScheduleEntry[]) {
-  localStorage.setItem('inoue_schedules', JSON.stringify(entries));
-}
 
 export default function SchedulePage() {
   const [users, setUsers] = useState<User[]>([]);
-  const [schedules, setSchedules] = useState<ScheduleEntry[]>(loadData());
+  const [schedules, setSchedules] = useState<ScheduleEntry[]>([]);
   const [base, setBase] = useState(new Date());
   const [modal, setModal] = useState<{
     open: boolean; entry?: ScheduleEntry;
@@ -53,17 +48,28 @@ export default function SchedulePage() {
   const todayKey = dateKey(new Date());
 
   useEffect(() => {
-    const token = localStorage.getItem('access_token') || localStorage.getItem('token');
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
-    axios.get(`${API_BASE}/auth/users`, { headers })
-      .then(r => { if (Array.isArray(r.data)) setUsers(r.data); })
+    authApi.listUsers()
+      .then(r => {
+        if (Array.isArray(r.data) && r.data.length) setUsers(r.data);
+        else throw new Error('empty');
+      })
       .catch(() => {
-        axios.get(`${API_BASE}/masters/employees`, { headers })
+        mastersApi.listEmployees()
           .then(r => setUsers((r.data.items || r.data).map((e: any) => ({
             id: e.id, full_name: e.employee_name, email: ''
           })))).catch(() => {});
       });
   }, []);
+
+  const loadSchedules = () => {
+    scheduleApi.list(dateKey(weekDates[0]), dateKey(weekDates[6]))
+      .then(r => setSchedules((r.data || []).map((s: any) => ({
+        id: s.id, userId: s.user_id, date: s.date, slot: s.slot, title: s.title, color: s.color,
+      }))))
+      .catch(() => {});
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadSchedules(); }, [base]);
 
   function openNew(userIds: string[], date: string, slot: 'am'|'pm') {
     setForm({ title: '', color: COLOR_OPTIONS[0].value, allDay: false, userIds, date, slot });
@@ -73,29 +79,43 @@ export default function SchedulePage() {
     setForm({ title: entry.title, color: entry.color, allDay: false, userIds: [entry.userId], date: entry.date, slot: entry.slot });
     setModal({ open: true, entry });
   }
-  function saveEntry() {
-    if (!form.title.trim() || form.userIds.length === 0) return;
-    const slots: ('am'|'pm')[] = form.allDay ? ['am','pm'] : [form.slot];
-    let updated = [...schedules];
-    if (modal.entry) {
-      updated = updated.map(s => s.id === modal.entry!.id ? { ...s, title: form.title, color: form.color } : s);
-    } else {
-      for (const uid of form.userIds) {
-        for (const sl of slots) {
-          updated.push({ id: crypto.randomUUID(), userId: uid, date: form.date, slot: sl, title: form.title, color: form.color });
+  async function saveEntry() {
+    if (!form.title.trim()) { alert('内容を入力してください'); return; }
+    if (!modal.entry && form.userIds.length === 0) { alert('対象者を選択してください'); return; }
+    try {
+      if (modal.entry) {
+        await scheduleApi.update(modal.entry.id, { title: form.title, color: form.color });
+      } else {
+        const slots: ('am' | 'pm')[] = form.allDay ? ['am', 'pm'] : [form.slot];
+        const reqs: Promise<any>[] = [];
+        for (const uid of form.userIds) {
+          const u = users.find(x => x.id === uid);
+          for (const sl of slots) {
+            reqs.push(scheduleApi.create({
+              user_id: uid, full_name: u?.full_name, date: form.date, slot: sl,
+              title: form.title, color: form.color,
+            }));
+          }
         }
+        await Promise.all(reqs);
       }
+      setModal({ open: false });
+      loadSchedules();
+    } catch (e: any) {
+      alert(e.response?.data?.detail || '登録に失敗しました');
     }
-    setSchedules(updated); saveData(updated); setModal({ open: false });
   }
-  function deleteEntry() {
-    const updated = schedules.filter(s => s.id !== modal.entry!.id);
-    setSchedules(updated); saveData(updated); setModal({ open: false });
+  async function deleteEntry() {
+    try { await scheduleApi.delete(modal.entry!.id); } catch { /* ignore */ }
+    setModal({ open: false });
+    loadSchedules();
   }
-  function onDrop(userId: string, date: string, slot: 'am'|'pm') {
+  async function onDrop(userId: string, date: string, slot: 'am' | 'pm') {
     if (!dragId.current) return;
-    const updated = schedules.map(s => s.id === dragId.current ? { ...s, userId, date, slot } : s);
-    setSchedules(updated); saveData(updated); dragId.current = null;
+    const id = dragId.current; dragId.current = null;
+    const u = users.find(x => x.id === userId);
+    try { await scheduleApi.update(id, { user_id: userId, full_name: u?.full_name, date, slot }); } catch { /* ignore */ }
+    loadSchedules();
   }
   function toggleUserId(uid: string) {
     setForm(f => ({ ...f, userIds: f.userIds.includes(uid) ? f.userIds.filter(x => x !== uid) : [...f.userIds, uid] }));

@@ -1032,3 +1032,17 @@ class ProjectUnit(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     project_product = relationship("ProjectProduct", back_populates="units")
     unit_master = relationship("UnitMaster")
+
+
+class TeamSchedule(Base):
+    """週間スケジュール（従業員×日付×午前/午後の予定）"""
+    __tablename__ = "team_schedules"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String(100))           # 従業員/ユーザーのID（文字列保持）
+    full_name = Column(String(100))         # 表示名
+    date = Column(Date, nullable=False)
+    slot = Column(String(10), nullable=False)  # am / pm
+    title = Column(String(500))
+    color = Column(String(120))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

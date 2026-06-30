@@ -303,6 +303,16 @@ export const bomMasterApi = {
 };
 
 // =============================================
+// スケジュールAPI（週間予定）
+// =============================================
+export const scheduleApi = {
+  list: (start?: string, end?: string) => api.get('/schedules', { params: { start, end } }),
+  create: (data: any) => api.post('/schedules', data),
+  update: (id: string, data: any) => api.put(`/schedules/${id}`, data),
+  delete: (id: string) => api.delete(`/schedules/${id}`),
+};
+
+// =============================================
 // 認証API
 // =============================================
 export const authApi = {
