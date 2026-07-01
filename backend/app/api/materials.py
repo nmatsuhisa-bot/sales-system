@@ -654,7 +654,7 @@ def _build_po_html(po: MaterialPurchaseOrder) -> str:
         name = mat.material_name if mat else ""
         unit = mat.unit if mat else ""
         qty = ("%g" % float(l.order_qty)) if l.order_qty is not None else ""
-        price = ("¥%s" % format(int(l.unit_price), ",")) if l.unit_price else ""
+        price = ("¥%s" % format(int(l.unit_price), ",")) if l.unit_price is not None else ""
         amount = ("¥%s" % format(int(float(l.order_qty or 0) * float(l.unit_price or 0)), ","))
         due = l.due_date.strftime("%Y/%m/%d") if l.due_date else ""
         rows_html += f"""

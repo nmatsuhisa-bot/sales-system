@@ -15,6 +15,14 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-07-02 — Claude(Cowork) — /procurement 検証・P-05修正
+**触ったファイル**: `backend/app/api/materials.py`, `WORKLOG.md`
+**修正済（通常・push）**:
+- **P-05** 発注書HTML出力 `_build_po_html` で `price` が `if l.unit_price`（truthy判定）→ 単価0の行が金額欄は¥0なのに単価欄が空白になる不整合。`is not None` に変更（同行 qty と統一）。P-03と同種の0値表示不具合。非破壊・1ファイル・py_compile OK・全角なし。
+**確認（退行なし）**: P-01赤バナー(materials/orders/BOM各タブ), P-03 `_mo_dict` の order_qty/unit_price=0表示, P-04 発注必須バリデーション いずれも現状維持。
+**ライブUI確認**: 無人実行のためChrome複数接続の対話選択不可・web_fetchは対象ドメインprovenance外。静的解析で対応。
+**運用メモ**: P-02（既存DBに material_orders.order_no/project_unit_id 列が無い場合 GET /material-orders が500）は本番で `/setup-bom-master-tables` を1回実行済みの前提（前回確認で10件取得OK）。
+
 ### 2026-06-30 — Claude(Cowork) — /procurement 検証・P-03修正
 **触ったファイル**: `backend/app/api/materials.py`, `WORKLOG.md`
 **修正済（通常・push）**:
