@@ -463,11 +463,88 @@ def _gen_po_no(db: Session) -> str:
             max_seq = max(max_seq, int(tail))
     return f"{prefix}{max_seq + 1:04d}"
 
+# ---- 見積内訳（明細行）→ 内訳番号（子ID-内訳番号で発注書を発番） ----
+
+def _adopted_quotation(project_order_id: str, db: Session):
+    """案件子IDの採用見積を取得（status=adopted 優先、無ければ po.quotation_no で補完）。"""
+    q = db.query(QuotationHeader).filter(
+        QuotationHeader.project_order_id == project_order_id,
+        QuotationHeader.status == "adopted",
+    ).first()
+    if not q:
+        po = db.query(ProjectOrder).filter(ProjectOrder.id == project_order_id).first()
+        if po and po.quotation_no:
+            q = db.query(QuotationHeader).filter(
+                QuotationHeader.quotation_no == po.quotation_no
+            ).order_by(QuotationHeader.created_at.desc()).first()
+    return q
+
+def _breakdown_rows(q):
+    """見積明細を大分類でグルーピングし、各行に内訳番号「{大分類No}-{明細No}」を付与（見積PDFと同一採番）。"""
+    sections = {}
+    for item in sorted(q.line_items, key=lambda x: x.line_no):
+        sec = item.section or ""
+        sections.setdefault(sec, []).append(item)
+    rows = []
+    for sec_no, (sec, items) in enumerate(sections.items(), 1):
+        for item_no, item in enumerate(items, 1):
+            rows.append({
+                "line_item_id": str(item.id),
+                "breakdown_no": f"{sec_no}-{item_no}",
+                "section": sec or "（未分類）",
+                "item_name": item.item_name,
+                "spec_detail": item.spec_detail,
+                "quantity": float(item.quantity or 1),
+                "unit": item.unit,
+                "product_type": item.product_type,
+                "spec_json": item.spec_json,
+            })
+    return rows
+
+def _gen_po_no_breakdown(child_no: str, breakdown_no: str, db: Session) -> str:
+    """発注番号 = 子ID-内訳番号（例: 2026-0010_A-1-1）。同一内訳で再発番する場合のみ末尾連番。"""
+    from sqlalchemy import text as sa_text
+    db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"po_no_{child_no}"})
+    base = f"{child_no}-{breakdown_no}"
+    existing = {no for (no,) in db.query(MaterialPurchaseOrder.po_no).filter(
+        MaterialPurchaseOrder.po_no.like(f"{base}%")).all()}
+    if base not in existing:
+        return base
+    i = 2
+    while f"{base}-{i}" in existing:
+        i += 1
+    return f"{base}-{i}"
+
+def _populate_lines_from_line_item(header, row, project_order_id, due_date, db):
+    """内訳行の spec_json からユニットを特定し、部材をMaterialOrder明細として自動展開（best-effort）。"""
+    sj = row.get("spec_json") or {}
+    qty = float(row.get("quantity") or 1)
+    unit_ids = []
+    for key in ("fan_model", "rv_model", "cyclone_model", "model"):
+        val = sj.get(key)
+        if not val:
+            continue
+        u = db.query(UnitMaster).filter(UnitMaster.model_no == str(val), UnitMaster.is_active == True).first()
+        if u and u.id not in unit_ids:
+            unit_ids.append(u.id)
+    for uid in unit_ids:
+        brows = db.query(UnitMaterialBom).options(joinedload(UnitMaterialBom.material)).filter(
+            UnitMaterialBom.unit_id == uid).order_by(UnitMaterialBom.sort_order).all()
+        for r in brows:
+            mat = r.material
+            db.add(MaterialOrder(
+                purchase_order_id=header.id, project_order_id=project_order_id,
+                material_id=r.material_id, supplier_id=(mat.default_supplier_id if mat else None),
+                order_qty=float(r.quantity) * qty, due_date=due_date, status="未発注",
+                notes=f"内訳{header.breakdown_no}",
+            ))
+
 def _po_dict(po: MaterialPurchaseOrder, with_lines: bool = False):
     lines = po.lines or []
     total = sum(float(l.order_qty or 0) * float(l.unit_price or 0) for l in lines)
     d = {
         "id": str(po.id), "po_no": po.po_no, "status": po.status,
+        "breakdown_no": po.breakdown_no, "breakdown_name": po.breakdown_name,
         "project_order_id": str(po.project_order_id) if po.project_order_id else None,
         "child_no": po.project_order.child_no if po.project_order else None,
         "project_name": po.project_order.project_name if po.project_order else None,
@@ -497,6 +574,72 @@ def create_purchase_order(data: dict, db: Session = Depends(get_db)):
     )
     db.add(header); db.commit(); db.refresh(header)
     return _po_dict(header)
+
+@router.get("/purchase-orders/breakdowns")
+def po_breakdowns(project_order_id: str = Query(...), db: Session = Depends(get_db)):
+    """採用見積の内訳（明細行＝内訳番号）一覧＋既存発注書の有無を返す。発注書作成の選択元。"""
+    po = db.query(ProjectOrder).filter(ProjectOrder.id == project_order_id).first()
+    if not po:
+        raise HTTPException(404, "案件子IDが見つかりません")
+    q = _adopted_quotation(project_order_id, db)
+    if not q:
+        return {"child_no": po.child_no, "quotation_no": None, "rows": [], "message": "受注採用された見積がありません"}
+    rows = _breakdown_rows(q)
+    existing = {p.breakdown_no: p.po_no for p in db.query(MaterialPurchaseOrder).filter(
+        MaterialPurchaseOrder.project_order_id == project_order_id,
+        MaterialPurchaseOrder.breakdown_no.isnot(None)).all()}
+    for r in rows:
+        r["existing_po_no"] = existing.get(r["breakdown_no"])
+    return {"child_no": po.child_no, "quotation_no": q.quotation_no, "rows": rows}
+
+@router.post("/purchase-orders/from-breakdowns")
+def po_from_breakdowns(data: dict, db: Session = Depends(get_db)):
+    """選択した見積内訳（明細行）ごとに発注書を発番。1内訳=1発注書、発注番号=子ID-内訳番号。"""
+    project_order_id = data.get("project_order_id")
+    due_date = data.get("due_date") or None
+    selected = data.get("breakdowns") or []   # [{breakdown_no}]
+    if not project_order_id:
+        raise HTTPException(400, "案件子IDが未指定です")
+    po_order = db.query(ProjectOrder).filter(ProjectOrder.id == project_order_id).first()
+    if not po_order:
+        raise HTTPException(404, "案件子IDが見つかりません")
+    q = _adopted_quotation(project_order_id, db)
+    if not q:
+        raise HTTPException(400, "受注採用された見積がありません")
+    rows = {r["breakdown_no"]: r for r in _breakdown_rows(q)}
+    if not selected:
+        raise HTTPException(400, "内訳が選択されていません")
+
+    created, skipped = [], []
+    for sel in selected:
+        bno = sel.get("breakdown_no")
+        row = rows.get(bno)
+        if not row:
+            continue
+        dup = db.query(MaterialPurchaseOrder).filter(
+            MaterialPurchaseOrder.project_order_id == project_order_id,
+            MaterialPurchaseOrder.breakdown_no == bno).first()
+        if dup:
+            skipped.append(dup.po_no)
+            continue
+        po_no = _gen_po_no_breakdown(po_order.child_no, bno, db)
+        header = MaterialPurchaseOrder(
+            po_no=po_no, project_order_id=project_order_id,
+            breakdown_no=bno, breakdown_name=row["item_name"],
+            order_date=date.today(),
+            delivery_place=po_order.customer_name,
+            seiban=po_order.child_no,
+            title=f"{bno} {row['item_name']}",
+            status="作成中",
+        )
+        db.add(header); db.flush()
+        _populate_lines_from_line_item(header, row, project_order_id, due_date, db)
+        created.append(po_no)
+    db.commit()
+    msg = f"発注書を {len(created)}件 作成しました"
+    if skipped:
+        msg += f"（既存 {len(skipped)}件はスキップ）"
+    return {"ok": True, "created_pos": created, "skipped": skipped, "count": len(created), "message": msg}
 
 @router.get("/purchase-orders")
 def list_purchase_orders(status: str = Query(None), project_order_id: str = Query(None), db: Session = Depends(get_db)):
@@ -698,7 +841,10 @@ def _build_po_html(po: MaterialPurchaseOrder) -> str:
     <div style="text-align:right;">
       <div class="title">注文書</div>
       <table class="meta" style="border-collapse:collapse; margin-left:auto;">
+        <tr><td>発注番号</td><td>{po.po_no}</td></tr>
         <tr><td>注文日</td><td>{order_date}</td></tr>
+        <tr><td>製番</td><td>{po.seiban or ""}</td></tr>
+        <tr><td>件名</td><td>{po.title or ""}</td></tr>
       </table>
     </div>
   </div>

@@ -230,6 +230,9 @@ export const procurementApi = {
   updatePoStatus: (id: string, status: string) => api.patch(`/procurement/purchase-orders/${id}/status`, null, { params: { status } }),
   deletePurchaseOrder: (id: string) => api.delete(`/procurement/purchase-orders/${id}`),
   createPOsFromUnits: (data: any) => api.post('/procurement/purchase-orders/from-units', data),
+  // 見積内訳（明細行）→ 子ID-内訳番号で発注書を発番
+  poBreakdowns: (project_order_id: string) => api.get('/procurement/purchase-orders/breakdowns', { params: { project_order_id } }),
+  createPOsFromBreakdowns: (data: any) => api.post('/procurement/purchase-orders/from-breakdowns', data),
   poPdfUrl: (id: string) => `${API_BASE}/procurement/purchase-orders/${id}/pdf`,
   allocateFromStock: (moId: string) => api.post(`/procurement/material-orders/${moId}/allocate-stock`),
   receiveLine: (moId: string, quantity?: number) => api.post(`/procurement/material-orders/${moId}/receive`, { quantity }),

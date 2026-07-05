@@ -747,8 +747,10 @@ class MaterialPurchaseOrder(Base):
     """発注書ヘッダー（発注番号単位。1案件子IDに複数発注。仕入先ごとに1発注書）"""
     __tablename__ = "material_purchase_orders"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    po_no = Column(String(50), unique=True, nullable=False)          # 発注番号（発番）
+    po_no = Column(String(80), unique=True, nullable=False)          # 発注番号（= 子ID-内訳番号）
     project_order_id = Column(UUID(as_uuid=True), ForeignKey("project_orders.id"))  # 案件子ID
+    breakdown_no = Column(String(50))                               # 見積内訳番号（例: 1-1）
+    breakdown_name = Column(String(500))                            # 内訳品名（発注書件名の元）
     supplier_id = Column(UUID(as_uuid=True), ForeignKey("suppliers.id"))            # 発注先
     order_date = Column(Date)                                        # 注文日
     delivery_place = Column(String(300))                            # 納入場所

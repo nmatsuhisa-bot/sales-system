@@ -238,6 +238,83 @@ def setup_purchase_order_tables():
     return {"status": "ok", "message": "発注書テーブル作成完了"}
 
 
+@app.get("/setup-po-breakdown")
+def setup_po_breakdown():
+    """発注書に内訳番号カラム（breakdown_no/breakdown_name）を追加し、po_no を80桁に拡張"""
+    from app.db.models import engine
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE material_purchase_orders ADD COLUMN IF NOT EXISTS breakdown_no VARCHAR(50)"))
+            conn.execute(text("ALTER TABLE material_purchase_orders ADD COLUMN IF NOT EXISTS breakdown_name VARCHAR(500)"))
+            conn.execute(text("ALTER TABLE material_purchase_orders ALTER COLUMN po_no TYPE VARCHAR(80)"))
+            conn.commit()
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    return {"status": "ok", "message": "発注書 内訳番号カラム追加完了"}
+
+
+@app.get("/setup-child-no-letters")
+def setup_child_no_letters():
+    """既存の子ID枝番 _01/_02… を _A/_B… に変換し、child_noを参照する全テーブルを一括更新"""
+    from app.db.models import engine, SessionLocal, ProjectOrder
+    from app.api.projects import _num_to_letters
+    from sqlalchemy import text
+    db = SessionLocal()
+    mapping = {}
+    skipped = []
+    try:
+        orders = db.query(ProjectOrder).all()
+        existing = {o.child_no for o in orders if o.child_no}
+        targets = set()
+        for o in orders:
+            cn = o.child_no or ""
+            if "_" not in cn:
+                continue
+            prefix, suffix = cn.rsplit("_", 1)
+            if not suffix.isdigit():
+                continue  # 既に英字などは対象外（冪等）
+            new_cn = f"{prefix}_{_num_to_letters(int(suffix))}"
+            if new_cn == cn:
+                continue
+            if new_cn in existing or new_cn in targets:
+                skipped.append(cn)
+                continue
+            mapping[cn] = new_cn
+            targets.add(new_cn)
+    finally:
+        db.close()
+
+    if not mapping:
+        return {"status": "ok", "message": "変換対象なし", "converted": 0, "skipped": skipped}
+
+    # child_no（およびそれを保持する派生カラム）を持つ全テーブルを更新
+    cols = [
+        ("project_orders", "child_no"),
+        ("quotation_headers", "child_no"),
+        ("order_tickets", "child_no"),
+        ("crane_arrangements", "child_no"), ("crane_arrangements", "order_no"),
+        ("shipping_arrangements", "child_no"), ("shipping_arrangements", "order_no"),
+        ("hotel_arrangements", "child_no"),
+        ("material_purchase_orders", "seiban"),
+        ("work_schedule_items", "work_no"),
+    ]
+    updated = {}
+    with engine.connect() as conn:
+        for table, col in cols:
+            cnt = 0
+            try:
+                for old, new in mapping.items():
+                    r = conn.execute(text(f"UPDATE {table} SET {col} = :new WHERE {col} = :old"), {"new": new, "old": old})
+                    cnt += r.rowcount or 0
+                conn.commit()
+                updated[f"{table}.{col}"] = cnt
+            except Exception as e:
+                conn.rollback()
+                updated[f"{table}.{col}"] = f"skip: {e}"
+    return {"status": "ok", "converted": len(mapping), "mapping": mapping, "skipped": skipped, "updated": updated}
+
+
 @app.get("/setup-bom-master-tables")
 def setup_bom_master_tables():
     """製品BOM階層マスタ＋案件適用テーブルを作成し、material_orders に発注NO/ユニット紐付け列を追加"""

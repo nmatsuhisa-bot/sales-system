@@ -174,16 +174,38 @@ def generate_project_no(db: Session) -> str:
             max_seq = max(max_seq, int(tail))
     return f"{prefix}{(max_seq + 1):04d}"
 
+def _num_to_letters(n: int) -> str:
+    """枝番: 1→A, 2→B, ... 26→Z, 27→AA（スプレッドシート列式）。"""
+    s = ""
+    while n > 0:
+        n, r = divmod(n - 1, 26)
+        s = chr(ord("A") + r) + s
+    return s
+
+def _letters_to_num(s: str) -> int:
+    """A→1, Z→26, AA→27。"""
+    n = 0
+    for ch in s:
+        n = n * 26 + (ord(ch) - ord("A") + 1)
+    return n
+
+def _child_suffix_index(child_no: str) -> int:
+    """子IDの枝番部分を数値インデックス化（英字A/B/C・旧数字01/02の両対応）。不正は0。"""
+    if not child_no or "_" not in child_no:
+        return 0
+    suffix = child_no.rsplit("_", 1)[-1]
+    if suffix.isdigit():
+        return int(suffix)
+    if suffix.isalpha() and suffix.isupper():
+        return _letters_to_num(suffix)
+    return 0
+
 def generate_child_no(project_no: str, db: Session) -> str:
     from sqlalchemy import text as sa_text
     db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"child_no_{project_no}"})
     existing = db.query(ProjectOrder).filter(ProjectOrder.project_no == project_no).all()
-    max_seq = max(
-        (int(o.child_no.split("_")[-1]) for o in existing
-         if o.child_no and "_" in o.child_no and o.child_no.split("_")[-1].isdigit()),
-        default=0
-    )
-    return f"{project_no}_{(max_seq + 1):02d}"
+    max_idx = max((_child_suffix_index(o.child_no) for o in existing), default=0)
+    return f"{project_no}_{_num_to_letters(max_idx + 1)}"
 
 def _make_order(data: ProjectOrderCreate, project_id, project_no: str, db: Session) -> ProjectOrder:
     # 子IDは未指定または重複時にサーバ側で採番（重複防止）

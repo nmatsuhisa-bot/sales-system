@@ -50,12 +50,11 @@ function PurchaseOrdersTab({ initialOrder }: { initialOrder?: any }) {
   const [pos, setPos] = useState<any[]>([]);
   const [statusFilter, setStatusFilter] = useState('');
   const [expanded, setExpanded] = useState<Record<string, any>>({});
-  // 取込パネル
+  // 見積内訳から発注書作成パネル
   const [showImport, setShowImport] = useState(false);
-  const [units, setUnits] = useState<any[]>([]);
-  const [unitRows, setUnitRows] = useState<any[]>([]);
-  const [addUnitId, setAddUnitId] = useState('');
   const [importOrder, setImportOrder] = useState<any>(null);
+  const [bdRows, setBdRows] = useState<any[]>([]);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [importDue, setImportDue] = useState('');
   const [autoMsg, setAutoMsg] = useState('');
   const [importMsg, setImportMsg] = useState('');
@@ -65,44 +64,39 @@ function PurchaseOrdersTab({ initialOrder }: { initialOrder?: any }) {
 
   // 案件管理からの遷移で自動オープン
   useEffect(() => {
-    if (initialOrder) { openImport(); onSelectImportOrder(initialOrder); }
+    if (initialOrder) { setShowImport(true); onSelectImportOrder(initialOrder); }
     // eslint-disable-next-line
   }, []);
 
-  const openImport = () => {
-    setShowImport(true);
-    procurementApi.listBomUnits().then(r => setUnits(r.data)).catch(() => {});
-  };
   const onSelectImportOrder = (o: any) => {
-    setImportOrder(o); setImportMsg(''); setAutoMsg('読込中...');
-    procurementApi.adoptedUnits(o.id).then(r => {
-      const us = (r.data.units || []).map((u: any) => ({ ...u, multiplier: u.quantity || 1 }));
-      setUnitRows(us);
-      setAutoMsg(us.length ? `採用見積 ${r.data.quotation_no || ''} から ${us.length}ユニットを自動セット` : (r.data.message || '受注採用見積にユニットがありません'));
+    setImportOrder(o); setImportMsg(''); setSelected({}); setBdRows([]); setAutoMsg('読込中...');
+    procurementApi.poBreakdowns(o.id).then(r => {
+      const rows = r.data.rows || [];
+      setBdRows(rows);
+      // 既存発注書がない内訳を初期選択
+      const initSel: Record<string, boolean> = {};
+      rows.forEach((row: any) => { if (!row.existing_po_no) initSel[row.breakdown_no] = true; });
+      setSelected(initSel);
+      setAutoMsg(rows.length
+        ? `採用見積 ${r.data.quotation_no || ''} の内訳 ${rows.length}件（発注番号 = 子ID-内訳番号）`
+        : (r.data.message || '受注採用見積に内訳がありません'));
     }).catch(() => setAutoMsg('取得に失敗しました'));
   };
-  const addUnitRow = () => {
-    if (!addUnitId) return;
-    const u = units.find(x => x.id === addUnitId);
-    if (!u || unitRows.some(r => r.unit_id === u.id)) { setAddUnitId(''); return; }
-    setUnitRows(rows => [...rows, { unit_id: u.id, unit_code: u.unit_code, unit_name: u.unit_name, unit_type: u.unit_type, model_no: u.model_no, material_count: u.material_count, multiplier: 1 }]);
-    setAddUnitId('');
-  };
-  const updateRowMult = (idx: number, v: string) => setUnitRows(rows => rows.map((r, i) => i === idx ? { ...r, multiplier: v } : r));
-  const removeUnitRow = (idx: number) => setUnitRows(rows => rows.filter((_, i) => i !== idx));
+  const toggleSel = (bno: string) => setSelected(s => ({ ...s, [bno]: !s[bno] }));
 
   const createPOs = async () => {
     if (!importOrder) { alert('案件子IDを選択してください'); return; }
-    if (!unitRows.length) { alert('ユニットがありません'); return; }
+    const chosen = bdRows.filter(r => selected[r.breakdown_no] && !r.existing_po_no);
+    if (!chosen.length) { alert('作成する内訳を選択してください'); return; }
     try {
-      const r = await procurementApi.createPOsFromUnits({
+      const r = await procurementApi.createPOsFromBreakdowns({
         project_order_id: importOrder.id,
         due_date: importDue || null,
-        units: unitRows.map(r => ({ unit_id: r.unit_id, multiplier: Number(r.multiplier) || 1 })),
+        breakdowns: chosen.map(r => ({ breakdown_no: r.breakdown_no })),
       });
-      if (!r.data.created_pos?.length) { setImportMsg(`⚠ ${r.data.message}`); return; }
       setImportMsg(`✓ ${r.data.message}`);
-      setUnitRows([]); setShowImport(false); load();
+      onSelectImportOrder(importOrder);  // 内訳一覧を再読込（既存発注書欄を更新）
+      load();
     } catch (e: any) { setImportMsg(`❌ ${e.response?.data?.detail || 'エラー'}`); }
   };
 
@@ -121,6 +115,7 @@ function PurchaseOrdersTab({ initialOrder }: { initialOrder?: any }) {
     load();
     setExpanded(e => ({ ...e, [r.data.id]: true }));
   };
+  const selectedCount = bdRows.filter(r => selected[r.breakdown_no] && !r.existing_po_no).length;
 
   return (
     <div>
@@ -134,17 +129,17 @@ function PurchaseOrdersTab({ initialOrder }: { initialOrder?: any }) {
           className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-white border border-blue-300 text-blue-600 text-sm rounded hover:bg-blue-50">
           <Plus size={14} />発注書を新規作成
         </button>
-        <button onClick={() => (showImport ? setShowImport(false) : openImport())}
+        <button onClick={() => setShowImport(v => !v)}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700">
-          <Boxes size={14} />ユニットから発注書作成
+          <Boxes size={14} />見積内訳から発注書作成
         </button>
       </div>
 
       {showImport && (
         <div className="mb-4 p-3 border border-indigo-200 rounded-lg bg-indigo-50">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-indigo-700">受注採用見積のユニットを自動セット → 編集 → 仕入先ごとに発注書を発番作成</span>
-            <button onClick={() => { setShowImport(false); setImportMsg(''); setAutoMsg(''); setUnitRows([]); }} className="text-gray-400"><X size={14} /></button>
+            <span className="text-xs font-semibold text-indigo-700">採用見積の内訳（明細行）ごとに発注書を発番 — 発注番号 = 子ID-内訳番号（例: 2026-0010_A-1-1）</span>
+            <button onClick={() => { setShowImport(false); setImportMsg(''); setAutoMsg(''); setBdRows([]); }} className="text-gray-400"><X size={14} /></button>
           </div>
           <div className="flex flex-wrap gap-2 items-end mb-2">
             <div className="min-w-[280px]">
@@ -160,38 +155,30 @@ function PurchaseOrdersTab({ initialOrder }: { initialOrder?: any }) {
           <div className="bg-white border rounded">
             <table className="w-full text-xs">
               <thead><tr className="bg-gray-50 text-gray-600">
-                {['ユニット', '種別', '型式', '部材数', '台数', ''].map(h => <th key={h} className="px-2 py-1.5 text-left font-medium border-b">{h}</th>)}
+                {['選択', '内訳番号', '大分類', '品名', '数量', '既存発注書'].map(h => <th key={h} className="px-2 py-1.5 text-left font-medium border-b">{h}</th>)}
               </tr></thead>
               <tbody>
-                {unitRows.length === 0 ? (
-                  <tr><td colSpan={6} className="text-center py-4 text-gray-400">案件を選ぶと採用見積のユニットが入ります（手動追加も可）</td></tr>
-                ) : unitRows.map((r, idx) => (
-                  <tr key={r.unit_id} className="border-b last:border-0">
-                    <td className="px-2 py-1.5"><span className="font-mono text-indigo-700">{r.unit_code}</span> {r.unit_name}</td>
-                    <td className="px-2 py-1.5">{r.unit_type || '—'}</td>
-                    <td className="px-2 py-1.5">{r.model_no || '—'}</td>
-                    <td className="px-2 py-1.5 text-center">{r.material_count === 0 ? <span className="text-red-500">未登録</span> : r.material_count}</td>
-                    <td className="px-2 py-1.5"><input type="number" value={r.multiplier} onChange={e => updateRowMult(idx, e.target.value)} className="border rounded px-1 py-0.5 w-16 text-right" /></td>
-                    <td className="px-2 py-1.5"><button onClick={() => removeUnitRow(idx)} className="text-red-400"><Trash2 size={13} /></button></td>
+                {bdRows.length === 0 ? (
+                  <tr><td colSpan={6} className="text-center py-4 text-gray-400">案件子IDを選ぶと採用見積の内訳（明細行）が表示されます</td></tr>
+                ) : bdRows.map(r => (
+                  <tr key={r.breakdown_no} className={`border-b last:border-0 ${r.existing_po_no ? 'bg-gray-50 text-gray-400' : ''}`}>
+                    <td className="px-2 py-1.5"><input type="checkbox" checked={!!selected[r.breakdown_no]} disabled={!!r.existing_po_no} onChange={() => toggleSel(r.breakdown_no)} /></td>
+                    <td className="px-2 py-1.5 font-mono text-indigo-700">{r.breakdown_no}</td>
+                    <td className="px-2 py-1.5">{r.section}</td>
+                    <td className="px-2 py-1.5">{r.item_name}</td>
+                    <td className="px-2 py-1.5 text-right">{r.quantity}</td>
+                    <td className="px-2 py-1.5">{r.existing_po_no ? <span className="font-mono text-green-700">{r.existing_po_no}</span> : <span className="text-gray-300">—</span>}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <div className="flex items-center gap-2 px-2 py-1.5 border-t bg-gray-50">
-              <span className="text-xs text-gray-400">ユニット追加:</span>
-              <select value={addUnitId} onChange={e => setAddUnitId(e.target.value)} className="border rounded px-2 py-1 text-xs min-w-[240px]">
-                <option value="">— ユニット選択 —</option>
-                {units.map(u => <option key={u.id} value={u.id}>{u.unit_code} / {u.unit_name}（部材{u.material_count}件）</option>)}
-              </select>
-              <button onClick={addUnitRow} className="flex items-center gap-1 px-2 py-1 bg-gray-700 text-white text-xs rounded hover:bg-gray-800"><Plus size={12} />追加</button>
-            </div>
           </div>
           <div className="flex items-center gap-2 mt-2">
-            <button onClick={createPOs} disabled={!unitRows.length}
+            <button onClick={createPOs} disabled={!selectedCount}
               className="flex items-center gap-1 px-4 py-1.5 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700 disabled:opacity-50">
-              <Check size={14} />発注書を作成（仕入先ごと）
+              <Check size={14} />選択した内訳の発注書を作成（{selectedCount}件）
             </button>
-            <span className="text-xs text-gray-400">※部材の優先仕入先ごとに発注書が分かれます</span>
+            <span className="text-xs text-gray-400">※内訳ごとに1発注書。ユニット紐付けがあれば部材を自動展開</span>
             {importMsg && <span className={`text-xs ${importMsg.startsWith('✓') ? 'text-green-700' : 'text-red-500'}`}>{importMsg}</span>}
           </div>
         </div>
@@ -199,11 +186,11 @@ function PurchaseOrdersTab({ initialOrder }: { initialOrder?: any }) {
 
       <table className="w-full text-sm border-collapse">
         <thead><tr className="bg-gray-50">
-          {['', '発注番号', '案件子ID', '発注先', '注文日', '明細', '金額', 'ステータス', ''].map(h =>
+          {['', '発注番号', '内訳', '案件子ID', '発注先', '注文日', '明細', '金額', 'ステータス', ''].map(h =>
             <th key={h} className="border border-gray-200 px-2 py-2 text-left text-xs font-medium text-gray-600">{h}</th>)}
         </tr></thead>
         <tbody>
-          {pos.length === 0 ? <tr><td colSpan={9} className="text-center py-8 text-gray-400">発注書なし</td></tr>
+          {pos.length === 0 ? <tr><td colSpan={10} className="text-center py-8 text-gray-400">発注書なし</td></tr>
             : pos.map(po => (
               <Fragment key={po.id}>
                 <tr className="hover:bg-gray-50">
@@ -211,6 +198,7 @@ function PurchaseOrdersTab({ initialOrder }: { initialOrder?: any }) {
                     <button onClick={() => toggleExpand(po)} className="text-gray-400">{expanded[po.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button>
                   </td>
                   <td className="border px-2 py-1.5 font-mono font-bold text-indigo-700">{po.po_no}</td>
+                  <td className="border px-2 py-1.5 text-xs" title={po.breakdown_name || ''}>{po.breakdown_no || '—'}</td>
                   <td className="border px-2 py-1.5 font-mono text-xs">{po.child_no || '—'}</td>
                   <td className="border px-2 py-1.5">{po.supplier_name || '（未指定）'}</td>
                   <td className="border px-2 py-1.5 text-xs">{po.order_date || '—'}</td>
@@ -239,7 +227,7 @@ function PurchaseOrdersTab({ initialOrder }: { initialOrder?: any }) {
                 {expanded[po.id] && (
                   <tr>
                     <td></td>
-                    <td colSpan={8} className="border border-gray-200 bg-gray-50 px-3 py-3">
+                    <td colSpan={9} className="border border-gray-200 bg-gray-50 px-3 py-3">
                       <PoDetail poId={po.id} onChange={load} />
                     </td>
                   </tr>
