@@ -15,6 +15,18 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-07-07 — Claude(Cowork) — /procurement 検証（異常なし）
+**触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
+**検証結果**: 静的解析で P-01〜P-05 全て現状維持・退行なし。前回(07-06)以降 origin/main に新規コミット無し（最新は 98b827d）。
+- エンドポイント整合: procurementApi の全 `procurement/*` 参照（materials/bom/material-orders/suppliers/units/adopted-units/purchase-orders等）が materials.py の実ルート（32ルート）に一致。不一致なし。
+- P-01 赤エラーバナー: ProcurementPage.tsx に setError 11 / catch 15 箇所 健在。
+- P-03/P-05 0値表示: `_mo_dict`(L439-440) order_qty/unit_price、発注書HTML(L799-800) qty/price ともに `is not None` 維持。amount は `or 0` で¥0正常。フロント側(L694-695)も `!= null` 判定で正しい。
+- 構文: materials.py py_compile OK、ProcurementPage.tsx esbuild OK。全角混入はコメント/HTML文字列のみ（コード構文には無し）。
+**ライブAPI/UI確認**: 無人実行のため web_fetch は対象ドメイン provenance外・curl はサンドボックス非allowlist(HTTP 000)、Chrome拡張は複数接続で無人選択不可 → 静的解析で対応。
+**運用メモ**: P-02（既存DBに material_orders.order_no/project_unit_id 列が無い場合 GET /material-orders が500）は `/setup-bom-master-tables` 実行済み前提で本番影響なし。
+**バグ検出**: なし（異常なし）。push はWORKLOG更新のみ。
+
+
 ### 2026-07-06 — Claude(Cowork) — /procurement 検証（異常なし）
 **触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
 **検証結果**: 静的解析で P-01〜P-05 全て現状維持・退行なし。
