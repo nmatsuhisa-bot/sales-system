@@ -15,6 +15,20 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-07-08 — Claude(Cowork) — /procurement 検証（異常なし）
+**触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
+**検証結果**: 静的解析で P-01〜P-05 全て現状維持・退行なし。最新コミット 5f78e90（ヘルプページ拡充、コード変更なし）以降 origin/main に新規コミット無し。
+- エンドポイント整合: procurementApi の全 `procurement/*` 参照（materials/bom/material-orders/suppliers/units/adopted-units/purchase-orders等、39箇所）が materials.py の実ルート（29ルート）に一致。不一致なし。
+- P-01 赤エラーバナー: ProcurementPage.tsx に setError 11 / catch 15 箇所 健在。
+- P-03/P-05 0値表示: `_mo_dict`(L439-440) order_qty/unit_price、発注書HTML(L799-800) qty/price ともに `is not None` 維持。
+- P-04 新規発注バリデーション: `if (!newLine.material_id)` (L278) / `if (!newData.material_id)` (L491) 健在。
+- DESIGN.md準拠: main.py非変更、f-string内包表記なし、VITE_API_URL単一/api、全角混入なし（コード構文には無し、コメント/文字列のみ）。
+- 構文: materials.py py_compile OK、ProcurementPage.tsx esbuild OK。
+**ライブAPI/UI確認**: 無人実行のため web_fetch は対象ドメイン provenance外・curl はサンドボックスproxyが403（対象ドメイン非allowlist）、Chrome拡張は2台接続で無人選択不可（AskUserQuestion必須のため自動実行不可）→ 静的解析で対応。
+**運用メモ**: P-02（既存DBに material_orders.order_no/project_unit_id 列が無い場合 GET /material-orders が500）は `/setup-bom-master-tables` 実行済み前提で本番影響なし。
+**バグ検出**: なし（異常なし）。push はWORKLOG更新のみ。
+
+
 ### 2026-07-07 — Claude(Cowork) — /procurement 検証（異常なし）
 **触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
 **検証結果**: 静的解析で P-01〜P-05 全て現状維持・退行なし。前回(07-06)以降 origin/main に新規コミット無し（最新は 98b827d）。
