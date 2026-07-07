@@ -2,7 +2,169 @@ import { useState } from 'react';
 import {
   HelpCircle, Database, Boxes, GitBranch, FileText, Factory, ClipboardList, Truck,
   Building2, MapPin, Users, Package, ChevronDown, ChevronRight,
+  LayoutDashboard, ShoppingCart, BarChart3, Briefcase, UserCog, Calendar, ShoppingBag,
 } from 'lucide-react';
+
+// 画面ごとの使い方データ
+const PAGE_GROUPS = [
+  {
+    key: 'sales', title: '営業・見積・受注', icon: Briefcase, color: 'text-blue-600',
+    desc: '引き合いから受注・出荷までの営業フローに関わる画面です。',
+    pages: [
+      {
+        name: 'ダッシュボード', icon: LayoutDashboard, route: '/',
+        purpose: '今月の受注・見積状況や月別売上を確認する経営指標画面（閲覧専用）。',
+        steps: [
+          '年度セレクトで表示年度を切替（会計年度は3月始まり、2/21〜翌2/20）。',
+          '上部KPIカードで今月の受注金額・件数、見積件数、受注中の案件を確認。',
+          '月別売上グラフは「受注月／納品月」で表示を切替できる。',
+          '案件ステータス別・見積ステータス別の内訳も一覧で確認できる。',
+        ],
+        note: '入力・編集はできません。数値を修正したい場合は元データ（案件・見積・受注）側で行います。',
+      },
+      {
+        name: '案件管理', icon: Briefcase, route: '/projects',
+        purpose: '引き合い〜売上計上までの「案件」と、見積・受注の単位となる「案件子ID」を管理する起点画面。',
+        steps: [
+          '「新規案件登録」で親案件を作成（案件IDは自動採番）。商流（直接／代理店）・納入先・営業担当・予算金額等を入力。',
+          '案件の行を開き「子ID追加」で子ID（見積・受注の単位）を作成（子IDも自動採番）。',
+          '子ID行の操作アイコンから「見積作成」「発注」「手配（クレーン／送り状／宿泊）」へ直接遷移できる。',
+        ],
+        status: ['営業中', '内示', '受注', '検収済', '請求済', '入金済', '失注'],
+        note: '案件ID・子IDは自動採番のため手入力不可。最終受注金額は発行済みの受注票から自動集計されます。',
+      },
+      {
+        name: '見積管理', icon: FileText, route: '/estimates',
+        purpose: 'BFR／SCA・SCD等の型式パターンを組み合わせて見積書を作成する画面（一覧＋作成フォーム）。',
+        steps: [
+          '「新規見積作成」で案件子IDを検索・選択すると、件名・納入先・顧客名・営業担当が自動入力される。',
+          '「BFRパターン追加」「SCA/SCDパターン追加」ボタンで型式・オプションを選ぶだけで、本体＋関連オプションの明細を一括追加できる（手動追加も可）。',
+          '「社内工数」タブで据付・試運転などの労務費も計上できる。',
+          '保存後に「PDF出力」「受注票」発行（合計300万円以上は工番／未満は単番と自動判定）「複製」が行える。',
+        ],
+        status: ['下書き', '提出済', '承認済'],
+        note: 'PDF出力は保存後のみ可能。複製時は複製先の案件子IDの指定が必須です。',
+      },
+      {
+        name: '受注管理', icon: ShoppingCart, route: '/orders',
+        purpose: '見積管理から発行された受注票の一覧確認画面（新規作成はここでは行いません）。',
+        steps: [
+          '受注番号・顧客名・案件子IDで検索、種別（工番／単番）・状態（最新のみ／過去／全件）で絞り込み。',
+          '各行の「PDF」アイコンで受注票PDFを表示。',
+        ],
+        status: ['工番（紫）', '単番（オレンジ）'],
+        note: '見積を受注票として再発行すると、旧受注票は自動的に「過去」扱いとなり一覧から隠れます（「過去」フィルタで表示可能）。',
+      },
+    ],
+  },
+  {
+    key: 'supply', title: '仕入・在庫・製造・工程', icon: Factory, color: 'text-orange-600',
+    desc: '受注後の部材調達・在庫・製造スケジュールに関わる画面です。',
+    pages: [
+      {
+        name: '仕入（発注）管理', icon: ShoppingBag, route: '/procurement',
+        purpose: '発注書・部材マスタ・BOMマスタをまとめて扱う仕入業務の中心画面（3タブ構成）。',
+        steps: [
+          '「見積内訳から発注書作成」で受注採用済みの見積内訳をチェックして選び、納期を指定すると発注書を一括作成できる（発注番号は「子ID-内訳番号」）。',
+          '発注書ごとにヘッダー（発注先・注文日・納入場所等）と明細（部材・数量・単価・納期）を編集。',
+          '明細行の「入荷」「在庫引当」ボタンで在庫管理に反映される。',
+          '「部材マスタ」「BOMマスタ」タブで、部材そのものや型式ごとの部材構成も管理できる。',
+        ],
+        status: ['作成中', '発注済', '一部入荷', '入荷済', 'キャンセル'],
+        note: '発注書は「作成中」の間だけヘッダー・明細を編集できます。旧「発注・仕入管理」画面（発注書一覧のみの簡易版）も残っていますが、実務ではこちらを使用してください。',
+      },
+      {
+        name: '在庫管理', icon: Boxes, route: '/inventory',
+        purpose: '部材単位の在庫（在庫数＝入荷累計－利用累計）を管理する画面。',
+        steps: [
+          '「入出庫を登録」で部材を選び、区分（入荷／利用／引当／調整）・数量・日付を入力して登録。',
+          '在庫が0以下の部材は赤字で警告表示される。',
+          '各行の履歴アイコンから入出庫履歴（日付・区分・数量・関連案件）を確認できる。',
+        ],
+        note: '仕入（発注）管理での「入荷」「在庫引当」操作もこの画面の入荷累計・利用累計に反映されます。',
+      },
+      {
+        name: '製品BOMマスタ', icon: GitBranch, route: '/bom-master',
+        purpose: '「製品→ユニット→部材」の3階層で製品構成を定義するマスタ画面。',
+        steps: [
+          '「製品マスタ」「ユニットマスタ」タブでそれぞれの型式・標準単価等を登録。',
+          '「製品構成（製品→ユニット）」「ユニット構成（ユニット→部品）」タブで、員数付きの構成を紐付ける。',
+          '「見積パターンから取込」ボタンで既存の見積パターン（BFR・SCA等）を製品／ユニットマスタへ一括登録できる。',
+        ],
+        note: 'ユニットに部材まで紐付けておくと、仕入（発注）管理の「見積内訳から発注書作成」で部材が自動展開されます。',
+      },
+      {
+        name: '製造計画', icon: Factory, route: '/manufacturing',
+        purpose: '年度単位（3月始まり）で製造の工数負荷を計画・可視化する画面。',
+        steps: [
+          '「見積からドラフト作成」で受注採用済み見積の型式から製造計画を自動生成、または「計画追加」で手動登録。',
+          '「ガント」タブで月×週単位の工数按分と、使用可能時間に対する超過（赤字表示）を確認。',
+          '「生産能力マスタ」「製品所要工数マスタ」タブで、稼働可能時間や型番ごとの所要工数の基礎データを管理。',
+        ],
+        status: ['未着手', '製造中', '完了'],
+      },
+      {
+        name: '工程管理', icon: ClipboardList, route: '/process',
+        purpose: '現場工事の日程をガントチャート形式で作成する工程表管理画面。',
+        steps: [
+          '案件子IDを検索するとヘッダー（顧客名・工事名・工番・納期等）が自動入力される。',
+          '「テンプレートから自動生成」で、納期を基準にテンプレートの各工程を一括配置できる（既存の行は上書きされる点に注意）。',
+          'ガントは日／週／月表示を切替でき、セルをクリックして工程バーの開始・終了日を指定。',
+          '「テンプレート管理」タブで製品種別ごとの標準工程（工程名・納期からのオフセット日数・作業日数）を編集できる。',
+          '「印刷」で日／週／月単位のPDFを出力できる。',
+        ],
+        status: ['作成中', '確定', '発行済'],
+      },
+    ],
+  },
+  {
+    key: 'admin', title: '管理・その他', icon: Database, color: 'text-slate-600',
+    desc: '社内の基礎データ・スケジュール・帳票類を管理する画面です。',
+    pages: [
+      {
+        name: 'マスタ管理', icon: Database, route: '/masters',
+        purpose: '商社・納入先・従業員・手配業者の基本マスタを登録する画面（詳細は下記「マスタの説明」を参照）。',
+        steps: ['4タブ（商社／納入先／従業員／手配業者）を切替え、「新規登録」から追加、行の編集アイコンから修正。'],
+      },
+      {
+        name: 'ユーザー管理', icon: UserCog, route: '/users',
+        purpose: 'システムにログインするアカウントと権限を管理する画面。',
+        steps: [
+          '「新規ユーザー追加」で氏名・メール・権限を登録（初期パスワードは user1234）。',
+          '鍵アイコンからパスワード変更、編集アイコンから氏名等の修正、不要なアカウントは無効化できる。',
+        ],
+        status: ['user（一般）', 'admin（管理者）'],
+        note: '管理者（admin）アカウントは誤って無効化しないよう削除ボタンが表示されません。',
+      },
+      {
+        name: 'スケジュール管理', icon: Calendar, route: '/schedule',
+        purpose: '全社員の週間予定（午前／午後）をガント風に登録する画面。',
+        steps: [
+          '週送りボタンで表示週を切替え、空いているセルをクリックして予定を登録。',
+          '対象者は複数選択可、終日／午前／午後・色（6色）を指定できる。',
+          '既存の予定はドラッグ＆ドロップで別の担当者・日時へ移動できる。',
+        ],
+      },
+      {
+        name: '売上計画表', icon: BarChart3, route: '/sales-plan',
+        purpose: '案件の月別・年度別の売上見込みを一覧化し、印刷できるレポート画面。',
+        steps: [
+          '年度・ステータス（複数選択）で表示対象を絞り込み。',
+          '「PDF出力」でA3横のレポートを生成し印刷できる。',
+        ],
+        note: '合計金額300万円未満（単番）の案件は個別表示せず、最下部にまとめて集計されます。',
+      },
+      {
+        name: '手配書（クレーン／送り状／宿泊）', icon: Truck, route: '案件管理の子ID行から作成',
+        purpose: 'クレーン依頼書・送り状・宿泊手配書を作成する機能。専用ページはなく、案件管理の子ID行のボタンから開きます。',
+        steps: [
+          '案件管理で対象の子IDを開き、手配ボタン（クレーン／送り状／宿泊）をクリック。',
+          '手配業者マスタから業者を選ぶと、連絡先が自動転記される。',
+        ],
+      },
+    ],
+  },
+];
 
 // マスタ説明データ
 const SECTIONS = [
@@ -63,13 +225,16 @@ export default function HelpPage() {
   );
   const toggle = (k: string) => setOpen(o => ({ ...o, [k]: !o[k] }));
 
+  const [openPages, setOpenPages] = useState<Record<string, boolean>>({ sales: true, supply: false, admin: false });
+  const togglePages = (k: string) => setOpenPages(o => ({ ...o, [k]: !o[k] }));
+
   return (
     <div className="p-6 max-w-5xl">
       <div className="flex items-center gap-2 mb-1">
         <HelpCircle size={24} className="text-blue-600" />
-        <h1 className="text-2xl font-bold text-gray-800">ヘルプ — マスタの説明</h1>
+        <h1 className="text-2xl font-bold text-gray-800">ヘルプ — 使い方・マスタの説明</h1>
       </div>
-      <p className="text-sm text-gray-500 mb-5">各マスタの「用途・登録場所・連携先」をまとめています。マスタを整えるほど、見積→発注→製造→手配が自動でつながります。</p>
+      <p className="text-sm text-gray-500 mb-5">「業務の流れ」「画面ごとの使い方」「マスタの説明」の3つに分けてまとめています。マスタを整えるほど、見積→発注→製造→手配が自動でつながります。</p>
 
       {/* 全体の流れ */}
       <div className="bg-white border rounded-xl p-4 mb-6">
@@ -87,7 +252,61 @@ export default function HelpPage() {
         </div>
       </div>
 
+      {/* 画面ごとの使い方 */}
+      <h2 className="text-base font-bold text-gray-800 mt-2 mb-3">画面ごとの使い方</h2>
+      <div className="space-y-4 mb-8">
+        {PAGE_GROUPS.map(group => {
+          const GroupIcon = group.icon;
+          return (
+            <div key={group.key} className="bg-white border rounded-xl overflow-hidden">
+              <button onClick={() => togglePages(group.key)}
+                className="w-full flex items-center gap-2 px-4 py-3 hover:bg-gray-50 text-left">
+                <GroupIcon size={18} className={group.color} />
+                <span className="font-semibold text-gray-800">{group.title}</span>
+                <span className="ml-auto text-gray-400">{openPages[group.key] ? <ChevronDown size={18} /> : <ChevronRight size={18} />}</span>
+              </button>
+              {openPages[group.key] && (
+                <div className="px-4 pb-4">
+                  <p className="text-xs text-gray-500 mb-3">{group.desc}</p>
+                  <div className="space-y-3">
+                    {group.pages.map((p, i) => {
+                      const PIcon = p.icon;
+                      return (
+                        <div key={i} className="border border-gray-200 rounded-lg p-3">
+                          <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                            <PIcon size={15} className="text-gray-400 shrink-0" />
+                            <span className="font-medium text-gray-800 text-sm">{p.name}</span>
+                            <span className="ml-auto text-[11px] text-gray-400">{p.route}</span>
+                          </div>
+                          <p className="text-xs text-gray-600 mb-2">{p.purpose}</p>
+                          {p.steps && (
+                            <ul className="list-disc list-inside text-xs text-gray-600 space-y-0.5 mb-2">
+                              {p.steps.map((s, j) => <li key={j}>{s}</li>)}
+                            </ul>
+                          )}
+                          {p.status && (
+                            <div className="flex flex-wrap gap-1 mb-2">
+                              {p.status.map((s, j) => (
+                                <span key={j} className="text-[11px] px-2 py-0.5 bg-gray-100 text-gray-600 rounded">{s}</span>
+                              ))}
+                            </div>
+                          )}
+                          {p.note && (
+                            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded px-2 py-1">{p.note}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
       {/* マスタ各セクション */}
+      <h2 className="text-base font-bold text-gray-800 mb-3">マスタの説明</h2>
       <div className="space-y-4">
         {SECTIONS.map(sec => {
           const SecIcon = sec.icon;
