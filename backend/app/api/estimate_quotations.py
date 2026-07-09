@@ -332,10 +332,40 @@ def list_order_tickets(
                 "sales_person_name": t.sales_person_name,
                 "total_amount": int(t.total_amount or 0),
                 "order_date": str(t.order_date) if t.order_date else None,
+                "has_order_sheet": t.has_order_sheet,
+                "delivery_date": str(t.delivery_date) if t.delivery_date else None,
+                "advance_payment": int(t.advance_payment) if t.advance_payment is not None else None,
                 "is_active": t.is_active,
             }
             for t in items
         ]
+    }
+
+
+@router.put("/order-ticket/{ticket_id}")
+def update_order_ticket(ticket_id: str, data: dict, db: Session = Depends(get_db)):
+    """受注票の受注時項目（注文書有無・納期・前受金）を更新。子ID・出荷日等の基本項目も編集可。"""
+    t = db.query(OrderTicket).filter(or_(OrderTicket.id == ticket_id, OrderTicket.ticket_no == ticket_id)).first()
+    if not t:
+        raise HTTPException(404, "受注票が見つかりません")
+    if "has_order_sheet" in data:
+        t.has_order_sheet = data["has_order_sheet"]
+    if "delivery_date" in data:
+        t.delivery_date = date.fromisoformat(data["delivery_date"]) if data["delivery_date"] else None
+    if "advance_payment" in data:
+        v = data["advance_payment"]
+        t.advance_payment = int(v) if v not in (None, "") else None
+    if "order_date" in data:
+        t.order_date = date.fromisoformat(data["order_date"]) if data["order_date"] else None
+    if "notes" in data:
+        t.notes = data["notes"]
+    db.commit(); db.refresh(t)
+    return {
+        "id": str(t.id), "ticket_no": t.ticket_no,
+        "has_order_sheet": t.has_order_sheet,
+        "delivery_date": str(t.delivery_date) if t.delivery_date else None,
+        "advance_payment": int(t.advance_payment) if t.advance_payment is not None else None,
+        "order_date": str(t.order_date) if t.order_date else None,
     }
 
 
@@ -742,6 +772,21 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
     is_koban = t.ticket_type == "koban"
     title = "受 注 票【工番】" if is_koban else "受 注 票【単番】"
 
+    # 受注時項目（注文書有無・納期・前受金）を帳票に反映（該当側を太字下線で強調）
+    def _yn(v):
+        if v is True: return "<b><u>有</u></b> ・ 無"
+        if v is False: return "有 ・ <b><u>無</u></b>"
+        return "有 ・ 無"
+    order_sheet_disp = _yn(t.has_order_sheet)
+    delivery_disp = t.delivery_date.strftime("%Y/%m/%d") if t.delivery_date else "　　　年　　月　　日"
+    _adv = int(t.advance_payment) if t.advance_payment is not None else None
+    if _adv and _adv > 0:
+        advance_disp = f"<b><u>有</u></b> ・ 無　¥{_adv:,}"
+    elif t.advance_payment is not None:
+        advance_disp = "有 ・ <b><u>無</u></b>"
+    else:
+        advance_disp = "有 ・ 無"
+
     draft_watermark = ""
 
     items_html = ""
@@ -810,14 +855,14 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
   </tfoot>
 </table>
 
-{'<div style="border:1px solid #999;padding:8px;margin-top:10px;font-size:10px"><b>前受金</b>:有 . 無<br>1.( 月 日付)税込/税抜 ¥   入金済<br>2.( 月 日付)税込/税抜 ¥   入金済</div>' if is_koban else ''}
+{f'<div style="border:1px solid #999;padding:8px;margin-top:10px;font-size:10px"><b>前受金</b>: {advance_disp}<br>1.( 月 日付)税込/税抜 ¥   入金済<br>2.( 月 日付)税込/税抜 ¥   入金済</div>' if is_koban else ''}
 
 <div style="margin-top:20px;border:1px solid #999;padding:8px;font-size:10px">
   <table style="width:100%"><tr>
     <td>出荷方法: □トラック出荷 □宅配出荷 □井上納品 □引取</td>
-    <td style="text-align:right">出荷日:   年  月  日</td>
+    <td style="text-align:right">納期: {delivery_disp}</td>
   </tr></table>
-  <div style="margin-top:6px">図面: 有 . 無  注文書: 有 . 無{'  契約書: 有 . 無' if is_koban else ''}</div>
+  <div style="margin-top:6px">図面: 有 ・ 無　注文書: {order_sheet_disp}{'　契約書: 有 ・ 無' if is_koban else ''}</div>
 </div>
 
 <div style="margin-top:12px;display:flex;align-items:stretch">

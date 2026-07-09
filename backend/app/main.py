@@ -254,6 +254,22 @@ def setup_po_breakdown():
     return {"status": "ok", "message": "発注書 内訳番号カラム追加完了"}
 
 
+@app.get("/setup-order-ticket-fields")
+def setup_order_ticket_fields():
+    """受注票に受注時項目（注文書有無・納期・前受金）カラムを追加"""
+    from app.db.models import engine
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE order_tickets ADD COLUMN IF NOT EXISTS has_order_sheet BOOLEAN"))
+            conn.execute(text("ALTER TABLE order_tickets ADD COLUMN IF NOT EXISTS delivery_date DATE"))
+            conn.execute(text("ALTER TABLE order_tickets ADD COLUMN IF NOT EXISTS advance_payment NUMERIC(15,0)"))
+            conn.commit()
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    return {"status": "ok", "message": "受注票 受注時項目カラム追加完了"}
+
+
 @app.get("/setup-child-no-letters")
 def setup_child_no_letters():
     """既存の子ID枝番 _01/_02… を _A/_B… に変換し、child_noを参照する全テーブルを一括更新"""

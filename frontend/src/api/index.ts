@@ -165,6 +165,7 @@ export const estimateApi = {
   // 受注票
   issueOrderTicket: (quotationId: string) => api.post(`/estimate-quotations/${quotationId}/issue-order-ticket`),
   listOrderTickets: (params?: any) => api.get("/estimate-quotations/order-tickets", { params }),
+  updateOrderTicket: (ticketId: string, data: any) => api.put(`/estimate-quotations/order-ticket/${ticketId}`, data),
   adoptQuotation: (quotationId: string) => api.post(`/estimate-quotations/${quotationId}/adopt`),
   unadoptQuotation: (quotationId: string) => api.delete(`/estimate-quotations/${quotationId}/adopt`),
   duplicate: (quotationId: string, project_order_id: string) => api.post(`/estimate-quotations/${quotationId}/duplicate`, { project_order_id }),

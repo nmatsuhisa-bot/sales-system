@@ -626,6 +626,10 @@ class OrderTicket(Base):
     customer_name = Column(String(200))
     delivery_name = Column(String(300))
     sales_person_name = Column(String(100))
+    # 受注時項目（会議「次の手配」項目11）
+    has_order_sheet = Column(Boolean)          # 注文書有無（True=有 / False=無 / NULL=未確認）
+    delivery_date = Column(Date)               # 納期
+    advance_payment = Column(Numeric(15, 0))   # 前受金額（NULL/0=なし）
     notes = Column(Text)
     is_active = Column(Boolean, default=True, server_default="true")
     created_at = Column(DateTime, server_default=func.now())
