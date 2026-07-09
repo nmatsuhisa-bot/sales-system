@@ -88,18 +88,23 @@ export default function SalesPlanPage() {
   const sortedKoban = [...kobanProjects].sort((a, b) =>
     (a.sales_date || '').localeCompare(b.sales_date || '') || (a.customer || '').localeCompare(b.customer || ''));
 
+  // 見込み管理: 営業中・内示は金額を0として集計（受注以降で計上）。工番/単番の判定は実額のまま。
+  const ZERO_STATUSES = new Set(['営業中', '内示']);
+  const dispTotal = (p: Proj) => ZERO_STATUSES.has(p.status) ? 0 : p.total;
+  const dispMonth = (p: Proj, m: number) => ZERO_STATUSES.has(p.status) ? 0 : (p.months[m] || 0);
+
   // 単番（集計）
   const tanbanMonths: Record<number, number> = {};
   let tanbanTotal = 0;
   for (const p of tanbanProjects) {
-    for (const m of Object.keys(p.months)) tanbanMonths[+m] = (tanbanMonths[+m] || 0) + p.months[+m];
-    tanbanTotal += p.total;
+    for (const m of MONTH_LIST) tanbanMonths[m] = (tanbanMonths[m] || 0) + dispMonth(p, m);
+    tanbanTotal += dispTotal(p);
   }
 
-  // 月別合計（工番＋単番すべて）
+  // 月別合計（工番＋単番すべて。営業中・内示は0で計上）
   const monthTotals: Record<number, number> = {};
-  for (const p of projects) for (const m of Object.keys(p.months)) monthTotals[+m] = (monthTotals[+m] || 0) + p.months[+m];
-  const grandTotal = projects.reduce((s, p) => s + p.total, 0);
+  for (const p of projects) for (const m of MONTH_LIST) monthTotals[m] = (monthTotals[m] || 0) + dispMonth(p, m);
+  const grandTotal = projects.reduce((s, p) => s + dispTotal(p), 0);
 
   function toggleStatus(s: string) {
     setSelectedStatuses(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
@@ -141,8 +146,8 @@ export default function SalesPlanPage() {
         ${cell(p.delivery_name || '—', `color:${C.gray700}`)}
         ${cell(p.sales_person || '—', `color:${C.gray700}`)}
         ${cell(`<span style="color:${STATUS_PRINT_HEX[p.status] || C.gray700};font-weight:600">${p.status}</span>`, '')}
-        ${MONTH_LIST.map(m => cell(M(p.months[m] || 0), `text-align:right;color:${C.gray700};background:${m === currentMonth ? C.curMonthBg : '#fff'}`)).join('')}
-        ${cell(M(p.total), `text-align:right;font-weight:500;background:${C.projTotalBg}`)}
+        ${MONTH_LIST.map(m => cell(M(dispMonth(p, m)), `text-align:right;color:${C.gray700};background:${m === currentMonth ? C.curMonthBg : '#fff'}`)).join('')}
+        ${cell(M(dispTotal(p)), `text-align:right;font-weight:500;background:${C.projTotalBg}`)}
       </tr>`).join('');
 
     const tanbanRow = tanbanProjects.length ? `<tr style="background:${C.tanbanBg};font-weight:700">
@@ -167,7 +172,7 @@ export default function SalesPlanPage() {
   * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 </style></head><body>
 <h2>売上計画表　${year}年度（${year}/2/21〜${year + 1}/2/20）</h2>
-<p>対象ステータス：${selectedStatuses.join('・')}　／　単番（合計${(TANBAN_MAX / 1000000)}M未満）は最下部に集計　／　出力日：${new Date().toLocaleDateString('ja-JP')}</p>
+<p>対象ステータス：${selectedStatuses.join('・')}　／　単番（合計${(TANBAN_MAX / 1000000)}M未満）は最下部に集計　／　営業中・内示は0円計上（見込み管理）　／　出力日：${new Date().toLocaleDateString('ja-JP')}</p>
 <table>${headerRow}<tbody>${dataRows}</tbody><tfoot>${tanbanRow}${footerRow}</tfoot></table>
 </body></html>`);
     win.document.close();
@@ -229,8 +234,8 @@ export default function SalesPlanPage() {
                   <td className="border border-gray-300 px-2 py-1">
                     <span className={`text-xs font-medium ${STATUS_PRINT_COLORS[p.status] || 'text-gray-600'}`}>{p.status}</span>
                   </td>
-                  {MONTH_LIST.map(m => <td key={m} className={tdClass(m)}>{M(p.months[m] || 0)}</td>)}
-                  <td className="border border-gray-300 px-2 py-1 text-right font-medium bg-gray-50">{M(p.total)}</td>
+                  {MONTH_LIST.map(m => <td key={m} className={tdClass(m)}>{M(dispMonth(p, m))}</td>)}
+                  <td className="border border-gray-300 px-2 py-1 text-right font-medium bg-gray-50">{M(dispTotal(p))}</td>
                 </tr>
               ))}
               {sortedKoban.length === 0 && (
@@ -264,6 +269,7 @@ export default function SalesPlanPage() {
       <div className="mt-4 text-xs text-gray-400">
         ※ 売上計上日（顧客納期）が設定されている案件のみ表示。金額は百万円単位（M）。年度は{year}/2/21〜{year + 1}/2/20。
         単番（案件合計が{(TANBAN_MAX / 1000000)}M未満）は一覧に出さず最下部に集計表示。
+        <br />※ 見込み管理のため、<span className="text-blue-700 font-medium">営業中・内示</span>は金額を<span className="font-medium">0</span>として集計（受注以降で計上）。工番／単番の判定は実額で行います。
       </div>
     </div>
   );
