@@ -254,6 +254,21 @@ def setup_po_breakdown():
     return {"status": "ok", "message": "発注書 内訳番号カラム追加完了"}
 
 
+@app.get("/setup-plan-unit-fields")
+def setup_plan_unit_fields():
+    """製造計画に内訳番号・ユニット名カラムを追加（ユニット単位計画）"""
+    from app.db.models import engine
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE manufacturing_plans ADD COLUMN IF NOT EXISTS breakdown_no VARCHAR(50)"))
+            conn.execute(text("ALTER TABLE manufacturing_plans ADD COLUMN IF NOT EXISTS unit_name VARCHAR(500)"))
+            conn.commit()
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    return {"status": "ok", "message": "製造計画 ユニット項目カラム追加完了"}
+
+
 @app.get("/setup-order-ticket-fields")
 def setup_order_ticket_fields():
     """受注票に受注時項目（注文書有無・納期・前受金）カラムを追加"""

@@ -77,6 +77,8 @@ def create_plan(data: dict, db: Session = Depends(get_db)):
         raise HTTPException(400, "案件子IDを選択してください")
     p = ManufacturingPlan(
         project_order_id=data["project_order_id"],
+        breakdown_no=data.get("breakdown_no"),
+        unit_name=data.get("unit_name"),
         product_type=data.get("product_type"),
         model_no=data.get("model_no"),
         planned_start=data.get("planned_start"),
@@ -88,10 +90,31 @@ def create_plan(data: dict, db: Session = Depends(get_db)):
     db.add(p); db.commit(); db.refresh(p)
     return _plan_dict(p)
 
+def _unit_model_of(item):
+    """見積明細の spec_json からユニット型式を1つ取り出す（本体>ファン>RV>サイクロン）。"""
+    sj = item.spec_json or {}
+    for key in ("model", "fan_model", "rv_model", "cyclone_model"):
+        v = sj.get(key)
+        if v:
+            return str(v)
+    return None
+
+def _line_breakdown_map(q):
+    """見積明細に内訳番号「{大分類No}-{明細No}」を割り当て {line_item_id: breakdown_no} を返す（見積PDF・発注と同一採番）。"""
+    sections = {}
+    for item in sorted(q.line_items, key=lambda x: x.line_no):
+        sections.setdefault(item.section or "", []).append(item)
+    m = {}
+    for sec_no, (sec, items) in enumerate(sections.items(), 1):
+        for item_no, item in enumerate(items, 1):
+            m[str(item.id)] = f"{sec_no}-{item_no}"
+    return m
+
 @router.post("/plans/draft-from-estimate")
 def draft_from_estimate(data: dict, db: Session = Depends(get_db)):
-    """案件子IDの受注採用見積から、本体（型式）ごとに製造計画ドラフトを作成。
-    納期(sales_date)を完了予定とし、所要工数から仮の工期を逆算して開始予定を設定する。"""
+    """案件子IDの受注採用見積から、ユニット（見積内訳行）ごとに製造計画ドラフトを作成。
+    納期(sales_date)を完了予定とし、所要工数から仮の工期を逆算して開始予定を設定する。
+    行=ユニット（本体/ファン/RV/サイクロン等）。内訳番号は見積・発注と一致。"""
     from app.db.models import QuotationHeader
     from datetime import timedelta
     import math
@@ -114,19 +137,23 @@ def draft_from_estimate(data: dict, db: Session = Depends(get_db)):
         raise HTTPException(400, "受注採用された見積がありません")
 
     end = po.sales_date  # 納期 → 完了予定
+    bmap = _line_breakdown_map(q)
     created, skipped = 0, 0
     for it in q.line_items:
-        sj = it.spec_json or {}
-        model = sj.get("model")   # 本体ラインのみ 'model' を持つ
+        model = _unit_model_of(it)   # ユニット型式（本体/ファン/RV/サイクロン）
         if not model:
             continue
         ptype = it.product_type
-        # 重複スキップ（同じ子ID＋型番の計画が既にあれば作らない）
+        bno = bmap.get(str(it.id))
+        # 重複スキップ（同じ子ID＋型番の計画が既にあれば作らない）。旧・本体のみ計画には内訳番号を補完
         exists = db.query(ManufacturingPlan).filter(
             ManufacturingPlan.project_order_id == po.id,
             ManufacturingPlan.model_no == model,
         ).first()
         if exists:
+            if not exists.breakdown_no:
+                exists.breakdown_no = bno
+                exists.unit_name = exists.unit_name or it.item_name
             skipped += 1
             continue
         # 仮工期: 所要工数から概算（2名×8h想定）、無ければ14日。型番は正規化突合＋種別平均で代替
@@ -140,26 +167,27 @@ def draft_from_estimate(data: dict, db: Session = Depends(get_db)):
         days = max(7, int(math.ceil(req / 16.0))) if req else 14
         planned_start = (end - timedelta(days=days)) if end else None
         db.add(ManufacturingPlan(
-            project_order_id=po.id, product_type=ptype, model_no=model,
+            project_order_id=po.id, breakdown_no=bno, unit_name=it.item_name,
+            product_type=ptype, model_no=model,
             planned_start=planned_start, planned_end=end,
-            status="未着手", notes=f"見積ドラフト自動作成（仮日程・工期{days}日）",
+            status="未着手", notes=f"見積ドラフト自動作成（内訳{bno}・仮工期{days}日）",
         ))
         created += 1
 
     db.commit()
     if created == 0 and skipped == 0:
         return {"ok": False, "created": 0, "skipped": 0,
-                "message": "見積に本体（型式）ラインが見つかりませんでした"}
-    msg = f"見積から製造計画を {created}件 作成しました（仮日程）"
+                "message": "見積にユニット（型式）ラインが見つかりませんでした"}
+    msg = f"見積から製造計画（ユニット単位）を {created}件 作成しました（仮日程）"
     if skipped:
-        msg += f" / 既存 {skipped}件 はスキップ"
+        msg += f" / 既存 {skipped}件 はスキップ（内訳番号を補完）"
     return {"ok": True, "created": created, "skipped": skipped, "message": msg}
 
 @router.put("/plans/{plan_id}")
 def update_plan(plan_id: str, data: dict, db: Session = Depends(get_db)):
     p = db.query(ManufacturingPlan).filter(ManufacturingPlan.id == plan_id).first()
     if not p: raise HTTPException(404)
-    for k in ["product_type","model_no","planned_start","planned_end","actual_start","actual_end","assigned_to","status","notes"]:
+    for k in ["breakdown_no","unit_name","product_type","model_no","planned_start","planned_end","actual_start","actual_end","assigned_to","status","notes"]:
         if k in data: setattr(p, k, data[k])
     db.commit(); db.refresh(p)
     return _plan_dict(p)
@@ -179,6 +207,7 @@ def _plan_dict(p: ManufacturingPlan):
         "project_name": p.project_order.project_name if p.project_order else None,
         "customer_name": p.project_order.customer_name if p.project_order else None,
         "delivery_date": str(p.project_order.sales_date) if p.project_order and p.project_order.sales_date else None,
+        "breakdown_no": p.breakdown_no, "unit_name": p.unit_name,
         "product_type": p.product_type, "model_no": p.model_no,
         "planned_start": str(p.planned_start) if p.planned_start else None,
         "planned_end": str(p.planned_end) if p.planned_end else None,

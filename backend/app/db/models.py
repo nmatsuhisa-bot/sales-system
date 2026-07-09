@@ -843,6 +843,8 @@ class ManufacturingPlan(Base):
     __tablename__ = "manufacturing_plans"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_order_id = Column(UUID(as_uuid=True), ForeignKey("project_orders.id"), nullable=False)
+    breakdown_no = Column(String(50))          # 見積内訳番号（例: 1-1）。ユニット単位計画の識別
+    unit_name = Column(String(500))            # ユニット品名（見積内訳の品名）
     product_type = Column(String(50))
     model_no = Column(String(100))
     planned_start = Column(Date)

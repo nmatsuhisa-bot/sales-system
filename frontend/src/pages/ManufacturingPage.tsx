@@ -134,8 +134,8 @@ function GanttTab({ fiscalYear }: { fiscalYear: number }) {
             ) : rows.map(({ p, cells }) => (
               <tr key={p.id}>
                 <td className="border border-gray-300 px-2 py-1 sticky left-0 bg-white whitespace-nowrap">
-                  <span className="font-mono text-gray-700">{p.child_no}</span>
-                  <span className="text-gray-400 ml-1">{p.product_type}{p.model_no ? `/${p.model_no}` : ''}</span>
+                  <span className="font-mono text-gray-700">{p.child_no}{p.breakdown_no ? `-${p.breakdown_no}` : ''}</span>
+                  <span className="text-gray-500 ml-1">{p.unit_name || `${p.product_type || ''}${p.model_no ? `/${p.model_no}` : ''}`}</span>
                 </td>
                 <td className="border border-gray-300 px-1 py-1 text-right font-semibold">{p.total_hours ? `${p.total_hours}h` : '—'}</td>
                 {cells.map((h, ci) => (
@@ -383,11 +383,14 @@ function PlansTab({ fiscalYear }: { fiscalYear: number }) {
               </tr>
             ) : (
               <tr key={p.id} className="hover:bg-gray-50">
-                <td className="border border-gray-200 px-2 py-1 font-mono">{p.child_no}</td>
+                <td className="border border-gray-200 px-2 py-1 font-mono whitespace-nowrap">{p.child_no}{p.breakdown_no ? <span className="text-indigo-600">-{p.breakdown_no}</span> : ''}</td>
                 <td className="border border-gray-200 px-2 py-1 max-w-xs truncate">{p.project_name || '—'}</td>
                 <td className="border border-gray-200 px-2 py-1 max-w-xs truncate">{p.customer_name || '—'}</td>
                 <td className="border border-gray-200 px-2 py-1">{p.product_type || '—'}</td>
-                <td className="border border-gray-200 px-2 py-1 font-mono">{p.model_no || '—'}</td>
+                <td className="border border-gray-200 px-2 py-1">
+                  <span className="font-mono">{p.model_no || '—'}</span>
+                  {p.unit_name && <div className="text-[10px] text-gray-400 truncate max-w-[160px]" title={p.unit_name}>{p.unit_name}</div>}
+                </td>
                 <td className="border border-gray-200 px-2 py-1 whitespace-nowrap">{p.planned_start || '—'}</td>
                 <td className="border border-gray-200 px-2 py-1 whitespace-nowrap">{p.planned_end || '—'}</td>
                 <td className="border border-gray-200 px-2 py-1">{p.assigned_to || '—'}</td>
