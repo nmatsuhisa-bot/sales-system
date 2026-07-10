@@ -945,6 +945,32 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/_dbg-ot/{ticket_id}")
+def _dbg_ot(ticket_id: str, db: Session = Depends(get_db)):
+    """一時診断: 受注票PDFの各ステップで例外を捕捉して返す。"""
+    import traceback
+    steps = []
+    try:
+        t = db.query(OrderTicket).options(
+            joinedload(OrderTicket.quotation).joinedload(QuotationHeader.line_items),
+            joinedload(OrderTicket.project_order),
+        ).filter(or_(OrderTicket.id == ticket_id, OrderTicket.ticket_no == ticket_id)).first()
+        steps.append(f"query ok, t={t is not None}")
+        po = t.project_order
+        steps.append(f"po={po is not None}")
+        steps.append(f"cdd={po.customer_delivery_date if po else 'noPO'}")
+        steps.append(f"exp={po.expected_shipment_date if po else 'noPO'}")
+        steps.append(f"sales={po.sales_date if po else 'noPO'}")
+        q = t.quotation
+        steps.append(f"q={q is not None} items={len(q.line_items) if q else 0}")
+        if q:
+            for it in sorted(q.line_items, key=lambda x: x.line_no):
+                steps.append(f"item line_no={it.line_no!r} qty={it.quantity!r} price={it.unit_price!r}")
+        return {"steps": steps}
+    except Exception:
+        return {"steps": steps, "error": traceback.format_exc()}
+
+
 # =============================================
 # 指示書PDF出力
 # =============================================
