@@ -107,14 +107,61 @@ function GanttTab({ fiscalYear }: { fiscalYear: number }) {
   const today = new Date();
   const STATUS_BG: Record<string, string> = { '完了': '#dcfce7', '製造中': '#dbeafe', '未着手': '#f1f5f9' };
 
+  const unitLabel = (p: any) => p.unit_name || `${p.product_type || ''}${p.model_no ? `/${p.model_no}` : ''}`;
+
+  const handlePrint = () => {
+    const win = window.open('', '_blank', 'width=1600,height=1000');
+    if (!win) return;
+    const esc = (s: any) => String(s ?? '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' } as any)[c]);
+    const monthHead = FY_MONTHS.map((m, i) => `<th colspan="${monthCounts[i]}">${m}月</th>`).join('');
+    const weekHead = cols.map(c => `<th class="wk">${c.label}</th>`).join('');
+    const bodyRows = rows.map(({ p, cells }) => `<tr>
+      <td class="l mono">${esc(p.child_no)}${p.breakdown_no ? '-' + esc(p.breakdown_no) : ''}</td>
+      <td class="l">${esc(p.customer_name)}</td>
+      <td class="l"></td>
+      <td class="l">${esc(unitLabel(p))}</td>
+      <td class="r">${p.total_hours ? p.total_hours + 'h' : ''}</td>
+      ${cells.map((h: number) => `<td class="c" style="background:${h > 0 ? (STATUS_BG[p.status] || '#dcfce7') : '#fff'}">${h > 0 ? Math.round(h) : ''}</td>`).join('')}
+    </tr>`).join('');
+    const footRow = `<tr class="ft"><td class="l" colspan="4">週別 計画工数</td><td class="r">${Math.round(colTotal.reduce((a, b) => a + b, 0))}h</td>${colTotal.map((t, ci) => { const over = colCap[ci] > 0 && t > colCap[ci]; return `<td class="c" style="${over ? 'background:#fecaca;color:#b91c1c;font-weight:bold' : ''}">${t > 0 ? Math.round(t) : ''}</td>`; }).join('')}</tr>`;
+    win.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>製造計画_${fiscalYear}年度</title>
+<style>
+  @page { size: A3 landscape; margin: 8mm; }
+  body { font-family: "MS Gothic","Meiryo",sans-serif; font-size: 9px; margin: 0; }
+  h2 { font-size: 14px; margin: 0 0 4px; }
+  table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  th, td { border: 1px solid #999; padding: 1px 3px; overflow: hidden; white-space: nowrap; }
+  th { background: #f0f0f0; }
+  td.l { text-align: left; } td.r { text-align: right; } td.c { text-align: center; }
+  td.mono { font-family: monospace; }
+  .wk { font-weight: normal; width: 18px; }
+  .ft td { background: #f3f4f6; font-weight: 600; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+</style></head><body>
+<h2>製造計画　${fiscalYear}年度（${fiscalYear}/3〜${fiscalYear + 1}/2）</h2>
+<table><thead>
+  <tr><th rowspan="2">案件ID</th><th rowspan="2">納入先</th><th rowspan="2">地域</th><th rowspan="2">品名/型式</th><th rowspan="2">工数</th>${monthHead}</tr>
+  <tr>${weekHead}</tr>
+</thead><tbody>${bodyRows}</tbody><tfoot>${footRow}</tfoot></table>
+</body></html>`);
+    win.document.close();
+    win.onload = () => { win.print(); };
+  };
+
   return (
     <div>
-      <p className="text-xs text-gray-500 mb-2">行＝計画 ／ 横軸＝月×週 ／ セル＝その週の計画工数(h)。最下部は週別の合計と使用可能時間（超過は赤）。</p>
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+        <p className="text-xs text-gray-500">行＝計画 ／ 横軸＝月×週 ／ セル＝その週の計画工数(h)。最下部は週別の合計と使用可能時間（超過は赤）。</p>
+        <button onClick={handlePrint} disabled={!rows.length}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 text-white text-sm rounded hover:bg-gray-800 disabled:opacity-50">
+          <FileText size={14} />PDF出力
+        </button>
+      </div>
       <div className="overflow-x-auto border rounded-lg">
         <table className="text-[11px] border-collapse" style={{ minWidth: `${360 + cols.length * 30}px` }}>
           <thead>
             <tr className="bg-gray-100">
-              <th rowSpan={2} className="border border-gray-300 px-2 py-1 sticky left-0 bg-gray-100 text-left" style={{ minWidth: '120px' }}>案件ID / 型番</th>
+              <th rowSpan={2} className="border border-gray-300 px-2 py-1 sticky left-0 bg-gray-100 text-left" style={{ minWidth: '170px' }}>案件ID / 納入先 / 地域</th>
               <th rowSpan={2} className="border border-gray-300 px-1 py-1 text-right" style={{ width: '52px' }}>計画工数</th>
               {FY_MONTHS.map((m, i) => (
                 <th key={m} colSpan={monthCounts[i]} className="border border-gray-300 text-center py-0.5">{m}月</th>
@@ -134,8 +181,9 @@ function GanttTab({ fiscalYear }: { fiscalYear: number }) {
             ) : rows.map(({ p, cells }) => (
               <tr key={p.id}>
                 <td className="border border-gray-300 px-2 py-1 sticky left-0 bg-white whitespace-nowrap">
-                  <span className="font-mono text-gray-700">{p.child_no}{p.breakdown_no ? `-${p.breakdown_no}` : ''}</span>
-                  <span className="text-gray-500 ml-1">{p.unit_name || `${p.product_type || ''}${p.model_no ? `/${p.model_no}` : ''}`}</span>
+                  <div><span className="font-mono text-gray-700">{p.child_no}{p.breakdown_no ? `-${p.breakdown_no}` : ''}</span>
+                    <span className="text-gray-500 ml-1">{unitLabel(p)}</span></div>
+                  <div className="text-[10px] text-gray-500">納入先: {p.customer_name || '—'}　地域: {p.region || ''}</div>
                 </td>
                 <td className="border border-gray-300 px-1 py-1 text-right font-semibold">{p.total_hours ? `${p.total_hours}h` : '—'}</td>
                 {cells.map((h, ci) => (

@@ -30,10 +30,10 @@ export default function EstimateListPage() {
   };
 
   const load = () => {
-    estimateApi.list({ child_no: childNo || undefined, per_page: 50 })
+    estimateApi.list({ child_no: childNo || undefined, search: search || undefined, per_page: 50 })
       .then(r => { setItems(r.data.items || []); setTotal(r.data.total || 0); });
   };
-  useEffect(() => { load(); }, [childNo]);
+  useEffect(() => { load(); }, [childNo, search]);
 
   const handleAdopt = async (q: any) => {
     if (!q.project_order_id) { alert('この見積は子IDに紐付いていません'); return; }
@@ -91,6 +91,13 @@ export default function EstimateListPage() {
           className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm">
           <Plus size={16} /> 新規見積作成
         </Link>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm p-3 mb-4 flex items-center gap-2 border border-gray-100">
+        <Search size={16} className="text-gray-400" />
+        <input placeholder="見積番号・顧客名・件名・子IDで検索" value={search}
+          onChange={e => setSearch(e.target.value)} className="flex-1 outline-none text-sm" />
+        {search && <button onClick={() => setSearch('')} className="text-gray-400 hover:text-gray-600"><X size={15} /></button>}
       </div>
 
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">

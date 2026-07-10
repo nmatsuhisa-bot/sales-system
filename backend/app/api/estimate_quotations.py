@@ -184,12 +184,20 @@ def _q_to_dict(q: QuotationHeader) -> dict:
 @router.get("/")
 def list_quotations(
     child_no: Optional[str] = None, project_order_id: Optional[str] = None,
+    search: Optional[str] = None,
     page: int = Query(1, ge=1), per_page: int = Query(20),
     db: Session = Depends(get_db)
 ):
     q = db.query(QuotationHeader).options(joinedload(QuotationHeader.line_items), joinedload(QuotationHeader.labor_details))
     if child_no: q = q.filter(QuotationHeader.child_no == child_no)
     if project_order_id: q = q.filter(QuotationHeader.project_order_id == project_order_id)
+    if search:
+        q = q.filter(or_(
+            QuotationHeader.quotation_no.ilike(f"%{search}%"),
+            QuotationHeader.customer_name.ilike(f"%{search}%"),
+            QuotationHeader.title.ilike(f"%{search}%"),
+            QuotationHeader.child_no.ilike(f"%{search}%"),
+        ))
     total = q.count()
     items = q.order_by(desc(QuotationHeader.created_at)).offset((page-1)*per_page).limit(per_page).all()
     return {"total": total, "items": [_q_to_dict(i) for i in items]}
