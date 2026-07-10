@@ -110,8 +110,8 @@ export default function DashboardPage() {
                   </button>
                 </div>
               </div>
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={chartData}>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={chartData} margin={{ top: 24, right: 12, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                   <YAxis tickFormatter={v => `${(v/1000000).toFixed(0)}M`} tick={{ fontSize: 11 }} />
