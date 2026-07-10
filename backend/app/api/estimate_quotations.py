@@ -346,11 +346,20 @@ def list_order_tickets(
     }
 
 
+def _ot_filter(ticket_id: str):
+    """UUID・受注番号どちらでも受注票を引けるフィルタ（UUID列への非UUID文字列castエラーを回避）。"""
+    conds = [OrderTicket.ticket_no == ticket_id]
+    try:
+        conds.append(OrderTicket.id == uuid.UUID(str(ticket_id)))
+    except (ValueError, TypeError):
+        pass
+    return or_(*conds)
+
 @router.put("/order-ticket/{ticket_id}")
 def update_order_ticket(ticket_id: str, data: dict, db: Session = Depends(get_db)):
     """受注票の受注時項目（注文書有無・納期・前受金）と種別（工番/単番）を更新。
     種別は発行時に300万円で自動判定されるが、ここで手動変更できる。"""
-    t = db.query(OrderTicket).filter(or_(OrderTicket.id == ticket_id, OrderTicket.ticket_no == ticket_id)).first()
+    t = db.query(OrderTicket).filter(_ot_filter(ticket_id)).first()
     if not t:
         raise HTTPException(404, "受注票が見つかりません")
     if data.get("ticket_type") in ("koban", "tanban"):
@@ -773,7 +782,7 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
     t = db.query(OrderTicket).options(
         joinedload(OrderTicket.quotation).joinedload(QuotationHeader.line_items),
         joinedload(OrderTicket.project_order),
-    ).filter(or_(OrderTicket.id == ticket_id, OrderTicket.ticket_no == ticket_id)).first()
+    ).filter(_ot_filter(ticket_id)).first()
     if not t: raise HTTPException(404)
 
     q = t.quotation
@@ -943,32 +952,6 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
         io.BytesIO(html.encode("utf-8")), media_type="text/html",
         headers={"Content-Disposition": f"inline; filename={t.ticket_no}.html"}
     )
-
-
-@router.get("/_dbg-ot/{ticket_id}")
-def _dbg_ot(ticket_id: str, db: Session = Depends(get_db)):
-    """一時診断: 受注票PDFの各ステップで例外を捕捉して返す。"""
-    import traceback
-    steps = []
-    try:
-        t = db.query(OrderTicket).options(
-            joinedload(OrderTicket.quotation).joinedload(QuotationHeader.line_items),
-            joinedload(OrderTicket.project_order),
-        ).filter(or_(OrderTicket.id == ticket_id, OrderTicket.ticket_no == ticket_id)).first()
-        steps.append(f"query ok, t={t is not None}")
-        po = t.project_order
-        steps.append(f"po={po is not None}")
-        steps.append(f"cdd={po.customer_delivery_date if po else 'noPO'}")
-        steps.append(f"exp={po.expected_shipment_date if po else 'noPO'}")
-        steps.append(f"sales={po.sales_date if po else 'noPO'}")
-        q = t.quotation
-        steps.append(f"q={q is not None} items={len(q.line_items) if q else 0}")
-        if q:
-            for it in sorted(q.line_items, key=lambda x: x.line_no):
-                steps.append(f"item line_no={it.line_no!r} qty={it.quantity!r} price={it.unit_price!r}")
-        return {"steps": steps}
-    except Exception:
-        return {"steps": steps, "error": traceback.format_exc()}
 
 
 # =============================================
