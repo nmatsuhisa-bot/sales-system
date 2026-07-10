@@ -30,10 +30,11 @@ def _build_ph_lookup(db: Session):
     return ph_map, pt_avg
 
 def _plan_required_hours(plan, ph_map, pt_avg):
-    """計画の所要工数（正規化突合→無ければ種別平均）と、月別按分の内訳を返す"""
+    """計画の所要工数（正規化突合→無ければ本体のみ種別平均）と、月別按分の内訳を返す。
+    副ユニット（is_primary=False）は工数マスタ未登録なら0とし、負荷の重複計上を防ぐ。"""
     hrs = ph_map.get((plan.product_type, _norm_model(plan.product_type, plan.model_no)))
     if not hrs:
-        hrs = pt_avg.get(plan.product_type, 0)
+        hrs = pt_avg.get(plan.product_type, 0) if getattr(plan, "is_primary", True) else 0
     monthly = {}
     if plan.planned_start and plan.planned_end and hrs:
         td = max((plan.planned_end - plan.planned_start).days, 0) + 1
@@ -79,6 +80,7 @@ def create_plan(data: dict, db: Session = Depends(get_db)):
         project_order_id=data["project_order_id"],
         breakdown_no=data.get("breakdown_no"),
         unit_name=data.get("unit_name"),
+        is_primary=data.get("is_primary", True),
         product_type=data.get("product_type"),
         model_no=data.get("model_no"),
         planned_start=data.get("planned_start"),
@@ -91,12 +93,12 @@ def create_plan(data: dict, db: Session = Depends(get_db)):
     return _plan_dict(p)
 
 def _unit_model_of(item):
-    """見積明細の spec_json からユニット型式を1つ取り出す（本体>ファン>RV>サイクロン）。"""
+    """見積明細の spec_json からユニット型式と種別キーを返す（本体>ファン>RV>サイクロン）。無ければNone。"""
     sj = item.spec_json or {}
     for key in ("model", "fan_model", "rv_model", "cyclone_model"):
         v = sj.get(key)
         if v:
-            return str(v)
+            return str(v), key
     return None
 
 def _line_breakdown_map(q):
@@ -140,9 +142,11 @@ def draft_from_estimate(data: dict, db: Session = Depends(get_db)):
     bmap = _line_breakdown_map(q)
     created, skipped = 0, 0
     for it in q.line_items:
-        model = _unit_model_of(it)   # ユニット型式（本体/ファン/RV/サイクロン）
-        if not model:
+        um = _unit_model_of(it)   # (ユニット型式, 種別キー)
+        if not um:
             continue
+        model, key = um
+        is_primary = (key == "model")   # 本体ラインのみ種別平均フォールバック対象
         ptype = it.product_type
         bno = bmap.get(str(it.id))
         # 重複スキップ（同じ子ID＋型番の計画が既にあれば作らない）。旧・本体のみ計画には内訳番号を補完
@@ -156,18 +160,18 @@ def draft_from_estimate(data: dict, db: Session = Depends(get_db)):
                 exists.unit_name = exists.unit_name or it.item_name
             skipped += 1
             continue
-        # 仮工期: 所要工数から概算（2名×8h想定）、無ければ14日。型番は正規化突合＋種別平均で代替
+        # 仮工期: 本体のみ種別平均で代替（副ユニットは実マスタ一致のみ）。無ければ14日
         target = _norm_model(ptype, model)
         cand = db.query(ProductHours).filter(ProductHours.product_type == ptype).all()
         req = next((float(h.required_hours) for h in cand
                     if _norm_model(h.product_type, h.model_no) == target and h.required_hours), None)
-        if req is None and cand:
+        if req is None and is_primary and cand:
             vals = [float(h.required_hours) for h in cand if h.required_hours]
             req = (sum(vals) / len(vals)) if vals else None
         days = max(7, int(math.ceil(req / 16.0))) if req else 14
         planned_start = (end - timedelta(days=days)) if end else None
         db.add(ManufacturingPlan(
-            project_order_id=po.id, breakdown_no=bno, unit_name=it.item_name,
+            project_order_id=po.id, breakdown_no=bno, unit_name=it.item_name, is_primary=is_primary,
             product_type=ptype, model_no=model,
             planned_start=planned_start, planned_end=end,
             status="未着手", notes=f"見積ドラフト自動作成（内訳{bno}・仮工期{days}日）",
@@ -187,7 +191,7 @@ def draft_from_estimate(data: dict, db: Session = Depends(get_db)):
 def update_plan(plan_id: str, data: dict, db: Session = Depends(get_db)):
     p = db.query(ManufacturingPlan).filter(ManufacturingPlan.id == plan_id).first()
     if not p: raise HTTPException(404)
-    for k in ["breakdown_no","unit_name","product_type","model_no","planned_start","planned_end","actual_start","actual_end","assigned_to","status","notes"]:
+    for k in ["breakdown_no","unit_name","is_primary","product_type","model_no","planned_start","planned_end","actual_start","actual_end","assigned_to","status","notes"]:
         if k in data: setattr(p, k, data[k])
     db.commit(); db.refresh(p)
     return _plan_dict(p)
@@ -207,7 +211,7 @@ def _plan_dict(p: ManufacturingPlan):
         "project_name": p.project_order.project_name if p.project_order else None,
         "customer_name": p.project_order.customer_name if p.project_order else None,
         "delivery_date": str(p.project_order.sales_date) if p.project_order and p.project_order.sales_date else None,
-        "breakdown_no": p.breakdown_no, "unit_name": p.unit_name,
+        "breakdown_no": p.breakdown_no, "unit_name": p.unit_name, "is_primary": p.is_primary,
         "product_type": p.product_type, "model_no": p.model_no,
         "planned_start": str(p.planned_start) if p.planned_start else None,
         "planned_end": str(p.planned_end) if p.planned_end else None,

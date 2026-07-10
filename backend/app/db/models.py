@@ -845,6 +845,7 @@ class ManufacturingPlan(Base):
     project_order_id = Column(UUID(as_uuid=True), ForeignKey("project_orders.id"), nullable=False)
     breakdown_no = Column(String(50))          # 見積内訳番号（例: 1-1）。ユニット単位計画の識別
     unit_name = Column(String(500))            # ユニット品名（見積内訳の品名）
+    is_primary = Column(Boolean, default=True) # 本体ユニット（工数の種別平均フォールバック対象）。副ユニット=False
     product_type = Column(String(50))
     model_no = Column(String(100))
     planned_start = Column(Date)

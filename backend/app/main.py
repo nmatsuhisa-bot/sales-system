@@ -263,6 +263,7 @@ def setup_plan_unit_fields():
         try:
             conn.execute(text("ALTER TABLE manufacturing_plans ADD COLUMN IF NOT EXISTS breakdown_no VARCHAR(50)"))
             conn.execute(text("ALTER TABLE manufacturing_plans ADD COLUMN IF NOT EXISTS unit_name VARCHAR(500)"))
+            conn.execute(text("ALTER TABLE manufacturing_plans ADD COLUMN IF NOT EXISTS is_primary BOOLEAN DEFAULT TRUE"))
             conn.commit()
         except Exception as e:
             return {"status": "error", "message": str(e)}
