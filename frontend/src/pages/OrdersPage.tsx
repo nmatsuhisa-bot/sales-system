@@ -148,6 +148,7 @@ export default function OrdersPage() {
 
 // ========== 受注項目 編集モーダル（注文書有無・納期・前受金・受注日） ==========
 function OrderTicketEditModal({ ticket, onClose, onSaved }: { ticket: any; onClose: () => void; onSaved: () => void }) {
+  const [ticketType, setTicketType] = useState<string>(ticket.ticket_type || 'tanban');
   const [orderSheet, setOrderSheet] = useState<string>(
     ticket.has_order_sheet === true ? 'true' : ticket.has_order_sheet === false ? 'false' : ''
   );
@@ -160,6 +161,7 @@ function OrderTicketEditModal({ ticket, onClose, onSaved }: { ticket: any; onClo
     setSaving(true);
     try {
       await estimateApi.updateOrderTicket(ticket.id, {
+        ticket_type: ticketType,
         has_order_sheet: orderSheet === '' ? null : orderSheet === 'true',
         delivery_date: deliveryDate || null,
         advance_payment: advance === '' ? null : Number(advance),
@@ -183,6 +185,16 @@ function OrderTicketEditModal({ ticket, onClose, onSaved }: { ticket: any; onClo
         </div>
 
         <div className="space-y-3">
+          <div>
+            <label className="block text-sm text-gray-600 mb-1">種別（工番/単番）
+              <span className="text-[10px] text-gray-400 ml-1">発行時に300万円で自動判定・手動変更可</span>
+            </label>
+            <select value={ticketType} onChange={e => setTicketType(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm">
+              <option value="koban">工番（300万円以上）</option>
+              <option value="tanban">単番（300万円未満）</option>
+            </select>
+          </div>
           <div>
             <label className="block text-sm text-gray-600 mb-1">注文書</label>
             <select value={orderSheet} onChange={e => setOrderSheet(e.target.value)}

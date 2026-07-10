@@ -344,10 +344,13 @@ def list_order_tickets(
 
 @router.put("/order-ticket/{ticket_id}")
 def update_order_ticket(ticket_id: str, data: dict, db: Session = Depends(get_db)):
-    """受注票の受注時項目（注文書有無・納期・前受金）を更新。子ID・出荷日等の基本項目も編集可。"""
+    """受注票の受注時項目（注文書有無・納期・前受金）と種別（工番/単番）を更新。
+    種別は発行時に300万円で自動判定されるが、ここで手動変更できる。"""
     t = db.query(OrderTicket).filter(or_(OrderTicket.id == ticket_id, OrderTicket.ticket_no == ticket_id)).first()
     if not t:
         raise HTTPException(404, "受注票が見つかりません")
+    if data.get("ticket_type") in ("koban", "tanban"):
+        t.ticket_type = data["ticket_type"]
     if "has_order_sheet" in data:
         t.has_order_sheet = data["has_order_sheet"]
     if "delivery_date" in data:
@@ -361,7 +364,7 @@ def update_order_ticket(ticket_id: str, data: dict, db: Session = Depends(get_db
         t.notes = data["notes"]
     db.commit(); db.refresh(t)
     return {
-        "id": str(t.id), "ticket_no": t.ticket_no,
+        "id": str(t.id), "ticket_no": t.ticket_no, "ticket_type": t.ticket_type,
         "has_order_sheet": t.has_order_sheet,
         "delivery_date": str(t.delivery_date) if t.delivery_date else None,
         "advance_payment": int(t.advance_payment) if t.advance_payment is not None else None,
