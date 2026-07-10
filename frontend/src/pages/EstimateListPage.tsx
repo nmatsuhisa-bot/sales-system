@@ -4,9 +4,10 @@ import { estimateApi, API_BASE } from '../api';
 import { Plus, FileText, Search, Printer, Copy, X } from 'lucide-react';
 import OrderSearchInput from '../components/common/OrderSearchInput';
 
-const STATUS_LABELS: Record<string, string> = { draft: '下書き', submitted: '提出済', approved: '承認済' };
+// 見積ステータス: 下書 / 受注（採用済）/ 受注済（受注票発行済）
+const STATUS_LABELS: Record<string, string> = { draft: '下書', adopted: '受注', received: '受注済' };
 const STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-gray-100 text-gray-600', submitted: 'bg-blue-100 text-blue-700', approved: 'bg-green-100 text-green-700'
+  draft: 'bg-gray-100 text-gray-600', adopted: 'bg-blue-100 text-blue-700', received: 'bg-green-100 text-green-700'
 };
 
 export default function EstimateListPage() {

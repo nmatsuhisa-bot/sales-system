@@ -760,6 +760,14 @@ def issue_order_ticket(quotation_id: str, db: Session = Depends(get_db)):
     )
     db.add(ticket)
 
+    # 見積ステータス: この見積を受注済に、同じ子IDの他見積は下書きに戻す
+    q.status = "received"
+    if q.project_order_id:
+        db.query(QuotationHeader).filter(
+            QuotationHeader.project_order_id == q.project_order_id,
+            QuotationHeader.id != q.id,
+        ).update({"status": "draft"}, synchronize_session=False)
+
     # 子IDにステータス・採用見積を反映
     if q.project_order_id:
         po = db.query(ProjectOrder).filter(ProjectOrder.id == q.project_order_id).first()

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { reportApi } from '../api';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 import { TrendingUp, FileText, ShoppingCart, AlertCircle } from 'lucide-react';
 
 const STATUS_LABELS: Record<string, string> = {
-  draft: '下書き', submitted: '提出済', approved: '承認済', rejected: '却下', converted: '受注変換済',
-  received: '受注', in_progress: '製造中', shipped: '出荷済', delivered: '納品済', completed: '完了', cancelled: 'キャンセル'
+  draft: '下書', adopted: '受注', received: '受注済',
+  submitted: '提出済', approved: '承認済', rejected: '却下', converted: '受注変換済',
+  in_progress: '製造中', shipped: '出荷済', delivered: '納品済', completed: '完了', cancelled: 'キャンセル'
 };
 
 function currentFiscalYear(): number {
@@ -115,7 +116,11 @@ export default function DashboardPage() {
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                   <YAxis tickFormatter={v => `${(v/1000000).toFixed(0)}M`} tick={{ fontSize: 11 }} />
                   <Tooltip formatter={(v: any) => [`¥${v.toLocaleString()}`, '金額']} />
-                  <Bar dataKey="売上" fill={chartMode === 'order' ? '#3b82f6' : '#10b981'} radius={[4,4,0,0]} />
+                  <Bar dataKey="売上" fill={chartMode === 'order' ? '#3b82f6' : '#10b981'} radius={[4,4,0,0]}>
+                    <LabelList dataKey="売上" position="top"
+                      formatter={(v: any) => (v ? `${(v / 1000000).toFixed(1)}M` : '')}
+                      style={{ fontSize: 10, fill: '#374151' }} />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
               <div className="text-xs text-gray-400 mt-1">
