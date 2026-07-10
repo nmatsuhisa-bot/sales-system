@@ -269,8 +269,28 @@ def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
     p = Project(**fields)
     db.add(p)
     db.flush()
-    for od in data.orders:
-        _make_order(od, p.id, pno, db)
+    if data.orders:
+        for od in data.orders:
+            _make_order(od, p.id, pno, db)
+    else:
+        # 案件作成時は必ず1件目の子ID(_A)を自動作成（「子ID追加」と同義）。親案件の情報を引き継ぐ
+        auto = ProjectOrderCreate(
+            project_name=data.project_name,
+            project_summary=data.project_summary,
+            customer_code=data.customer_code_1,
+            customer_name=data.customer_name_1,
+            sales_person_name=data.sales_person_name,
+            sales_person_code=data.sales_person_code,
+            status=data.status,
+            budget_amount=data.budget_amount,
+            sales_date=data.sales_date,
+            inquiry_date=data.inquiry_date,
+            order_date=data.order_date,
+            expected_order_date=data.expected_order_date,
+            expected_shipment_date=data.expected_shipment_date,
+            notes=data.notes,
+        )
+        _make_order(auto, p.id, pno, db)
     db.commit()
     db.refresh(p)
     return project_to_dict(p)
