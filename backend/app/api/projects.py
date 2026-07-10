@@ -330,6 +330,7 @@ def search_project_orders(q: str = Query(""), db: Session = Depends(get_db)):
             "customer_name": o.customer_name,
             "sales_person_name": o.sales_person_name,
             "sales_date": str(o.sales_date) if o.sales_date else None,
+            "customer_delivery_date": str(o.customer_delivery_date) if o.customer_delivery_date else None,
             "status": o.status,
         }
         for o in orders

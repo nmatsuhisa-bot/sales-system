@@ -316,7 +316,8 @@ function ScheduleEditModal({ schedule: initSchedule, isNew, templates, onClose, 
   const [saving, setSaving] = useState(false);
   const [viewUnit, setViewUnit] = useState<'day' | 'week' | 'month'>('day');
   const handleOrderSelect = (o: any) => {
-    const deliveryDate = o.sales_date || '';
+    // 納期は案件子IDの顧客納期を優先（無ければ売上計上日を補完）
+    const deliveryDate = o.customer_delivery_date || o.sales_date || '';
     const salesYear = deliveryDate ? Number(deliveryDate.slice(0, 4)) : currentYear();
     const salesMonth = deliveryDate ? Number(deliveryDate.slice(5, 7)) : currentMonth();
     setForm((f: any) => ({
@@ -494,7 +495,7 @@ function ScheduleEditModal({ schedule: initSchedule, isNew, templates, onClose, 
               </div>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">納期</label>
+              <label className="block text-xs text-gray-500 mb-1">納期<span className="text-[10px] text-gray-400 ml-1">顧客納期を自動取得</span></label>
               <input type="date" value={form.delivery_date || ''} onChange={e => setForm((f: any) => ({...f, delivery_date: e.target.value}))}
                 className="border rounded px-2 py-1.5 text-sm" />
             </div>

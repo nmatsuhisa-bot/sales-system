@@ -171,21 +171,27 @@ def delete_schedule(schedule_id: str, db: Session = Depends(get_db)):
 
 @router.post("/schedules/generate")
 def generate_from_template(data: dict, db: Session = Depends(get_db)):
-    """テンプレートと納期から工程表をプレビュー生成（DBには保存しない。保存は別途）"""
+    """テンプレートと納期から工程表をプレビュー生成（DBには保存しない。保存は別途）。
+    納期は指定優先、無ければ案件子IDの顧客納期を自動参照する。"""
     template_id = data.get("template_id")
-    delivery = date.fromisoformat(data["delivery_date"])
     t = db.query(ProcessTemplate).options(joinedload(ProcessTemplate.steps)).filter(
         ProcessTemplate.id == template_id
     ).first()
     if not t: raise HTTPException(404, "テンプレートが見つかりません")
 
-    # 工程月は納期の月
-    year = delivery.year; month = delivery.month
-
     # 受注情報を補完
     po = None
     if data.get("project_order_id"):
         po = db.query(ProjectOrder).filter(ProjectOrder.id == data["project_order_id"]).first()
+
+    # 納期は指定優先、無ければ案件子IDの顧客納期を自動取得
+    dstr = data.get("delivery_date") or (po.customer_delivery_date.isoformat() if po and po.customer_delivery_date else None)
+    if not dstr:
+        raise HTTPException(400, "納期（顧客納期）が未設定です。案件子IDに顧客納期を登録してください。")
+    delivery = date.fromisoformat(dstr)
+
+    # 工程月は納期の月
+    year = delivery.year; month = delivery.month
 
     items = []
     for step in t.steps:
