@@ -32,6 +32,7 @@ class ProjectOrderCreate(BaseModel):
     quotation_amount: Optional[int] = None
     budget_amount: Optional[int] = None
     sales_date: Optional[date] = None
+    customer_delivery_date: Optional[date] = None
     inquiry_date: Optional[date] = None
     order_date: Optional[date] = None
     expected_order_date: Optional[date] = None
@@ -117,7 +118,8 @@ def order_to_dict(o: ProjectOrder) -> dict:
         "sales_person_name": o.sales_person_name, "sales_person_code": o.sales_person_code,
         "status": o.status,
         "quotation_amount": _i(o.quotation_amount), "budget_amount": _i(o.budget_amount),
-        "sales_date": _d(o.sales_date), "inquiry_date": _d(o.inquiry_date),
+        "sales_date": _d(o.sales_date), "customer_delivery_date": _d(o.customer_delivery_date),
+        "inquiry_date": _d(o.inquiry_date),
         "order_date": _d(o.order_date), "expected_order_date": _d(o.expected_order_date),
         "shipment_date": _d(o.shipment_date), "expected_shipment_date": _d(o.expected_shipment_date),
         "quotation_no": o.quotation_no, "quotation_total": _i(o.quotation_total),

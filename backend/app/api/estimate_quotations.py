@@ -302,7 +302,7 @@ def list_order_tickets(
     per_page: int = 50, db: Session = Depends(get_db)
 ):
     """受注票一覧"""
-    q = db.query(OrderTicket)
+    q = db.query(OrderTicket).options(joinedload(OrderTicket.project_order))
     if search:
         q = q.filter(
             or_(
@@ -335,6 +335,10 @@ def list_order_tickets(
                 "has_order_sheet": t.has_order_sheet,
                 "delivery_date": str(t.delivery_date) if t.delivery_date else None,
                 "advance_payment": int(t.advance_payment) if t.advance_payment is not None else None,
+                # 子ID（案件）から取得する日付
+                "expected_shipment_date": str(t.project_order.expected_shipment_date) if t.project_order and t.project_order.expected_shipment_date else None,
+                "customer_delivery_date": str(t.project_order.customer_delivery_date) if t.project_order and t.project_order.customer_delivery_date else None,
+                "sales_date": str(t.project_order.sales_date) if t.project_order and t.project_order.sales_date else None,
                 "is_active": t.is_active,
             }
             for t in items
@@ -767,7 +771,8 @@ def issue_order_ticket(quotation_id: str, db: Session = Depends(get_db)):
 @router.get("/order-ticket/{ticket_id}/pdf")
 def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
     t = db.query(OrderTicket).options(
-        joinedload(OrderTicket.quotation).joinedload(QuotationHeader.line_items)
+        joinedload(OrderTicket.quotation).joinedload(QuotationHeader.line_items),
+        joinedload(OrderTicket.project_order),
     ).filter(or_(OrderTicket.id == ticket_id, OrderTicket.ticket_no == ticket_id)).first()
     if not t: raise HTTPException(404)
 
@@ -789,6 +794,12 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
         advance_disp = "有 ・ <b><u>無</u></b>"
     else:
         advance_disp = "有 ・ 無"
+
+    # 子ID（案件）から出荷予定日・顧客納期・売上計上日を取得
+    _po = t.project_order
+    exp_ship_disp = _po.expected_shipment_date.strftime("%Y/%m/%d") if _po and _po.expected_shipment_date else "－"
+    cust_due_disp = _po.customer_delivery_date.strftime("%Y/%m/%d") if _po and _po.customer_delivery_date else "－"
+    sales_date_disp = _po.sales_date.strftime("%Y/%m/%d") if _po and _po.sales_date else "－"
 
     draft_watermark = ""
 
@@ -837,6 +848,18 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
     <td style="border:1px solid #999;padding:4px 8px">{t.sales_person_name or ' '}</td>
     <td style="background:#eee;border:1px solid #999;padding:4px 8px">区分</td>
     <td style="border:1px solid #999;padding:4px 8px">{'工番(300万円以上)' if is_koban else '単番(300万円未満)'}</td>
+  </tr>
+  <tr>
+    <td style="background:#eee;border:1px solid #999;padding:4px 8px">顧客納期</td>
+    <td style="border:1px solid #999;padding:4px 8px">{cust_due_disp}</td>
+    <td style="background:#eee;border:1px solid #999;padding:4px 8px">出荷予定日</td>
+    <td style="border:1px solid #999;padding:4px 8px">{exp_ship_disp}</td>
+  </tr>
+  <tr>
+    <td style="background:#eee;border:1px solid #999;padding:4px 8px">売上計上日</td>
+    <td style="border:1px solid #999;padding:4px 8px">{sales_date_disp}</td>
+    <td style="background:#eee;border:1px solid #999;padding:4px 8px"></td>
+    <td style="border:1px solid #999;padding:4px 8px"></td>
   </tr>
 </table>
 

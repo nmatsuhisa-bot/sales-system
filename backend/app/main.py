@@ -254,6 +254,20 @@ def setup_po_breakdown():
     return {"status": "ok", "message": "発注書 内訳番号カラム追加完了"}
 
 
+@app.get("/setup-customer-delivery-date")
+def setup_customer_delivery_date():
+    """案件子IDに顧客納期カラム（customer_delivery_date）を追加"""
+    from app.db.models import engine
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE project_orders ADD COLUMN IF NOT EXISTS customer_delivery_date DATE"))
+            conn.commit()
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    return {"status": "ok", "message": "顧客納期カラム追加完了"}
+
+
 @app.get("/setup-plan-unit-fields")
 def setup_plan_unit_fields():
     """製造計画に内訳番号・ユニット名カラムを追加（ユニット単位計画）"""

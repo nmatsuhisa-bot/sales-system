@@ -79,6 +79,9 @@ export default function OrdersPage() {
               <th className="px-4 py-3 text-left font-medium text-gray-600">納入先</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">担当者</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">受注日</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-600">出荷予定日</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-600">顧客納期</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-600">売上計上日</th>
               <th className="px-4 py-3 text-right font-medium text-gray-600">金額（税込）</th>
               <th className="px-4 py-3 text-center font-medium text-gray-600">注文書</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">納期</th>
@@ -103,6 +106,9 @@ export default function OrdersPage() {
                 <td className="px-4 py-3 text-gray-600 max-w-xs truncate">{t.delivery_name || '—'}</td>
                 <td className="px-4 py-3 text-gray-500">{t.sales_person_name || '—'}</td>
                 <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{t.order_date || '—'}</td>
+                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{t.expected_shipment_date || '—'}</td>
+                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{t.customer_delivery_date || '—'}</td>
+                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{t.sales_date || '—'}</td>
                 <td className="px-4 py-3 text-right font-medium text-gray-800 whitespace-nowrap">
                   ¥{(t.total_amount || 0).toLocaleString()}
                 </td>

@@ -360,7 +360,8 @@ class ProjectOrder(Base):
     quotation_amount = Column(Numeric(15, 0))                       # 見積金額（見積書引用）
     budget_amount = Column(Numeric(15, 0))                          # 予算金額（親参照）
 
-    sales_date = Column(Date)                                       # 顧客納期/売上計上日
+    sales_date = Column(Date)                                       # 売上計上日（売上予定日）
+    customer_delivery_date = Column(Date)                           # 顧客納期
     inquiry_date = Column(Date)                                     # 引き合い日（親参照）
     order_date = Column(Date)                                       # 受注日
     expected_order_date = Column(Date)                              # 受注予定日
@@ -635,6 +636,7 @@ class OrderTicket(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     quotation = relationship("QuotationHeader", foreign_keys=[quotation_id])
+    project_order = relationship("ProjectOrder", foreign_keys=[project_order_id])
 
 
 # =============================================
