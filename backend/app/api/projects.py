@@ -9,6 +9,7 @@ from typing import Optional, List
 from pydantic import BaseModel
 from datetime import date
 from app.db.models import get_db, Project, ProjectOrder, ProjectOrderQuotation
+from app.normalize import nfkc, nfkc_fields
 
 router = APIRouter()
 
@@ -214,7 +215,7 @@ def _make_order(data: ProjectOrderCreate, project_id, project_no: str, db: Sessi
     child_no = (data.child_no or "").strip()
     if not child_no or db.query(ProjectOrder).filter(ProjectOrder.child_no == child_no).first():
         child_no = generate_child_no(project_no, db)
-    fields = data.dict(exclude={"child_no", "linked_quotations", "expected_updated_at"})
+    fields = nfkc_fields(data.dict(exclude={"child_no", "linked_quotations", "expected_updated_at"}))
     o = ProjectOrder(child_no=child_no, project_id=project_id, project_no=project_no, **fields)
     db.add(o)
     db.flush()
@@ -261,10 +262,10 @@ def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
     from sqlalchemy import text as sa_text
     db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext('project_no_lock'))"))
     # 案件IDは未指定または重複時にサーバ側で採番（重複防止＝保存失敗を回避）
-    pno = (data.project_no or "").strip()
+    pno = nfkc((data.project_no or "").strip())
     if not pno or db.query(Project).filter(Project.project_no == pno).first():
         pno = generate_project_no(db)
-    fields = data.dict(exclude={"orders"})
+    fields = nfkc_fields(data.dict(exclude={"orders"}))
     fields["project_no"] = pno
     p = Project(**fields)
     db.add(p)
@@ -309,7 +310,7 @@ def update_project(project_id: str, data: ProjectUpdate, db: Session = Depends(g
     if not p: raise HTTPException(404)
     _check_version(p.updated_at, data.expected_updated_at)
     for k, v in data.dict(exclude={"expected_updated_at"}, exclude_none=True).items():
-        setattr(p, k, v)
+        setattr(p, k, nfkc(v))
     db.commit()
     return project_to_dict(p, include_orders=False)
 
@@ -371,7 +372,7 @@ def update_project_order(order_id: str, data: ProjectOrderCreate, db: Session = 
     if not o: raise HTTPException(404)
     _check_version(o.updated_at, data.expected_updated_at)
     for k, v in data.dict(exclude={"child_no", "linked_quotations", "expected_updated_at"}, exclude_none=True).items():
-        setattr(o, k, v)
+        setattr(o, k, nfkc(v))
     if data.linked_quotations is not None:
         for lq in o.linked_quotations: db.delete(lq)
         db.flush()

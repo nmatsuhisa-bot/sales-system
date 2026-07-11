@@ -6,7 +6,7 @@ const PRODUCT_TYPES = ['BFR', 'BFP', 'SCA', 'LCA', 'SRR', 'FLT', 'CY', 'LRG'];
 const UNIT_TYPES = ['本体', 'ファン', 'RV', 'サイクロン', 'ダンパー', '架台', 'その他'];
 
 export default function BomMasterPage() {
-  const [tab, setTab] = useState<'products' | 'units' | 'product-bom' | 'unit-bom'>('products');
+  const [tab, setTab] = useState<'products' | 'units' | 'product-bom' | 'unit-bom' | 'materials'>('products');
   const [seeding, setSeeding] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -46,11 +46,12 @@ export default function BomMasterPage() {
           </button>
         </div>
       </div>
-      <p className="text-xs text-gray-500 mb-4">型式・ユニット・部材の紐付けを定義します。型式は「見積パターンから取込」で既存の見積パターン（BFR本体・ファン等）から一括登録できます。各ユニットに部材を紐付けると、仕入管理で一括取込できます。</p>
+      <p className="text-xs text-gray-500 mb-4">型式・ユニット・部材の紐付けを定義します。型式は「見積パターンから取込」で既存の見積パターン（BFR本体・ファン等）から一括登録できます。各ユニットに部材を紐付けると、仕入管理の「見積内訳から発注書作成」で部材が自動展開されます。部材そのものの台帳は「部材マスタ」タブで管理します。</p>
       <div className="flex gap-1 mb-5 border-b border-gray-200 flex-wrap">
         {([
           ['products', '製品マスタ'], ['units', 'ユニットマスタ'],
           ['product-bom', '製品構成（製品→ユニット）'], ['unit-bom', 'ユニット構成（ユニット→部品）'],
+          ['materials', '部材マスタ'],
         ] as const).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === key ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
@@ -62,6 +63,7 @@ export default function BomMasterPage() {
       {tab === 'units' && <UnitMasterTab reloadKey={reloadKey} />}
       {tab === 'product-bom' && <ProductBomTab />}
       {tab === 'unit-bom' && <UnitBomTab />}
+      {tab === 'materials' && <MaterialsTab />}
     </div>
   );
 }
@@ -374,6 +376,138 @@ function UnitBomTab() {
 }
 
 // ========== 共通フィールド ==========
+// ========== 部材マスタ（仕入管理から集約） ==========
+function MaterialsTab() {
+  const [materials, setMaterials] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [search, setSearch] = useState('');
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editData, setEditData] = useState<any>({});
+  const [showAdd, setShowAdd] = useState(false);
+  const [newData, setNewData] = useState<any>({ unit: '個', standard_lead_days: 14 });
+  const [error, setError] = useState('');
+
+  const load = () => { setError('');
+    return Promise.all([
+      procurementApi.listMaterials(search || undefined),
+      procurementApi.listSuppliers(),
+    ]).then(([m, s]) => { setMaterials(m.data); setSuppliers(s.data); })
+      .catch((e) => { setError('部材マスタの取得に失敗しました（' + (e?.response?.status || e?.message || 'error') + '）。'); });
+  };
+  useEffect(() => { load(); }, [search]);
+
+  const handleAdd = async () => {
+    if (!newData.material_code || !newData.material_name) { alert('部材コードと部材名は必須です'); return; }
+    await procurementApi.createMaterial(newData);
+    setShowAdd(false); setNewData({ unit: '個', standard_lead_days: 14 }); load();
+  };
+  const handleSave = async (id: string) => {
+    await procurementApi.updateMaterial(id, editData);
+    setEditing(null); load();
+  };
+  const handleDelete = async (id: string) => {
+    if (!confirm('削除しますか？')) return;
+    await procurementApi.deleteMaterial(id); load();
+  };
+
+  return (
+    <div>
+      <p className="text-xs text-gray-500 mb-2">部材（部品）の台帳です。ユニット構成・発注書の明細から参照されます。優先仕入先を設定すると発注書作成時に自動セットされます。</p>
+      {error && <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{error}</div>}
+      <div className="flex items-center gap-2 mb-3">
+        <input placeholder="部材名・コードで検索" value={search} onChange={e => setSearch(e.target.value)}
+          className="border rounded-lg px-3 py-1.5 text-sm w-56" />
+        <span className="text-xs text-gray-500">{materials.length}件</span>
+        <button onClick={() => setShowAdd(true)}
+          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700">
+          <Plus size={14} />部材追加
+        </button>
+      </div>
+
+      {showAdd && (
+        <div className="mb-4 p-3 border border-indigo-200 rounded-lg bg-indigo-50 flex flex-wrap gap-2 items-end">
+          <Field label="部材コード*" v={newData.material_code} on={(v: string) => setNewData({ ...newData, material_code: v })} w="w-28" />
+          <Field label="部材名*" v={newData.material_name} on={(v: string) => setNewData({ ...newData, material_name: v })} w="w-48" />
+          <Field label="単位" v={newData.unit} on={(v: string) => setNewData({ ...newData, unit: v })} w="w-16" />
+          <div>
+            <label className="block text-xs text-gray-500 mb-0.5">優先仕入先</label>
+            <select value={newData.default_supplier_id || ''} onChange={e => setNewData({ ...newData, default_supplier_id: e.target.value || null })}
+              className="border rounded px-2 py-1 text-sm w-40">
+              <option value="">-</option>
+              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          <Field label="リードタイム(日)" v={newData.standard_lead_days} on={(v: string) => setNewData({ ...newData, standard_lead_days: Number(v) })} w="w-20" type="number" />
+          <Field label="備考" v={newData.notes} on={(v: string) => setNewData({ ...newData, notes: v })} w="w-36" />
+          <button onClick={handleAdd} className="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded"><Check size={14} /></button>
+          <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 border text-sm rounded"><X size={14} /></button>
+        </div>
+      )}
+
+      <table className="text-sm w-full border-collapse">
+        <thead>
+          <tr className="bg-gray-50">
+            {['部材コード','部材名','単位','優先仕入先','リードタイム(日)','備考',''].map(h => (
+              <th key={h} className="border border-gray-200 px-2 py-2 text-left text-xs font-medium text-gray-600">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {materials.map(m => editing === m.id ? (
+            <tr key={m.id} className="bg-indigo-50">
+              <td className="border border-gray-200 px-1 py-1">
+                <input value={editData.material_code || ''} onChange={e => setEditData({...editData, material_code: e.target.value})}
+                  className="border rounded px-1 py-0.5 text-xs w-24" />
+              </td>
+              <td className="border border-gray-200 px-1 py-1">
+                <input value={editData.material_name || ''} onChange={e => setEditData({...editData, material_name: e.target.value})}
+                  className="border rounded px-1 py-0.5 text-xs w-48" />
+              </td>
+              <td className="border border-gray-200 px-1 py-1">
+                <input value={editData.unit || ''} onChange={e => setEditData({...editData, unit: e.target.value})}
+                  className="border rounded px-1 py-0.5 text-xs w-12" />
+              </td>
+              <td className="border border-gray-200 px-1 py-1">
+                <select value={editData.default_supplier_id || ''} onChange={e => setEditData({...editData, default_supplier_id: e.target.value || null})}
+                  className="border rounded px-1 py-0.5 text-xs w-36">
+                  <option value="">-</option>
+                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </td>
+              <td className="border border-gray-200 px-1 py-1">
+                <input type="number" value={editData.standard_lead_days ?? ''} onChange={e => setEditData({...editData, standard_lead_days: Number(e.target.value)})}
+                  className="border rounded px-1 py-0.5 text-xs w-16" />
+              </td>
+              <td className="border border-gray-200 px-1 py-1">
+                <input value={editData.notes || ''} onChange={e => setEditData({...editData, notes: e.target.value})}
+                  className="border rounded px-1 py-0.5 text-xs w-36" />
+              </td>
+              <td className="border border-gray-200 px-1 py-1">
+                <button onClick={() => handleSave(m.id)} className="p-1 text-green-600 rounded"><Check size={13} /></button>
+                <button onClick={() => setEditing(null)} className="p-1 text-gray-400 rounded"><X size={13} /></button>
+              </td>
+            </tr>
+          ) : (
+            <tr key={m.id} className="hover:bg-gray-50">
+              <td className="border border-gray-200 px-2 py-1 font-mono text-xs">{m.material_code}</td>
+              <td className="border border-gray-200 px-2 py-1 font-medium">{m.material_name}</td>
+              <td className="border border-gray-200 px-2 py-1 text-gray-500">{m.unit}</td>
+              <td className="border border-gray-200 px-2 py-1">{m.default_supplier_name || '—'}</td>
+              <td className="border border-gray-200 px-2 py-1 text-center">{m.standard_lead_days}日</td>
+              <td className="border border-gray-200 px-2 py-1 text-xs text-gray-500">{m.notes || ''}</td>
+              <td className="border border-gray-200 px-1 py-1">
+                <button onClick={() => { setEditing(m.id); setEditData({...m}); }} className="p-1 text-blue-500 rounded"><Edit2 size={13} /></button>
+                <button onClick={() => handleDelete(m.id)} className="p-1 text-red-400 rounded"><Trash2 size={13} /></button>
+              </td>
+            </tr>
+          ))}
+          {materials.length === 0 && <tr><td colSpan={7} className="text-center py-8 text-gray-400">部材マスタなし</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function Field({ label, v, on, w = 'w-32', type = 'text' }: any) {
   return (
     <div>

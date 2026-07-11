@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from datetime import date, datetime
 import io, uuid
 
+from app.normalize import nfkc
 from app.db.models import (
     get_db, QuotationHeader, QuotationLineItem, QuotationLaborDetail,
     OrderTicket, ProjectOrder, Project,
@@ -224,22 +225,22 @@ def create_quotation(data: QuotationHeaderCreate, db: Session = Depends(get_db))
         quotation_no=_gen_quotation_no(db),
         project_order_id=data.project_order_id,
         child_no=data.child_no,
-        customer_name=customer_name, delivery_name=delivery_name,
-        title=title, delivery_terms=data.delivery_terms,
-        payment_terms=data.payment_terms, valid_until=data.valid_until,
+        customer_name=nfkc(customer_name), delivery_name=nfkc(delivery_name),
+        title=nfkc(title), delivery_terms=nfkc(data.delivery_terms),
+        payment_terms=nfkc(data.payment_terms), valid_until=data.valid_until,
         issue_date=data.issue_date or date.today(),
-        sales_person_name=sales_person_name,
+        sales_person_name=nfkc(sales_person_name),
         subtotal=subtotal, tax_amount=tax, total_amount=total, labor_total=labor_total,
-        notes=data.notes, internal_notes=data.internal_notes,
+        notes=nfkc(data.notes), internal_notes=nfkc(data.internal_notes),
     )
     db.add(q)
     db.flush()
 
     for item in data.line_items:
         db.add(QuotationLineItem(
-            quotation_id=q.id, line_no=item.line_no, section=item.section,
-            sub_section=item.sub_section, item_name=item.item_name,
-            spec_detail=item.spec_detail, quantity=item.quantity, unit=item.unit,
+            quotation_id=q.id, line_no=item.line_no, section=nfkc(item.section),
+            sub_section=nfkc(item.sub_section), item_name=nfkc(item.item_name),
+            spec_detail=nfkc(item.spec_detail), quantity=item.quantity, unit=item.unit,
             unit_price=item.unit_price, amount=int(item.unit_price * item.quantity),
             product_type=item.product_type, spec_json=item.spec_json
         ))
@@ -247,9 +248,9 @@ def create_quotation(data: QuotationHeaderCreate, db: Session = Depends(get_db))
     for labor in data.labor_details:
         db.add(QuotationLaborDetail(
             quotation_id=q.id, labor_item_id=labor.labor_item_id,
-            item_name=labor.item_name, quantity=labor.quantity, unit=labor.unit,
+            item_name=nfkc(labor.item_name), quantity=labor.quantity, unit=labor.unit,
             unit_price=labor.unit_price, amount=int(labor.unit_price * labor.quantity),
-            crane_type=labor.crane_type, notes=labor.notes, sort_order=labor.sort_order
+            crane_type=labor.crane_type, notes=nfkc(labor.notes), sort_order=labor.sort_order
         ))
 
     db.commit()
@@ -421,25 +422,25 @@ def update_quotation(quotation_id: str, data: QuotationHeaderCreate, db: Session
         raise HTTPException(409, "他のユーザーが更新しました。最新の内容を再読込してから保存してください。")
     subtotal, labor_total, tax, total = _calc_totals(data.line_items, data.labor_details)
     for k, v in data.dict(exclude={"line_items", "labor_details", "expected_updated_at"}, exclude_none=True).items():
-        setattr(q, k, v)
+        setattr(q, k, nfkc(v))
     q.subtotal = subtotal; q.labor_total = labor_total; q.tax_amount = tax; q.total_amount = total
     for i in q.line_items: db.delete(i)
     for l in q.labor_details: db.delete(l)
     db.flush()
     for item in data.line_items:
         db.add(QuotationLineItem(
-            quotation_id=q.id, line_no=item.line_no, section=item.section,
-            sub_section=item.sub_section, item_name=item.item_name,
-            spec_detail=item.spec_detail, quantity=item.quantity, unit=item.unit,
+            quotation_id=q.id, line_no=item.line_no, section=nfkc(item.section),
+            sub_section=nfkc(item.sub_section), item_name=nfkc(item.item_name),
+            spec_detail=nfkc(item.spec_detail), quantity=item.quantity, unit=item.unit,
             unit_price=item.unit_price, amount=int(item.unit_price * item.quantity),
             product_type=item.product_type, spec_json=item.spec_json
         ))
     for labor in data.labor_details:
         db.add(QuotationLaborDetail(
             quotation_id=q.id, labor_item_id=labor.labor_item_id,
-            item_name=labor.item_name, quantity=labor.quantity, unit=labor.unit,
+            item_name=nfkc(labor.item_name), quantity=labor.quantity, unit=labor.unit,
             unit_price=labor.unit_price, amount=int(labor.unit_price * labor.quantity),
-            crane_type=labor.crane_type, notes=labor.notes, sort_order=labor.sort_order
+            crane_type=labor.crane_type, notes=nfkc(labor.notes), sort_order=labor.sort_order
         ))
     db.commit(); db.refresh(q)
     return _q_to_dict(q)
