@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Printer } from 'lucide-react';
 import api from '../api';
 
-const STATUS_OPTIONS = ['営業中', '内示', '受注', '検収済', '請求済', '入金済', '失注'];
+const STATUS_OPTIONS = ['営業中', '確度高', '内示', '受注', '検収済', '請求済', '入金済', '失注'];
 const STATUS_COLORS: Record<string, string> = {
   '営業中': 'bg-blue-100 text-blue-700',
   '内示': 'bg-orange-100 text-orange-700',
@@ -51,7 +51,7 @@ export default function SalesPlanPage() {
   const thisYear = new Date().getFullYear();
   const [year, setYear] = useState(currentFiscalYear());
   const [rows, setRows] = useState<Row[]>([]);
-  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(['営業中', '内示', '受注', '検収済', '請求済', '入金済']);
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(['営業中', '確度高', '内示', '受注', '検収済', '請求済', '入金済']);
   const [loading, setLoading] = useState(false);
 
   const currentMonth = new Date().getMonth() + 1;
@@ -83,7 +83,7 @@ export default function SalesPlanPage() {
   }
   const projects = Object.values(projectMap);
   // 営業中・内示は金額に関わらず一覧に個別表示（0円でも表示）。それ以外は3M以上を工番として個別表示、未満は単番集計。
-  const PIPELINE_STATUSES = new Set(['営業中', '内示']);
+  const PIPELINE_STATUSES = new Set(['営業中', '確度高', '内示']);
   const kobanProjects = projects.filter(p => PIPELINE_STATUSES.has(p.status) || p.total >= TANBAN_MAX);
   const tanbanProjects = projects.filter(p => !PIPELINE_STATUSES.has(p.status) && p.total < TANBAN_MAX);
 
@@ -103,10 +103,13 @@ export default function SalesPlanPage() {
     tanbanTotal += dispTotal(p);
   }
 
-  // 月別合計（工番＋単番すべて。営業中・内示は0で計上）
+  // 単番の月次仮計上（見積のない月も平均的な単番売上見込みを計上して年間見通しを立てる）
+  const TANBAN_MONTHLY_EST = 25000000;
+  // 月別合計（工番＋単番＋単番月次仮計上）
   const monthTotals: Record<number, number> = {};
   for (const p of projects) for (const m of MONTH_LIST) monthTotals[m] = (monthTotals[m] || 0) + dispMonth(p, m);
-  const grandTotal = projects.reduce((s, p) => s + dispTotal(p), 0);
+  for (const m of MONTH_LIST) monthTotals[m] = (monthTotals[m] || 0) + TANBAN_MONTHLY_EST;
+  const grandTotal = projects.reduce((s, p) => s + dispTotal(p), 0) + TANBAN_MONTHLY_EST * MONTH_LIST.length;
 
   function toggleStatus(s: string) {
     setSelectedStatuses(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
@@ -158,6 +161,12 @@ export default function SalesPlanPage() {
       ${cell(M(tanbanTotal), `text-align:right;background:${C.curMonthBg}`)}
     </tr>` : '';
 
+    const estRow = `<tr style="background:${C.tanbanBg};color:#666">
+      <td colspan="6" style="border:1px solid ${C.border};padding:4px 6px">単番（月次仮計上 ${M(TANBAN_MONTHLY_EST)}/月）</td>
+      ${MONTH_LIST.map(m => cell(M(TANBAN_MONTHLY_EST), `text-align:right;background:${m === currentMonth ? C.curMonthBg : C.tanbanBg}`)).join('')}
+      ${cell(M(TANBAN_MONTHLY_EST * MONTH_LIST.length), 'text-align:right')}
+    </tr>`;
+
     const footerRow = `<tr style="background:${C.totalBg};font-weight:700">
       <td colspan="6" style="border:1px solid ${C.border};padding:4px 6px">合計</td>
       ${MONTH_LIST.map(m => cell(M(monthTotals[m] || 0), `text-align:right;background:${m === currentMonth ? C.curMonthBg : C.totalBg}`)).join('')}
@@ -175,7 +184,7 @@ export default function SalesPlanPage() {
 </style></head><body>
 <h2>売上計画表　${year}年度（${year}/2/21〜${year + 1}/2/20）</h2>
 <p>対象ステータス：${selectedStatuses.join('・')}　／　単番（合計${(TANBAN_MAX / 1000000)}M未満）は最下部に集計　／　営業中・内示は予算金額を採用　／　出力日：${new Date().toLocaleDateString('ja-JP')}</p>
-<table>${headerRow}<tbody>${dataRows}</tbody><tfoot>${tanbanRow}${footerRow}</tfoot></table>
+<table>${headerRow}<tbody>${dataRows}</tbody><tfoot>${tanbanRow}${estRow}${footerRow}</tfoot></table>
 </body></html>`);
     win.document.close();
     win.onload = () => { win.print(); win.onafterprint = () => win.close(); };
@@ -256,6 +265,15 @@ export default function SalesPlanPage() {
                   <td className="border border-gray-300 px-2 py-2 text-right bg-blue-100 text-amber-800">{M(tanbanTotal)}</td>
                 </tr>
               )}
+              <tr className="bg-amber-50 text-gray-600">
+                <td className="border border-gray-300 px-2 py-2 sticky left-0 bg-amber-50 z-10" colSpan={LEFT_COLS}>
+                  単番（月次仮計上） <span className="text-[10px] text-amber-600">{M(TANBAN_MONTHLY_EST)}/月・見積なし月の見込み</span>
+                </td>
+                {MONTH_LIST.map(m => (
+                  <td key={m} className={`border border-gray-300 px-2 py-2 text-right ${m === currentMonth ? 'bg-blue-100' : ''}`}>{M(TANBAN_MONTHLY_EST)}</td>
+                ))}
+                <td className="border border-gray-300 px-2 py-2 text-right bg-amber-100">{M(TANBAN_MONTHLY_EST * MONTH_LIST.length)}</td>
+              </tr>
               <tr className="bg-gray-100 font-bold">
                 <td className="border border-gray-300 px-2 py-2 sticky left-0 bg-gray-100 z-10" colSpan={LEFT_COLS}>合計</td>
                 {MONTH_LIST.map(m => (

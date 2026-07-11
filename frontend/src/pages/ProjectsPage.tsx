@@ -4,10 +4,11 @@ import { projectApi, mastersApi } from '../api';
 import { Plus, ChevronDown, ChevronRight, Edit2, Trash2, FileText, Copy } from 'lucide-react';
 import ArrangementModal from '../components/ArrangementModal';
 
-const STATUS_OPTIONS = ['営業中', '内示', '受注', '検収済', '請求済', '入金済', '失注'];
+const STATUS_OPTIONS = ['営業中', '確度高', '内示', '受注', '検収済', '請求済', '入金済', '失注'];
 const DIST_OPTIONS = ['直接', '代理店'];
 const STATUS_COLORS: Record<string, string> = {
   '営業中': 'bg-blue-100 text-blue-700',
+  '確度高': 'bg-sky-100 text-sky-700',
   '内示': 'bg-orange-100 text-orange-700',
   '受注': 'bg-yellow-100 text-yellow-700',
   '検収済': 'bg-teal-100 text-teal-700',

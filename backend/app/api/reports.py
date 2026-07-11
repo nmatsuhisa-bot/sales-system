@@ -159,8 +159,8 @@ def sales_plan(year: int = Query(default=None), db: Session = Depends(get_db)):
     for o in orders:
         if not o.sales_date:
             continue
-        # 営業中・内示は案件情報の予算金額、受注以降は見積金額を採用
-        if o.status in ("営業中", "内示"):
+        # 営業中・確度高・内示は案件情報の予算金額、受注以降は見積金額を採用
+        if o.status in ("営業中", "確度高", "内示"):
             amount = int(o.budget_amount or 0)
         else:
             amount = int(o.quotation_amount or o.quotation_total or 0)
