@@ -254,6 +254,20 @@ def setup_po_breakdown():
     return {"status": "ok", "message": "発注書 内訳番号カラム追加完了"}
 
 
+@app.get("/setup-user-department")
+def setup_user_department():
+    """ユーザーに所属部門(department)カラムを追加（スケジュール絞込・権限用）"""
+    from app.db.models import engine
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS department VARCHAR(50)"))
+            conn.commit()
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    return {"status": "ok", "message": "ユーザー部門カラム追加完了"}
+
+
 @app.get("/setup-order-ticket-shipping")
 def setup_order_ticket_shipping():
     """受注票に前受金3回(JSON)・出荷方法カラムを追加"""

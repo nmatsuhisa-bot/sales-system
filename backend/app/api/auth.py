@@ -69,6 +69,7 @@ class UserCreate(BaseModel):
     password: str
     full_name: str
     role: str = "staff"
+    department: Optional[str] = None
 
 def require_admin(current_user: User = Depends(get_current_user)):
     """管理者権限チェック"""
@@ -82,11 +83,11 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), _: User = Depen
     if db.query(User).filter(User.email == data.email).first():
         raise HTTPException(400, "このメールアドレスは既に使用されています")
     hashed = bcrypt.hashpw(data.password.encode(), bcrypt.gensalt()).decode()
-    user = User(email=data.email, hashed_password=hashed, full_name=data.full_name, role=data.role)
+    user = User(email=data.email, hashed_password=hashed, full_name=data.full_name, role=data.role, department=data.department)
     db.add(user)
     db.commit()
     db.refresh(user)
-    return {"id": str(user.id), "email": user.email, "full_name": user.full_name, "role": user.role}
+    return {"id": str(user.id), "email": user.email, "full_name": user.full_name, "role": user.role, "department": user.department}
 
 
 # =============================================
@@ -96,13 +97,21 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), _: User = Depen
 def list_users(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     users = db.query(User).filter(User.is_active == True).order_by(User.created_at).all()
     return [{"id": str(u.id), "email": u.email, "full_name": u.full_name, "role": u.role,
+             "department": u.department,
              "is_active": u.is_active, "created_at": u.created_at.isoformat() if u.created_at else None}
             for u in users]
+
+@router.get("/team")
+def list_team(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """スケジュール等で使う全ユーザー一覧（非admin可・最小情報）。3名しか表示されない不具合の修正。"""
+    users = db.query(User).filter(User.is_active == True).order_by(User.full_name).all()
+    return [{"id": str(u.id), "full_name": u.full_name, "role": u.role, "department": u.department} for u in users]
 
 class UserUpdate(BaseModel):
     email: Optional[str] = None
     full_name: Optional[str] = None
     role: Optional[str] = None
+    department: Optional[str] = None
     password: Optional[str] = None
 
 @router.put("/users/{user_id}")
@@ -112,10 +121,11 @@ def update_user(user_id: str, data: UserUpdate, db: Session = Depends(get_db), _
     if data.email: u.email = data.email
     if data.full_name: u.full_name = data.full_name
     if data.role: u.role = data.role
+    if data.department is not None: u.department = data.department or None
     if data.password:
         u.hashed_password = bcrypt.hashpw(data.password.encode(), bcrypt.gensalt()).decode()
     db.commit()
-    return {"id": str(u.id), "email": u.email, "full_name": u.full_name, "role": u.role}
+    return {"id": str(u.id), "email": u.email, "full_name": u.full_name, "role": u.role, "department": u.department}
 
 @router.delete("/users/{user_id}", status_code=204)
 def delete_user(user_id: str, db: Session = Depends(get_db), _: User = Depends(require_admin)):

@@ -48,7 +48,8 @@ export default function SchedulePage() {
   const todayKey = dateKey(new Date());
 
   useEffect(() => {
-    authApi.listUsers()
+    // 全ユーザーを表示（/auth/team は非admin可）。旧listUsersはadmin限定で3名しか出ない不具合の原因
+    authApi.listTeam()
       .then(r => {
         if (Array.isArray(r.data) && r.data.length) setUsers(r.data);
         else throw new Error('empty');

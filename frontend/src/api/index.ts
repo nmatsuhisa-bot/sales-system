@@ -321,6 +321,7 @@ export const scheduleApi = {
 // =============================================
 export const authApi = {
   listUsers: () => api.get('/auth/users'),
+  listTeam: () => api.get('/auth/team'),
   createUser: (data: any) => api.post('/auth/users', data),
   updateUser: (id: string, data: any) => api.put(`/auth/users/${id}`, data),
   deleteUser: (id: string) => api.delete(`/auth/users/${id}`),
