@@ -72,9 +72,8 @@ export default function OrdersPage() {
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-100 sticky top-0 z-10">
             <tr>
-              <th className="px-4 py-3 text-left font-medium text-gray-600">受注番号</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-600">受注番号(COID)</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">種別</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-600">子ID</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">注文主</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">納入先</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">担当者</th>
@@ -92,16 +91,16 @@ export default function OrdersPage() {
           <tbody className="divide-y divide-gray-50">
             {items.map(t => (
               <tr key={t.id} className={`hover:bg-blue-50 ${!t.is_active ? 'opacity-50' : ''}`}>
-                <td className="px-4 py-3 font-medium text-blue-600 whitespace-nowrap">
-                  <span className="flex items-center gap-1"><ShoppingCart size={14} /> {t.ticket_no}
+                <td className="px-4 py-3 whitespace-nowrap">
+                  <span className="flex items-center gap-1 font-mono font-bold text-blue-700"><ShoppingCart size={14} /> {t.child_no || t.ticket_no}
                   {!t.is_active && <span className="ml-1 text-xs text-gray-400">（過去）</span>}</span>
+                  <span className="block text-[10px] text-gray-400">票No. {t.ticket_no}</span>
                 </td>
                 <td className="px-4 py-3">
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${TYPE_COLORS[t.ticket_type] || 'bg-gray-100'}`}>
                     {TYPE_LABELS[t.ticket_type] || t.ticket_type}
                   </span>
                 </td>
-                <td className="px-4 py-3 font-mono text-xs text-gray-600">{t.child_no || '—'}</td>
                 <td className="px-4 py-3 text-gray-700">{t.customer_name || '—'}</td>
                 <td className="px-4 py-3 text-gray-600 max-w-xs truncate">{t.delivery_name || '—'}</td>
                 <td className="px-4 py-3 text-gray-500">{t.sales_person_name || '—'}</td>

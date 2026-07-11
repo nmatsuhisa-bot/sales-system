@@ -853,7 +853,10 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
   <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer">🖨️ PDF印刷</button>
 </div>
 
-<div style="text-align:right">受注NO: <strong>{t.ticket_no}</strong></div>
+<div style="text-align:right;margin-bottom:4px">
+  <span style="font-size:11px;color:#555;vertical-align:middle">受注番号(COID)</span>
+  <span style="font-size:20px;font-weight:bold;border:2px solid #000;padding:2px 12px;margin-left:6px;letter-spacing:1px">{t.child_no or t.ticket_no}</span>
+</div>
 <h2 style="text-align:center;font-size:18px;border-bottom:2px solid #000;padding-bottom:6px">{title}</h2>
 
 <table style="margin-bottom:12px;font-size:11px" cellspacing="0">

@@ -105,7 +105,7 @@ export default function EstimateListPage() {
           <thead className="bg-gray-50 border-b border-gray-100">
             <tr>
               <th className="px-4 py-3 text-left font-medium text-gray-600">見積番号</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-600">子ID</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-600">受注番号(COID)</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">顧客名</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">件名</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">見積日</th>
