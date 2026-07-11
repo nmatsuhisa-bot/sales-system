@@ -831,8 +831,14 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
 
     items_html = ""
     if q:
-        for i, item in enumerate(sorted(q.line_items, key=lambda x: x.line_no), 1):
-            items_html += f"""<tr>
+        # 大分類（section）ごとに番号付け。各明細に大分類ID（番号＋名称）を表示
+        _sections = {}
+        for item in sorted(q.line_items, key=lambda x: x.line_no):
+            _sections.setdefault(item.section or "", []).append(item)
+        for sec_no, (sec, sitems) in enumerate(_sections.items(), 1):
+            for item in sitems:
+                items_html += f"""<tr>
+                <td style="text-align:center;border:1px solid #999;padding:3px 6px;white-space:nowrap">{sec_no}<div style="font-size:8px;color:#666;line-height:1.1">{sec or ''}</div></td>
                 <td style="border:1px solid #999;padding:3px 6px">{item.item_name}</td>
                 <td style="border:1px solid #999;padding:3px 6px;font-size:10px">{item.spec_detail or ''}</td>
                 <td style="text-align:center;border:1px solid #999;padding:3px 6px">{int(item.quantity or 1)}</td>
@@ -894,6 +900,7 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
 
 <table style="margin-bottom:12px;font-size:11px">
   <thead><tr>
+    <th style="width:64px">大分類</th>
     <th style="width:200px">品名.仕様</th>
     <th>詳細</th>
     <th style="width:50px">数量</th>
@@ -904,7 +911,7 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
   <tbody>{items_html}</tbody>
   <tfoot>
     <tr style="font-weight:bold;background:#fff9c4">
-      <td colspan="5" style="text-align:right;border:1px solid #999;padding:4px 8px">合計金額</td>
+      <td colspan="6" style="text-align:right;border:1px solid #999;padding:4px 8px">合計金額</td>
       <td style="text-align:right;border:1px solid #999;padding:4px 8px">¥{int(t.total_amount or 0):,}</td>
     </tr>
   </tfoot>
