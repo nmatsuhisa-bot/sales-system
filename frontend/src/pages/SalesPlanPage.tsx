@@ -32,7 +32,7 @@ interface Row {
 }
 
 interface Proj {
-  customer: string; child_no: string; project_name: string; status: string;
+  customer: string; orderer: string; child_no: string; project_name: string; status: string;
   delivery_name: string; sales_person: string; sales_date: string;
   months: Record<number, number>; total: number;
 }
@@ -72,7 +72,8 @@ export default function SalesPlanPage() {
     const key = r.child_no || r.project_no;
     if (!projectMap[key]) {
       projectMap[key] = {
-        customer: r.customer_name || '（未設定）', child_no: r.child_no, project_name: r.project_name,
+        customer: r.customer_name || '（未設定）', orderer: r.agency_name || r.customer_name || '（未設定）',
+        child_no: r.child_no, project_name: r.project_name,
         status: r.status, delivery_name: r.delivery_name || '', sales_person: r.sales_person_name || '',
         sales_date: r.sales_date || '', months: {}, total: 0,
       };
@@ -130,10 +131,10 @@ export default function SalesPlanPage() {
       `<th style="border:1px solid ${C.border};padding:4px 6px;white-space:nowrap;background:${C.thBg};${style}">${content}</th>`;
 
     const headerRow = `<tr>
-      ${th('顧客名', 'text-align:left;min-width:110px')}
+      ${th('納入先', 'text-align:left;min-width:110px')}
+      ${th('注文主', 'text-align:left;min-width:100px')}
       ${th('案件番号', 'text-align:left;min-width:70px')}
       ${th('案件名', 'text-align:left;min-width:130px')}
-      ${th('納品先', 'text-align:left;min-width:100px')}
       ${th('営業担当', 'text-align:left;min-width:70px')}
       ${th('ステータス', 'text-align:left;min-width:56px')}
       ${MONTH_LIST.map(m => th(`${m}月`, `text-align:right;min-width:44px;${m === currentMonth ? `background:${C.curMonthHeaderBg}` : ''}`)).join('')}
@@ -142,9 +143,9 @@ export default function SalesPlanPage() {
 
     const dataRows = sortedKoban.map(p => `<tr>
         ${cell(p.customer, `font-weight:600;color:${C.custText}`)}
+        ${cell(p.orderer || '—', `color:${C.gray700}`)}
         ${cell(p.child_no, `font-family:monospace;color:${C.gray700}`)}
         ${cell(p.project_name || '—', `color:${C.gray700};max-width:170px;overflow:hidden;text-overflow:ellipsis`)}
-        ${cell(p.delivery_name || '—', `color:${C.gray700}`)}
         ${cell(p.sales_person || '—', `color:${C.gray700}`)}
         ${cell(`<span style="color:${STATUS_PRINT_HEX[p.status] || C.gray700};font-weight:600">${p.status}</span>`, '')}
         ${MONTH_LIST.map(m => cell(M(dispMonth(p, m)), `text-align:right;color:${C.gray700};background:${m === currentMonth ? C.curMonthBg : '#fff'}`)).join('')}
@@ -212,10 +213,10 @@ export default function SalesPlanPage() {
           <table id="sales-plan-table" className="border-collapse text-xs w-full">
             <thead>
               <tr className="bg-gray-100">
-                <th className="border border-gray-300 px-2 py-2 text-left sticky left-0 bg-gray-100 z-10" style={{ minWidth: '110px' }}>顧客名</th>
+                <th className="border border-gray-300 px-2 py-2 text-left sticky left-0 bg-gray-100 z-10" style={{ minWidth: '110px' }}>納入先</th>
+                <th className="border border-gray-300 px-2 py-2 text-left" style={{ minWidth: '100px' }}>注文主</th>
                 <th className="border border-gray-300 px-2 py-2 text-left" style={{ minWidth: '78px' }}>案件番号</th>
                 <th className="border border-gray-300 px-2 py-2 text-left" style={{ minWidth: '150px' }}>案件名</th>
-                <th className="border border-gray-300 px-2 py-2 text-left" style={{ minWidth: '110px' }}>納品先</th>
                 <th className="border border-gray-300 px-2 py-2 text-left" style={{ minWidth: '70px' }}>営業担当</th>
                 <th className="border border-gray-300 px-2 py-2 text-left" style={{ minWidth: '64px' }}>ステータス</th>
                 {MONTH_LIST.map(m => (
@@ -228,9 +229,9 @@ export default function SalesPlanPage() {
               {sortedKoban.map(p => (
                 <tr key={`proj-${p.child_no}`} className="hover:bg-gray-50">
                   <td className="border border-gray-300 px-2 py-1 sticky left-0 bg-white z-10 text-blue-800 font-medium">{p.customer}</td>
+                  <td className="border border-gray-300 px-2 py-1 text-gray-700">{p.orderer || '—'}</td>
                   <td className="border border-gray-300 px-2 py-1 font-mono text-gray-700">{p.child_no}</td>
                   <td className="border border-gray-300 px-2 py-1 text-gray-700" title={p.project_name}>{p.project_name || '—'}</td>
-                  <td className="border border-gray-300 px-2 py-1 text-gray-700">{p.delivery_name || '—'}</td>
                   <td className="border border-gray-300 px-2 py-1 text-gray-700">{p.sales_person || '—'}</td>
                   <td className="border border-gray-300 px-2 py-1">
                     <span className={`text-xs font-medium ${STATUS_PRINT_COLORS[p.status] || 'text-gray-600'}`}>{p.status}</span>

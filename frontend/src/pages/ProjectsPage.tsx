@@ -372,11 +372,11 @@ export default function ProjectsPage() {
                 <TextField label="案件概要" value={form.project_summary} onChange={(v: string) => setForm((f: any) => ({ ...f, project_summary: v }))} cols={2} />
                 <SelectField label="商流判定" name="distribution_type" options={DIST_OPTIONS} form={form} setForm={setForm} />
                 <div className="flex items-end pb-1">
-                  <p className="text-xs text-gray-400">{form.distribution_type === '代理店' ? '代理店経由：商社＋納入先を選択' : '直接取引：納入先のみ選択'}</p>
+                  <p className="text-xs text-gray-400">{form.distribution_type === '代理店' ? '商社経由：商社＋納入先を選択' : '直接取引：納入先のみ選択'}</p>
                 </div>
                 {form.distribution_type === '代理店' && (<>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">商社（代理店）</label>
+                    <label className="block text-xs text-gray-500 mb-1">商社</label>
                     <select value={form.customer_code_1 || ''}
                       onChange={e => { const a = agencies.find(a => a.agency_code === e.target.value); setForm((f: any) => ({ ...f, customer_code_1: e.target.value, customer_name_1: a?.agency_name || '' })); }}
                       className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
@@ -390,7 +390,7 @@ export default function ProjectsPage() {
                   </div>
                 </>)}
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">納入先(エンドユーザー)</label>
+                  <label className="block text-xs text-gray-500 mb-1">納入先</label>
                   <select value={form.customer_code_2 || ''}
                     onChange={e => { const d = destinations.find(d => d.customer_id === e.target.value); setForm((f: any) => ({ ...f, customer_code_2: e.target.value, customer_name_2: d ? `${d.company_name}${d.factory_name ? ' ' + d.factory_name : ''}` : '' })); }}
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
@@ -486,7 +486,7 @@ export default function ProjectsPage() {
                 <SelectField label="ステータス" name="status" options={STATUS_OPTIONS} form={orderForm} setForm={setOrderForm} />
                 <TextField label="案件名" value={orderForm.project_name} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, project_name: v }))} cols={2} />
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">納入先(エンドユーザー)</label>
+                  <label className="block text-xs text-gray-500 mb-1">納入先</label>
                   <select value={orderForm.customer_code || ''}
                     onChange={e => { const d = destinations.find(d => d.customer_id === e.target.value); setOrderForm((f: any) => ({ ...f, customer_code: e.target.value, customer_name: d ? `${d.company_name}${d.factory_name ? ' ' + d.factory_name : ''}` : '' })); }}
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
@@ -499,7 +499,7 @@ export default function ProjectsPage() {
                   <input value={orderForm.customer_name || ''} readOnly className="w-full border border-gray-100 rounded-lg px-3 py-1.5 text-sm bg-gray-50" />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">代理店(商社)</label>
+                  <label className="block text-xs text-gray-500 mb-1">商社</label>
                   <select value={orderForm.agency_code || ''}
                     onChange={e => { const a = agencies.find(a => a.agency_code === e.target.value); setOrderForm((f: any) => ({ ...f, agency_code: e.target.value, agency_name: a?.agency_name || '' })); }}
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
@@ -508,7 +508,7 @@ export default function ProjectsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">代理店名</label>
+                  <label className="block text-xs text-gray-500 mb-1">商社名</label>
                   <input value={orderForm.agency_name || ''} readOnly className="w-full border border-gray-100 rounded-lg px-3 py-1.5 text-sm bg-gray-50" />
                 </div>
                 <div>

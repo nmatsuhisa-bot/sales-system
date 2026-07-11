@@ -214,7 +214,8 @@ def create_quotation(data: QuotationHeaderCreate, db: Session = Depends(get_db))
     if data.project_order_id:
         po = db.query(ProjectOrder).filter(ProjectOrder.id == data.project_order_id).first()
         if po:
-            customer_name = customer_name or po.customer_name or po.agency_name
+            # 注文主＝商社優先（商社が無ければ納入先＝エンドユーザー）／納入先＝エンドユーザー
+            customer_name = customer_name or po.agency_name or po.customer_name
             delivery_name = delivery_name or po.customer_name
             sales_person_name = sales_person_name or po.sales_person_name
             title = title or po.project_name
@@ -269,8 +270,8 @@ def duplicate_quotation(quotation_id: str, data: dict, db: Session = Depends(get
     po = db.query(ProjectOrder).filter(ProjectOrder.id == project_order_id).first()
     if not po: raise HTTPException(404, "案件子IDが見つかりません")
 
-    # 顧客名等は複製先の子IDから補完（新規作成時と同じ挙動）。無ければ複製元を踏襲。
-    customer_name = po.customer_name or po.agency_name or src.customer_name
+    # 注文主＝商社優先／納入先＝エンドユーザー（新規作成時と同じ挙動）。無ければ複製元を踏襲。
+    customer_name = po.agency_name or po.customer_name or src.customer_name
     delivery_name = po.customer_name or src.delivery_name
     title = po.project_name or src.title
     sales_person_name = po.sales_person_name or src.sales_person_name
@@ -863,9 +864,9 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
     <td style="border:1px solid #999;padding:4px 8px">{q.quotation_no if q else ' '}</td>
   </tr>
   <tr>
-    <td style="background:#eee;border:1px solid #999;padding:4px 8px">ユーザー/納入先</td>
+    <td style="background:#eee;border:1px solid #999;padding:4px 8px">納入先</td>
     <td style="border:1px solid #999;padding:4px 8px">{t.delivery_name or ' '}</td>
-    <td style="background:#eee;border:1px solid #999;padding:4px 8px">売上先</td>
+    <td style="background:#eee;border:1px solid #999;padding:4px 8px">注文主</td>
     <td style="border:1px solid #999;padding:4px 8px">{t.customer_name or ' '}</td>
   </tr>
   <tr>
@@ -1032,7 +1033,7 @@ def fan_instruction_pdf(quotation_id: str, db: Session = Depends(get_db)):
     <td style="width:200px">  F001〜 ユニークな番号</td>
   </tr>
   <tr>
-    <td style="background:#f0f0f0">御注文主</td>
+    <td style="background:#f0f0f0">注文主</td>
     <td><strong>{q.customer_name or ' '}</strong> 殿</td>
     <td style="background:#f0f0f0">受注番号</td>
     <td><strong>{q.child_no or q.quotation_no}</strong></td>
@@ -1210,7 +1211,7 @@ def fan_inspection_pdf(quotation_id: str, db: Session = Depends(get_db)):
     <td style="background:#f0f0f0;width:60px">製造番号</td><td></td>
   </tr>
   <tr>
-    <td style="background:#f0f0f0">御注文主</td>
+    <td style="background:#f0f0f0">注文主</td>
     <td><strong>{q.customer_name or ' '}</strong> 殿</td>
     <td style="background:#f0f0f0">受注番号</td>
     <td><strong>{q.child_no or q.quotation_no}</strong></td>

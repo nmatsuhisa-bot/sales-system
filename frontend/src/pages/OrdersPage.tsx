@@ -68,14 +68,14 @@ export default function OrdersPage() {
         </select>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm overflow-x-auto">
+      <div className="bg-white rounded-xl shadow-sm overflow-auto max-h-[70vh]">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b border-gray-100">
+          <thead className="bg-gray-50 border-b border-gray-100 sticky top-0 z-10">
             <tr>
               <th className="px-4 py-3 text-left font-medium text-gray-600">受注番号</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">種別</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">子ID</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-600">顧客名</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-600">注文主</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">納入先</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">担当者</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">受注日</th>

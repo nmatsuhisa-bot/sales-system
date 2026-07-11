@@ -356,7 +356,7 @@ export default function EstimateFormPage() {
               {employees.map(e => <option key={e.id} value={e.employee_name}>{e.employee_name}</option>)}
             </select>
           </div>
-          <HeaderField header={header} setHeader={setHeader} label="顧客名（売上先）" name="customer_name" />
+          <HeaderField header={header} setHeader={setHeader} label="注文主" name="customer_name" />
           <HeaderField header={header} setHeader={setHeader} label="納入先" name="delivery_name" />
           <HeaderField header={header} setHeader={setHeader} label="見積日" name="issue_date" type="date" />
           <HeaderField header={header} setHeader={setHeader} label="有効期限" name="valid_until" type="date" />

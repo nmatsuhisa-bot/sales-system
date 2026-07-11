@@ -112,8 +112,8 @@ export default function MastersPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">代理店コード</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">代理店名</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600">商社コード</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600">商社名</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">支店名</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">担当者</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">電話番号</th>
@@ -254,8 +254,8 @@ export default function MastersPage() {
             </h2>
             <div className="space-y-3">
               {tab === 'agencies' && (<>
-                <F label="代理店コード *" name="agency_code" />
-                <F label="代理店名 *" name="agency_name" />
+                <F label="商社コード *" name="agency_code" />
+                <F label="商社名 *" name="agency_name" />
                 <F label="支店名" name="branch_name" />
                 <F label="取引条件" name="trade_terms" />
                 <F label="住所（請求先）" name="address" />
