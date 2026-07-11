@@ -16,9 +16,9 @@ export default function UsersPage() {
   const handleSave = async () => {
     try {
       if (modal.isNew) {
-        await authApi.createUser({ email: form.email, full_name: form.full_name, password: form.password, role: form.role || 'user' });
+        await authApi.createUser({ email: form.email, full_name: form.full_name, password: form.password, role: form.role || 'user', department: form.department || null });
       } else {
-        await authApi.updateUser(form.id, { email: form.email, full_name: form.full_name, role: form.role, password: form.password || undefined });
+        await authApi.updateUser(form.id, { email: form.email, full_name: form.full_name, role: form.role, department: form.department || null, password: form.password || undefined });
       }
       setModal(null);
       load();
@@ -108,6 +108,17 @@ export default function UsersPage() {
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
                   <option value="user">ユーザー</option>
                   <option value="admin">管理者</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">所属部門<span className="text-[10px] text-gray-400 ml-1">スケジュール絞込・権限用（施工＝閲覧のみ）</span></label>
+                <select value={form.department || ''} onChange={e => setForm((f: any) => ({ ...f, department: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                  <option value="">（未設定）</option>
+                  <option value="営業">営業</option>
+                  <option value="施工">施工</option>
+                  <option value="製造">製造</option>
+                  <option value="管理部">管理部</option>
                 </select>
               </div>
             </div>

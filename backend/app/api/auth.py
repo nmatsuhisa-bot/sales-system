@@ -56,13 +56,13 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     token = create_token({"sub": str(user.id), "email": user.email, "role": user.role})
     return {
         "access_token": token, "token_type": "bearer",
-        "user": {"id": str(user.id), "email": user.email, "full_name": user.full_name, "role": user.role}
+        "user": {"id": str(user.id), "email": user.email, "full_name": user.full_name, "role": user.role, "department": user.department}
     }
 
 @router.get("/me")
 def get_me(current_user: User = Depends(get_current_user)):
     return {"id": str(current_user.id), "email": current_user.email,
-            "full_name": current_user.full_name, "role": current_user.role}
+            "full_name": current_user.full_name, "role": current_user.role, "department": current_user.department}
 
 class UserCreate(BaseModel):
     email: str
