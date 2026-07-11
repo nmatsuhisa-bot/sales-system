@@ -82,7 +82,7 @@ export default function SalesPlanPage() {
     projectMap[key].total += r.amount;
   }
   const projects = Object.values(projectMap);
-  // 営業中・内示は金額に関わらず一覧に個別表示（0円でも表示）。それ以外は3M以上を工番として個別表示、未満は単番集計。
+  // 営業中・確度高・内示は金額に関わらず一覧に個別表示（0円でも表示）。それ以外は3M以上を工番として個別表示、未満は単番集計。
   const PIPELINE_STATUSES = new Set(['営業中', '確度高', '内示']);
   const kobanProjects = projects.filter(p => PIPELINE_STATUSES.has(p.status) || p.total >= TANBAN_MAX);
   const tanbanProjects = projects.filter(p => !PIPELINE_STATUSES.has(p.status) && p.total < TANBAN_MAX);
@@ -91,7 +91,7 @@ export default function SalesPlanPage() {
   const sortedKoban = [...kobanProjects].sort((a, b) =>
     (a.sales_date || '').localeCompare(b.sales_date || '') || (a.customer || '').localeCompare(b.customer || ''));
 
-  // 金額は backend で採用済み（営業中・内示=案件の予算金額 / 受注以降=見積金額）。表示・集計はそのまま。
+  // 金額は backend で採用済み（営業中・確度高・内示=案件の予算金額 / 受注以降=見積金額）。表示・集計はそのまま。
   const dispTotal = (p: Proj) => p.total;
   const dispMonth = (p: Proj, m: number) => p.months[m] || 0;
 
@@ -183,7 +183,7 @@ export default function SalesPlanPage() {
   * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 </style></head><body>
 <h2>売上計画表　${year}年度（${year}/2/21〜${year + 1}/2/20）</h2>
-<p>対象ステータス：${selectedStatuses.join('・')}　／　単番（合計${(TANBAN_MAX / 1000000)}M未満）は最下部に集計　／　営業中・内示は予算金額を採用　／　出力日：${new Date().toLocaleDateString('ja-JP')}</p>
+<p>対象ステータス：${selectedStatuses.join('・')}　／　単番（合計${(TANBAN_MAX / 1000000)}M未満）は最下部に集計　／　営業中・確度高・内示は予算金額を採用　／　出力日：${new Date().toLocaleDateString('ja-JP')}</p>
 <table>${headerRow}<tbody>${dataRows}</tbody><tfoot>${tanbanRow}${estRow}${footerRow}</tfoot></table>
 </body></html>`);
     win.document.close();
@@ -289,7 +289,7 @@ export default function SalesPlanPage() {
       <div className="mt-4 text-xs text-gray-400">
         ※ 売上計上日（顧客納期）が設定されている案件のみ表示。金額は百万円単位（M）。年度は{year}/2/21〜{year + 1}/2/20。
         単番（案件合計が{(TANBAN_MAX / 1000000)}M未満）は一覧に出さず最下部に集計表示。
-        <br />※ <span className="text-blue-700 font-medium">営業中・内示</span>は案件の<span className="font-medium">予算金額</span>を採用（受注以降は見積金額）。0円でも一覧に表示します。
+        <br />※ <span className="text-blue-700 font-medium">営業中・確度高・内示</span>は案件の<span className="font-medium">予算金額</span>を採用（受注以降は見積金額）。0円でも一覧に表示します。
       </div>
     </div>
   );
