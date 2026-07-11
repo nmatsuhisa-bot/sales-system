@@ -434,10 +434,10 @@ export default function ProjectsPage() {
                 <DateField label="受注予定日" value={form.expected_order_date} onChange={(v: string) => setForm((f: any) => ({ ...f, expected_order_date: v }))} required />
                 <DateField label="見積作成日" value={form.quotation_issue_date} onChange={(v: string) => setForm((f: any) => ({ ...f, quotation_issue_date: v }))} readOnly />
                 <DateField label="受注日" value={form.order_date} onChange={(v: string) => setForm((f: any) => ({ ...f, order_date: v }))} readOnly />
-                <DateField label="出荷予定日" value={form.expected_shipment_date} onChange={(v: string) => setForm((f: any) => ({ ...f, expected_shipment_date: v }))} required />
+                <DateField label="出荷予定日" value={form.expected_shipment_date} onChange={(v: string) => setForm((f: any) => ({ ...f, expected_shipment_date: v }))} />
                 <DateField label="出荷日" value={form.shipment_date} onChange={(v: string) => setForm((f: any) => ({ ...f, shipment_date: v }))} />
                 <DateField label="顧客納期" value={form.customer_delivery_date} onChange={(v: string) => setForm((f: any) => ({ ...f, customer_delivery_date: v }))} />
-                <DateField label="売上予定日" value={form.sales_date} onChange={(v: string) => setForm((f: any) => ({ ...f, sales_date: v }))} required />
+                <DateField label="売上予定日" value={form.sales_date} onChange={(v: string) => setForm((f: any) => ({ ...f, sales_date: v }))} />
                 <DateField label="納品日" value={form.delivery_date} onChange={(v: string) => setForm((f: any) => ({ ...f, delivery_date: v }))} />
                 <div className="md:col-span-2">
                   <label className="block text-xs text-gray-500 mb-1">備考</label>
@@ -530,10 +530,10 @@ export default function ProjectsPage() {
                 <DateField label="受注予定日" value={orderForm.expected_order_date} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, expected_order_date: v }))} required />
                 <DateField label="見積作成日" value={orderForm.quotation_issue_date} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, quotation_issue_date: v }))} readOnly />
                 <DateField label="受注日" value={orderForm.order_date} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, order_date: v }))} readOnly />
-                <DateField label="出荷予定日" value={orderForm.expected_shipment_date} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, expected_shipment_date: v }))} required />
+                <DateField label="出荷予定日" value={orderForm.expected_shipment_date} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, expected_shipment_date: v }))} />
                 <DateField label="出荷日" value={orderForm.shipment_date} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, shipment_date: v }))} />
                 <DateField label="顧客納期" value={orderForm.customer_delivery_date} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, customer_delivery_date: v }))} />
-                <DateField label="売上予定日" value={orderForm.sales_date} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, sales_date: v }))} required />
+                <DateField label="売上予定日" value={orderForm.sales_date} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, sales_date: v }))} />
                 <DateField label="納品日" value={orderForm.delivery_date} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, delivery_date: v }))} />
                 <div className="md:col-span-2">
                   <label className="block text-xs text-gray-500 mb-1">備考</label>
