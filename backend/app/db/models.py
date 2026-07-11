@@ -630,7 +630,9 @@ class OrderTicket(Base):
     # 受注時項目（会議「次の手配」項目11）
     has_order_sheet = Column(Boolean)          # 注文書有無（True=有 / False=無 / NULL=未確認）
     delivery_date = Column(Date)               # 納期
-    advance_payment = Column(Numeric(15, 0))   # 前受金額（NULL/0=なし）
+    advance_payment = Column(Numeric(15, 0))   # 前受金額（旧・単一。NULL/0=なし）
+    advance_payments = Column(JSON)            # 前受金 [{date, amount}] 最大3回（分割入金）
+    shipping_method = Column(String(50))       # 出荷方法（トラック出荷/宅配出荷/井上納品/引取）
     notes = Column(Text)
     is_active = Column(Boolean, default=True, server_default="true")
     created_at = Column(DateTime, server_default=func.now())

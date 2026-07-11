@@ -254,6 +254,21 @@ def setup_po_breakdown():
     return {"status": "ok", "message": "発注書 内訳番号カラム追加完了"}
 
 
+@app.get("/setup-order-ticket-shipping")
+def setup_order_ticket_shipping():
+    """受注票に前受金3回(JSON)・出荷方法カラムを追加"""
+    from app.db.models import engine
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE order_tickets ADD COLUMN IF NOT EXISTS advance_payments JSON"))
+            conn.execute(text("ALTER TABLE order_tickets ADD COLUMN IF NOT EXISTS shipping_method VARCHAR(50)"))
+            conn.commit()
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    return {"status": "ok", "message": "受注票 前受金3回・出荷方法カラム追加完了"}
+
+
 @app.get("/setup-customer-delivery-date")
 def setup_customer_delivery_date():
     """案件子IDに顧客納期カラム（customer_delivery_date）を追加"""

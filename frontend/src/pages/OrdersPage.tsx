@@ -158,9 +158,15 @@ function OrderTicketEditModal({ ticket, onClose, onSaved }: { ticket: any; onClo
     ticket.has_order_sheet === true ? 'true' : ticket.has_order_sheet === false ? 'false' : ''
   );
   const [deliveryDate, setDeliveryDate] = useState<string>(ticket.delivery_date || '');
-  const [advance, setAdvance] = useState<string>(ticket.advance_payment != null ? String(ticket.advance_payment) : '');
+  const [advPays, setAdvPays] = useState<{ date: string; amount: string }[]>(() => {
+    const base = (ticket.advance_payments || []).map((a: any) => ({ date: a.date || '', amount: a.amount != null ? String(a.amount) : '' }));
+    while (base.length < 3) base.push({ date: '', amount: '' });
+    return base.slice(0, 3);
+  });
+  const [shipMethod, setShipMethod] = useState<string>(ticket.shipping_method || '');
   const [orderDate, setOrderDate] = useState<string>(ticket.order_date || '');
   const [saving, setSaving] = useState(false);
+  const setAdv = (i: number, patch: any) => setAdvPays(rows => rows.map((r, j) => j === i ? { ...r, ...patch } : r));
 
   const save = async () => {
     setSaving(true);
@@ -169,7 +175,8 @@ function OrderTicketEditModal({ ticket, onClose, onSaved }: { ticket: any; onClo
         ticket_type: ticketType,
         has_order_sheet: orderSheet === '' ? null : orderSheet === 'true',
         delivery_date: deliveryDate || null,
-        advance_payment: advance === '' ? null : Number(advance),
+        advance_payments: advPays.map(a => ({ date: a.date || null, amount: a.amount ? Number(a.amount) : null })).filter(a => a.date || a.amount),
+        shipping_method: shipMethod || null,
         order_date: orderDate || null,
       });
       onSaved();
@@ -215,9 +222,29 @@ function OrderTicketEditModal({ ticket, onClose, onSaved }: { ticket: any; onClo
               className="w-full border rounded px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="block text-sm text-gray-600 mb-1">前受金（円・空欄=なし）</label>
-            <input type="number" value={advance} onChange={e => setAdvance(e.target.value)}
-              placeholder="0" className="w-full border rounded px-3 py-2 text-sm text-right" />
+            <label className="block text-sm text-gray-600 mb-1">前受金（最大3回・分割入金）</label>
+            <div className="space-y-1.5">
+              {advPays.map((a, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 w-4">{i + 1}.</span>
+                  <input type="date" value={a.date} onChange={e => setAdv(i, { date: e.target.value })}
+                    className="border rounded px-2 py-1.5 text-sm flex-1" />
+                  <input type="number" value={a.amount} onChange={e => setAdv(i, { amount: e.target.value })}
+                    placeholder="金額(円)" className="border rounded px-2 py-1.5 text-sm w-28 text-right" />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm text-gray-600 mb-1">出荷方法</label>
+            <select value={shipMethod} onChange={e => setShipMethod(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm">
+              <option value="">未定</option>
+              <option value="トラック出荷">トラック出荷</option>
+              <option value="宅配出荷">宅配出荷</option>
+              <option value="井上納品">井上納品</option>
+              <option value="引取">引取</option>
+            </select>
           </div>
           <div>
             <label className="block text-sm text-gray-600 mb-1">受注日</label>

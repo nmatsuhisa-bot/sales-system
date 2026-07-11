@@ -344,6 +344,8 @@ def list_order_tickets(
                 "has_order_sheet": t.has_order_sheet,
                 "delivery_date": str(t.delivery_date) if t.delivery_date else None,
                 "advance_payment": int(t.advance_payment) if t.advance_payment is not None else None,
+                "advance_payments": t.advance_payments or [],
+                "shipping_method": t.shipping_method,
                 # 子ID（案件）から取得する日付
                 "expected_shipment_date": str(t.project_order.expected_shipment_date) if t.project_order and t.project_order.expected_shipment_date else None,
                 "customer_delivery_date": str(t.project_order.customer_delivery_date) if t.project_order and t.project_order.customer_delivery_date else None,
@@ -380,6 +382,12 @@ def update_order_ticket(ticket_id: str, data: dict, db: Session = Depends(get_db
     if "advance_payment" in data:
         v = data["advance_payment"]
         t.advance_payment = int(v) if v not in (None, "") else None
+    if "advance_payments" in data:
+        # 前受金 最大3回 [{date, amount}]。空要素は除外
+        rows = data["advance_payments"] or []
+        t.advance_payments = [r for r in rows if r and (r.get("date") or r.get("amount"))][:3]
+    if "shipping_method" in data:
+        t.shipping_method = data["shipping_method"] or None
     if "order_date" in data:
         t.order_date = date.fromisoformat(data["order_date"]) if data["order_date"] else None
     if "notes" in data:
@@ -390,6 +398,8 @@ def update_order_ticket(ticket_id: str, data: dict, db: Session = Depends(get_db
         "has_order_sheet": t.has_order_sheet,
         "delivery_date": str(t.delivery_date) if t.delivery_date else None,
         "advance_payment": int(t.advance_payment) if t.advance_payment is not None else None,
+        "advance_payments": t.advance_payments or [],
+        "shipping_method": t.shipping_method,
         "order_date": str(t.order_date) if t.order_date else None,
     }
 
@@ -821,6 +831,24 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
     else:
         advance_disp = "有 ・ 無"
 
+    # 前受金 最大3回（分割入金）
+    _advs = t.advance_payments or []
+    _adv_rows = ""
+    for i in range(3):
+        a = _advs[i] if i < len(_advs) and isinstance(_advs[i], dict) else {}
+        _d = a.get("date") or "　　月　　日"
+        _amt = f"¥{int(a.get('amount')):,}" if a.get("amount") else "¥"
+        _paid = "入金済" if a.get("amount") else "入金"
+        _adv_rows += f'<div>{i+1}.（{_d}）税込/税抜 {_amt}　{_paid}</div>'
+    _adv_yn = "<b><u>有</u></b> ・ 無" if _advs else "有 ・ <b><u>無</u></b>"
+    advance_block = (f'<div style="border:1px solid #999;padding:8px;margin-top:10px;font-size:10px">'
+                     f'<b>前受金</b>: {_adv_yn}<br>{_adv_rows}</div>') if is_koban else ''
+
+    # 出荷方法（選択を■で強調）
+    _ship = t.shipping_method or ""
+    def _chk(name): return f'<b>■{name}</b>' if _ship == name else f'□{name}'
+    ship_html = f'出荷方法: {_chk("トラック出荷")} {_chk("宅配出荷")} {_chk("井上納品")} {_chk("引取")}'
+
     # 子ID（案件）から出荷予定日・顧客納期・売上計上日を取得
     _po = t.project_order
     exp_ship_disp = _po.expected_shipment_date.strftime("%Y/%m/%d") if _po and _po.expected_shipment_date else "－"
@@ -917,11 +945,11 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
   </tfoot>
 </table>
 
-{f'<div style="border:1px solid #999;padding:8px;margin-top:10px;font-size:10px"><b>前受金</b>: {advance_disp}<br>1.( 月 日付)税込/税抜 ¥   入金済<br>2.( 月 日付)税込/税抜 ¥   入金済</div>' if is_koban else ''}
+{advance_block}
 
 <div style="margin-top:20px;border:1px solid #999;padding:8px;font-size:10px">
   <table style="width:100%"><tr>
-    <td>出荷方法: □トラック出荷 □宅配出荷 □井上納品 □引取</td>
+    <td>{ship_html}</td>
     <td style="text-align:right">納期: {delivery_disp}</td>
   </tr></table>
   <div style="margin-top:6px">図面: 有 ・ 無　注文書: {order_sheet_disp}{'　契約書: 有 ・ 無' if is_koban else ''}</div>
