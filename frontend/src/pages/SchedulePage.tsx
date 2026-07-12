@@ -1,10 +1,13 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import { authApi, mastersApi, scheduleApi } from '../api';
 
 interface User { id: string; full_name: string; email: string; department?: string; role?: string; }
 interface ScheduleEntry {
   id: string; userId: string; date: string; slot: 'am' | 'pm'; title: string; color: string;
 }
+
+// グリッド列幅（px）。sticky列（日付/時間）のleft値と一致させる必要があるため定数化
+const DATE_W = 56, TIME_W = 32, USER_W = 76;
 
 const COLOR_OPTIONS = [
   { label: '青', value: 'bg-blue-200 border-blue-400 text-blue-800' },
@@ -218,61 +221,69 @@ export default function SchedulePage() {
         </div>
       </div>
 
+      {/* テーブル要素は使わずCSS Gridで組む。position:sticky を <th>/<td> に使うとSafariの
+          table-layout計算が不安定になり、日付/時間列の間にズレ（隙間）が生じるため。 */}
       <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
-        <table className="border-collapse text-sm w-full">
-          <thead>
-            <tr>
-              <th className="sticky left-0 z-20 border border-gray-300 bg-gray-100 px-1 py-2 text-center w-[52px] sm:w-[60px]">日付</th>
-              <th className="sticky left-[52px] sm:left-[60px] z-20 border border-gray-300 bg-gray-100 px-1 py-2 text-center w-[30px] sm:w-[36px]">時間</th>
-              {displayUsers.map(u => (
-                <th key={u.id} className="border border-gray-300 bg-gray-50 px-1 py-1 text-center text-xs leading-tight w-[64px] min-w-[64px] sm:w-[90px] sm:min-w-[90px]">
-                  {u.full_name.replace(' ', '\n').split('\n').map((line, i) => <div key={i}>{line}</div>)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {displayDates.map(date => {
-              const dk = dateKey(date);
-              const isToday = dk === todayKey;
-              const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-              return (['am','pm'] as const).map(slot => (
-                <tr key={`${dk}-${slot}`} className={isWeekend ? 'bg-red-50' : isToday ? 'bg-blue-50' : ''}>
-                  {slot === 'am' && (
-                    <td rowSpan={2} className={`sticky left-0 z-10 border border-gray-300 text-center text-xs font-medium px-1 whitespace-pre-line leading-tight ${isToday ? 'bg-blue-100 text-blue-700' : isWeekend ? 'bg-red-100 text-red-600' : 'bg-gray-50 text-gray-700'}`}>
-                      {formatDate(date)}
-                    </td>
-                  )}
-                  <td className={`sticky left-[52px] sm:left-[60px] z-10 border border-gray-300 text-center text-xs px-1 py-1 font-medium ${isToday ? 'bg-blue-50' : isWeekend ? 'bg-red-50' : 'bg-gray-50'}`}>
-                    {slot === 'am' ? '午前' : '午後'}
-                  </td>
-                  {displayUsers.map(u => {
-                    const entries = schedules.filter(s => s.userId === u.id && s.date === dk && s.slot === slot);
-                    return (
-                      <td key={u.id} className="border border-gray-300 px-1 py-1 align-top cursor-pointer" style={{height:'48px'}}
-                        onDragOver={e => e.preventDefault()}
-                        onDrop={() => onDrop(u.id, dk, slot)}
-                        onClick={() => entries.length === 0 && openNew([u.id], dk, slot)}>
-                        <div className="flex flex-col gap-0.5 min-h-[40px]">
-                          {entries.map(entry => (
-                            <div key={entry.id} draggable
-                              onDragStart={() => { dragId.current = entry.id; }}
-                              onClick={e => { e.stopPropagation(); openEdit(entry); }}
-                              className={`text-xs px-1 py-0.5 rounded border cursor-grab truncate ${entry.color}`}
-                              title={entry.title}>
-                              {entry.title}
+        <div className="inline-grid border-t border-l border-gray-300" style={{ gridTemplateColumns: `${DATE_W}px ${TIME_W}px` + (displayUsers.length ? ` repeat(${displayUsers.length}, ${USER_W}px)` : '') }}>
+          <div className="sticky left-0 z-20 border-r border-b border-gray-300 bg-gray-100 px-1 py-2 text-center text-sm" style={{ gridColumn: 1, gridRow: 1 }}>日付</div>
+          <div className="sticky z-20 border-r border-b border-gray-300 bg-gray-100 px-1 py-2 text-center text-sm" style={{ gridColumn: 2, gridRow: 1, left: DATE_W }}>時間</div>
+          {displayUsers.map((u, ui) => (
+            <div key={u.id} className="border-r border-b border-gray-300 bg-gray-50 px-1 py-1 text-center text-xs leading-tight flex flex-col items-center justify-center"
+              style={{ gridColumn: 3 + ui, gridRow: 1 }}>
+              {u.full_name.replace(' ', '\n').split('\n').map((line, i) => <div key={i}>{line}</div>)}
+            </div>
+          ))}
+
+          {displayDates.map((date, di) => {
+            const dk = dateKey(date);
+            const isToday = dk === todayKey;
+            const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+            const rowStart = 2 + di * 2;
+            const rowBg = isToday ? 'bg-blue-50' : isWeekend ? 'bg-red-50' : 'bg-white';
+            return (
+              <Fragment key={dk}>
+                <div className={`sticky left-0 z-10 border-r border-b border-gray-300 text-center text-xs font-medium px-1 whitespace-pre-line leading-tight flex items-center justify-center ${isToday ? 'bg-blue-100 text-blue-700' : isWeekend ? 'bg-red-100 text-red-600' : 'bg-gray-50 text-gray-700'}`}
+                  style={{ gridColumn: 1, gridRow: `${rowStart} / span 2` }}>
+                  {formatDate(date)}
+                </div>
+                {(['am', 'pm'] as const).map((slot, si) => {
+                  const rowNum = rowStart + si;
+                  return (
+                    <Fragment key={`${dk}-${slot}`}>
+                      <div className={`sticky z-10 border-r border-b border-gray-300 text-center text-xs px-1 py-1 font-medium flex items-center justify-center ${isToday ? 'bg-blue-50' : isWeekend ? 'bg-red-50' : 'bg-gray-50'}`}
+                        style={{ gridColumn: 2, gridRow: rowNum, left: DATE_W }}>
+                        {slot === 'am' ? '午前' : '午後'}
+                      </div>
+                      {displayUsers.map((u, ui) => {
+                        const entries = schedules.filter(s => s.userId === u.id && s.date === dk && s.slot === slot);
+                        return (
+                          <div key={u.id} className={`border-r border-b border-gray-300 px-1 py-1 align-top cursor-pointer ${rowBg}`}
+                            style={{ gridColumn: 3 + ui, gridRow: rowNum, height: '48px' }}
+                            onDragOver={e => e.preventDefault()}
+                            onDrop={() => onDrop(u.id, dk, slot)}
+                            onClick={() => entries.length === 0 && openNew([u.id], dk, slot)}>
+                            <div className="flex flex-col gap-0.5 min-h-[40px]">
+                              {entries.map(entry => (
+                                <div key={entry.id} draggable
+                                  onDragStart={() => { dragId.current = entry.id; }}
+                                  onClick={e => { e.stopPropagation(); openEdit(entry); }}
+                                  className={`text-xs px-1 py-0.5 rounded border cursor-grab truncate ${entry.color}`}
+                                  title={entry.title}>
+                                  {entry.title}
+                                </div>
+                              ))}
+                              {entries.length === 0 && <div className="text-xs text-gray-300 text-center pt-2">+</div>}
                             </div>
-                          ))}
-                          {entries.length === 0 && <div className="text-xs text-gray-300 text-center pt-2">+</div>}
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ));
-            })}
-          </tbody>
-        </table>
+                          </div>
+                        );
+                      })}
+                    </Fragment>
+                  );
+                })}
+              </Fragment>
+            );
+          })}
+        </div>
       </div>
 
       {modal.open && (
