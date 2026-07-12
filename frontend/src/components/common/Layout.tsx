@@ -29,7 +29,8 @@ const navItems: NavEntry[] = [
 ];
 
 export default function Layout() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // スマホでは折りたたみ状態で開始（サイドバーが画面幅の大半を占有するのを防ぐ）
+  const [sidebarOpen, setSidebarOpen] = useState(() => typeof window === 'undefined' || window.innerWidth >= 768);
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 

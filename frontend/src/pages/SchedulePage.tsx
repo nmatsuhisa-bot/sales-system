@@ -21,6 +21,11 @@ function getWeekDates(base: Date): Date[] {
   monday.setDate(base.getDate() - (day === 0 ? 6 : day - 1));
   return Array.from({ length: 7 }, (_, i) => { const d = new Date(monday); d.setDate(monday.getDate() + i); return d; });
 }
+function getMonthDates(base: Date): Date[] {
+  const year = base.getFullYear(), month = base.getMonth();
+  const days = new Date(year, month + 1, 0).getDate();
+  return Array.from({ length: days }, (_, i) => new Date(year, month, i + 1));
+}
 function dateKey(d: Date): string {
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
@@ -44,7 +49,10 @@ export default function SchedulePage() {
     date: '', slot: 'am' as 'am'|'pm'
   });
   const dragId = useRef<string | null>(null);
+  const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
   const weekDates = getWeekDates(base);
+  const monthDates = getMonthDates(base);
+  const displayDates = viewMode === 'week' ? weekDates : monthDates;
   const todayKey = dateKey(new Date());
   // 権限: 施工部門は閲覧のみ（管理者は常に編集可）
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
@@ -52,7 +60,10 @@ export default function SchedulePage() {
   // 部門別フィルタ
   const [deptFilter, setDeptFilter] = useState('');
   const departments = Array.from(new Set(users.map(u => u.department).filter(Boolean))) as string[];
-  const displayUsers = deptFilter ? users.filter(u => u.department === deptFilter) : users;
+  // 担当者フィルタ（スマホでは1人に絞ると横幅を圧迫せず見やすい）
+  const [userFilter, setUserFilter] = useState('');
+  const deptUsers = deptFilter ? users.filter(u => u.department === deptFilter) : users;
+  const displayUsers = userFilter ? deptUsers.filter(u => u.id === userFilter) : deptUsers;
 
   useEffect(() => {
     // 全ユーザーを表示（/auth/team は非admin可）。旧listUsersはadmin限定で3名しか出ない不具合の原因
@@ -70,14 +81,25 @@ export default function SchedulePage() {
   }, []);
 
   const loadSchedules = () => {
-    scheduleApi.list(dateKey(weekDates[0]), dateKey(weekDates[6]))
+    scheduleApi.list(dateKey(displayDates[0]), dateKey(displayDates[displayDates.length - 1]))
       .then(r => setSchedules((r.data || []).map((s: any) => ({
         id: s.id, userId: s.user_id, date: s.date, slot: s.slot, title: s.title, color: s.color,
       }))))
       .catch(() => {});
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { loadSchedules(); }, [base]);
+  useEffect(() => { loadSchedules(); }, [base, viewMode]);
+
+  function goPrev() {
+    const d = new Date(base);
+    if (viewMode === 'week') d.setDate(d.getDate() - 7); else d.setMonth(d.getMonth() - 1);
+    setBase(d);
+  }
+  function goNext() {
+    const d = new Date(base);
+    if (viewMode === 'week') d.setDate(d.getDate() + 7); else d.setMonth(d.getMonth() + 1);
+    setBase(d);
+  }
 
   function openNew(userIds: string[], date: string, slot: 'am'|'pm') {
     if (!canEdit) return;
@@ -135,7 +157,7 @@ export default function SchedulePage() {
     if (!win) return;
     const esc = (s: any) => String(s ?? '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' } as any)[c]);
     const head = displayUsers.map(u => `<th>${esc(u.full_name)}${u.department ? `<br><span style="font-size:8px;color:#888">${esc(u.department)}</span>` : ''}</th>`).join('');
-    const body = weekDates.map(date => {
+    const body = displayDates.map(date => {
       const dk = dateKey(date);
       return (['am', 'pm'] as const).map(slot => {
         const cells = displayUsers.map(u => {
@@ -146,9 +168,12 @@ export default function SchedulePage() {
         return `<tr>${dcell}<td class="sl">${slot === 'am' ? '午前' : '午後'}</td>${cells}</tr>`;
       }).join('');
     }).join('');
+    const rangeLabel = viewMode === 'week'
+      ? `${dateKey(displayDates[0])}〜${dateKey(displayDates[displayDates.length - 1])}`
+      : `${base.getFullYear()}年${base.getMonth() + 1}月`;
     win.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>スケジュール</title>
 <style>@page{size:A3 landscape;margin:8mm}body{font-family:"Yu Gothic","Meiryo",sans-serif;font-size:10px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #999;padding:2px 4px;text-align:center}th{background:#f0f0f0}td.dt{background:#f7f7f7;font-weight:bold;white-space:nowrap}td.sl{background:#fafafa}</style></head><body>
-<h3>スケジュール ${weekDates[0].getFullYear()}年${weekDates[0].getMonth() + 1}月　${dateKey(weekDates[0])}〜${dateKey(weekDates[6])}${deptFilter ? `（${deptFilter}）` : ''}</h3>
+<h3>スケジュール ${rangeLabel}${deptFilter ? `（${deptFilter}）` : ''}${userFilter ? `　${esc(displayUsers[0]?.full_name || '')}` : ''}</h3>
 <table><thead><tr><th>日付</th><th>時間</th>${head}</tr></thead><tbody>${body}</tbody></table>
 </body></html>`);
     win.document.close();
@@ -157,49 +182,68 @@ export default function SchedulePage() {
 
   return (
     <div className="p-4">
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <h1 className="text-xl font-bold text-gray-800">スケジュール管理
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h1 className="text-lg sm:text-xl font-bold text-gray-800">スケジュール管理
           {!canEdit && <span className="ml-2 text-xs font-normal text-amber-600 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 align-middle">閲覧のみ</span>}
         </h1>
-        <div className="flex gap-2 items-center flex-wrap">
-          <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} className="border rounded px-2 py-1 text-sm">
-            <option value="">全部門</option>
-            {departments.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
-          <button onClick={handlePrint} className="px-3 py-1 border rounded text-sm bg-gray-700 text-white hover:bg-gray-800">PDF出力</button>
-          <button onClick={() => { const d = new Date(base); d.setDate(d.getDate()-7); setBase(d); }} className="px-3 py-1 border rounded text-sm hover:bg-gray-100">&lt; 前週</button>
-          <button onClick={() => setBase(new Date())} className="px-3 py-1 border rounded text-sm bg-blue-50 hover:bg-blue-100">今週</button>
-          <button onClick={() => { const d = new Date(base); d.setDate(d.getDate()+7); setBase(d); }} className="px-3 py-1 border rounded text-sm hover:bg-gray-100">次週 &gt;</button>
-          <span className="text-sm text-gray-500 ml-2">{weekDates[0].getFullYear()}年{weekDates[0].getMonth()+1}月</span>
+        <div className="flex gap-1.5 items-center bg-gray-100 rounded-lg p-0.5">
+          <button onClick={() => setViewMode('week')}
+            className={`px-3 py-1 rounded text-sm font-medium transition-colors ${viewMode === 'week' ? 'bg-white shadow text-gray-800' : 'text-gray-500'}`}>週</button>
+          <button onClick={() => setViewMode('month')}
+            className={`px-3 py-1 rounded text-sm font-medium transition-colors ${viewMode === 'month' ? 'bg-white shadow text-gray-800' : 'text-gray-500'}`}>月</button>
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div className="flex gap-2 items-center flex-wrap">
+          <button onClick={goPrev} className="px-3 py-1.5 border rounded text-sm hover:bg-gray-100">&lt; {viewMode === 'week' ? '前週' : '前月'}</button>
+          <button onClick={() => setBase(new Date())} className="px-3 py-1.5 border rounded text-sm bg-blue-50 hover:bg-blue-100">今日</button>
+          <button onClick={goNext} className="px-3 py-1.5 border rounded text-sm hover:bg-gray-100">{viewMode === 'week' ? '次週' : '次月'} &gt;</button>
+          <span className="text-sm text-gray-600 font-medium ml-1">
+            {viewMode === 'week'
+              ? `${weekDates[0].getMonth()+1}/${weekDates[0].getDate()}〜${weekDates[6].getMonth()+1}/${weekDates[6].getDate()}`
+              : `${base.getFullYear()}年${base.getMonth()+1}月`}
+          </span>
+        </div>
+        <div className="flex gap-2 items-center flex-wrap">
+          <select value={deptFilter} onChange={e => { setDeptFilter(e.target.value); setUserFilter(''); }} className="border rounded px-2 py-1.5 text-sm">
+            <option value="">全部門</option>
+            {departments.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+          <select value={userFilter} onChange={e => setUserFilter(e.target.value)} className="border rounded px-2 py-1.5 text-sm max-w-[140px]">
+            <option value="">全員</option>
+            {deptUsers.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+          </select>
+          <button onClick={handlePrint} className="px-3 py-1.5 border rounded text-sm bg-gray-700 text-white hover:bg-gray-800">PDF出力</button>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
         <table className="border-collapse text-sm w-full">
           <thead>
             <tr>
-              <th className="border border-gray-300 bg-gray-100 px-1 py-2 text-center" style={{width:'60px'}}>日付</th>
-              <th className="border border-gray-300 bg-gray-100 px-1 py-2 text-center" style={{width:'36px'}}>時間</th>
+              <th className="sticky left-0 z-20 border border-gray-300 bg-gray-100 px-1 py-2 text-center w-[52px] sm:w-[60px]">日付</th>
+              <th className="sticky left-[52px] sm:left-[60px] z-20 border border-gray-300 bg-gray-100 px-1 py-2 text-center w-[30px] sm:w-[36px]">時間</th>
               {displayUsers.map(u => (
-                <th key={u.id} className="border border-gray-300 bg-gray-50 px-1 py-1 text-center text-xs leading-tight" style={{width:'90px', minWidth:'90px'}}>
+                <th key={u.id} className="border border-gray-300 bg-gray-50 px-1 py-1 text-center text-xs leading-tight w-[64px] min-w-[64px] sm:w-[90px] sm:min-w-[90px]">
                   {u.full_name.replace(' ', '\n').split('\n').map((line, i) => <div key={i}>{line}</div>)}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {weekDates.map(date => {
+            {displayDates.map(date => {
               const dk = dateKey(date);
               const isToday = dk === todayKey;
               const isWeekend = date.getDay() === 0 || date.getDay() === 6;
               return (['am','pm'] as const).map(slot => (
                 <tr key={`${dk}-${slot}`} className={isWeekend ? 'bg-red-50' : isToday ? 'bg-blue-50' : ''}>
                   {slot === 'am' && (
-                    <td rowSpan={2} className={`border border-gray-300 text-center text-xs font-medium px-1 whitespace-pre-line leading-tight ${isToday ? 'bg-blue-100 text-blue-700' : isWeekend ? 'bg-red-100 text-red-600' : 'bg-gray-50 text-gray-700'}`}>
+                    <td rowSpan={2} className={`sticky left-0 z-10 border border-gray-300 text-center text-xs font-medium px-1 whitespace-pre-line leading-tight ${isToday ? 'bg-blue-100 text-blue-700' : isWeekend ? 'bg-red-100 text-red-600' : 'bg-gray-50 text-gray-700'}`}>
                       {formatDate(date)}
                     </td>
                   )}
-                  <td className={`border border-gray-300 text-center text-xs px-1 py-1 font-medium ${isToday ? 'bg-blue-50' : isWeekend ? 'bg-red-50' : 'bg-gray-50'}`}>
+                  <td className={`sticky left-[52px] sm:left-[60px] z-10 border border-gray-300 text-center text-xs px-1 py-1 font-medium ${isToday ? 'bg-blue-50' : isWeekend ? 'bg-red-50' : 'bg-gray-50'}`}>
                     {slot === 'am' ? '午前' : '午後'}
                   </td>
                   {displayUsers.map(u => {
@@ -232,8 +276,8 @@ export default function SchedulePage() {
       </div>
 
       {modal.open && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-96">
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-bold mb-4">{modal.entry ? '予定を編集' : '予定を追加'}</h2>
 
             {!modal.entry && (
