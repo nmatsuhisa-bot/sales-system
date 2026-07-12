@@ -56,6 +56,7 @@ export default function UsersPage() {
             <tr>
               <th className="px-4 py-3 text-left font-medium text-gray-600">氏名</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">メールアドレス</th>
+              <th className="px-4 py-3 text-center font-medium text-gray-600">部門</th>
               <th className="px-4 py-3 text-center font-medium text-gray-600">権限</th>
               <th className="px-4 py-3 text-center font-medium text-gray-600">操作</th>
             </tr>
@@ -65,6 +66,11 @@ export default function UsersPage() {
               <tr key={u.id} className="hover:bg-blue-50">
                 <td className="px-4 py-3 font-medium text-gray-800">{u.full_name}</td>
                 <td className="px-4 py-3 text-gray-600">{u.email}</td>
+                <td className="px-4 py-3 text-center">
+                  {u.department
+                    ? <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">{u.department}</span>
+                    : <span className="text-xs text-gray-300">—</span>}
+                </td>
                 <td className="px-4 py-3 text-center">
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${u.role === 'admin' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
                     {u.role === 'admin' ? '管理者' : 'ユーザー'}
