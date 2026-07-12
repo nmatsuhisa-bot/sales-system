@@ -15,6 +15,21 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-07-12 — Claude(Cowork) — /procurement 検証（異常なし・大規模リファクタ後の再確認）
+**触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
+**前回(07-11)以降の変更**: `4821d1b`（#14 部材マスタを製品BOMマスタへ集約＋NFKC正規化）で **ProcurementPage.tsx が643行削除**され発注書専用に再構成、部材/BOMタブは BomMasterPage.tsx へ移設。他 `f9ff83f`(売上計画注記)・`6f99fed`(ユーザー部門列)・`4256e3e`/`1452308`(スケジュール)は procurement 非該当。
+**検証結果（退行なし）**:
+- エンドポイント整合: 新ProcurementPage.tsx の procurementApi 参照17系統（listPurchaseOrders/getPurchaseOrder/create/update/deletePurchaseOrder/updatePoStatus/poBreakdowns/createPOsFromBreakdowns/receiveLine/receivePoStock/allocateFromStock/poPdfUrl/listMaterials/listSuppliers/create/update/deleteMaterialOrder）が api/index.ts 定義および materials.py の実ルート（32ルート）に全一致。不一致なし。ルート順序も `/purchase-orders/breakdowns`・`/from-breakdowns` が `/{po_id}` より前で shadow なし。
+- P-03/P-05 0値表示: `_mo_dict`(L439-440) order_qty/unit_price、発注書HTML(L800) price ともに `is not None` 維持。amount は `or 0` で¥0正常。
+- 新規発注バリデーション: PODetail の `!newLine.material_id`(L264) alert / 受入数量 `qty<=0`(L289) 健在。
+- エラーハンドリング: 旧P-01の赤バナー(setError)はリファクタで撤去され、アクション系(作成/受入/引当/取込)は alert() で明示。一覧のバックグラウンド再取得(load/suppliers/matResults)は `.catch(()=>{})` で無通知。※実害小のため今回は非修正（下記メモ参照）。
+- 構文: materials.py・normalize.py py_compile OK、ProcurementPage.tsx・BomMasterPage.tsx esbuild OK。全角はコメント/HTML文字列/docstringのみ（コード構文への混入なし）。f-string内リスト内包表記なし。
+**ライブAPI/UI確認**: 無人実行のため web_fetch は対象ドメイン provenance外 → 静的解析で対応。
+**運用メモ**: P-02（既存DBに material_orders.order_no/project_unit_id 列が無い場合 GET /material-orders が500）は `/setup-bom-master-tables` 実行済み前提で本番影響なし。
+**観察(未修正・要否は運用判断)**: 一覧再取得の silent catch は、取得失敗時に発注一覧が無言で空表示になりうる。背景ポーリングでの alert 連発回避の意図とも取れるため退行断定せず据え置き。次回、明示要望あれば軽微な赤バナー復活を提案。
+**バグ検出**: なし（異常なし）。push はWORKLOG更新のみ。
+
+
 ### 2026-07-11 — Claude(Cowork) — /procurement 検証（異常なし）
 **触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
 **検証結果**: 静的解析で P-01〜P-05 全て現状維持・退行なし。前回(07-10)以降の新規コミットは `8119f3b`（ダッシュボード月別ラベル/製造計画ガント列の修正）のみで、procurement 系ファイルへの変更なし＝退行なし。
