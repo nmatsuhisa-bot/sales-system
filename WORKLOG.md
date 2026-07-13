@@ -15,6 +15,18 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-07-13 — Claude(Cowork) — /procurement 検証（異常なし）
+**触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
+**検証結果**: 静的解析で退行なし。前回(07-12)以降 origin/main の新規コミットは WORKLOG更新 `c1bc8ee` のみ＝procurement系コード変更なし＝退行なし。
+- エンドポイント整合: ProcurementPage.tsx の procurementApi 参照17系統が api/index.ts 定義および materials.py の実ルート（32ルート）に全一致。不一致なし。
+- P-03/P-05 0値表示: `_mo_dict`(L439-440) order_qty/unit_price、発注書HTML(L799-800) qty/price ともに `is not None` 維持。amount は `or 0` で¥0正常。
+- 新規発注バリデーション: `!newLine.material_id`(L264) alert / 受入数量 `qty<=0`(L289) alert 健在。
+- 構文: materials.py py_compile OK、ProcurementPage.tsx esbuild OK。
+**ライブAPI/UI確認**: 無人実行のため web_fetch は対象ドメイン provenance外 → 静的解析で対応。
+**運用メモ**: P-02（既存DBに material_orders.order_no/project_unit_id 列が無い場合 GET /material-orders が500）は `/setup-bom-master-tables` 実行済み前提で本番影響なし。
+**バグ検出**: なし（異常なし）。push はWORKLOG更新のみ。
+
+
 ### 2026-07-12 — Claude(Cowork) — /procurement 検証（異常なし・大規模リファクタ後の再確認）
 **触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
 **前回(07-11)以降の変更**: `4821d1b`（#14 部材マスタを製品BOMマスタへ集約＋NFKC正規化）で **ProcurementPage.tsx が643行削除**され発注書専用に再構成、部材/BOMタブは BomMasterPage.tsx へ移設。他 `f9ff83f`(売上計画注記)・`6f99fed`(ユーザー部門列)・`4256e3e`/`1452308`(スケジュール)は procurement 非該当。
