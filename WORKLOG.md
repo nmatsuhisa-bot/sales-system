@@ -15,6 +15,17 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-07-15 — Claude(Cowork) — /procurement 検証（異常なし）
+**触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
+**検証結果**: 静的解析で退行なし。前回(07-14 `d5375d4`)以降 origin/main に新規コミット無し（local HEAD == origin/main == `d5375d4`）＝procurement系コード変更なし＝退行なし。
+- エンドポイント整合: ProcurementPage.tsx の procurementApi 参照17系統（list/get/create/update/deletePurchaseOrder, updatePoStatus, poBreakdowns, createPOsFromBreakdowns, receiveLine, receivePoStock, allocateFromStock, poPdfUrl, listMaterials, listSuppliers, create/update/deleteMaterialOrder）が api/index.ts 定義および materials.py の実ルート（32ルート）に全一致。不一致なし。ルート順序も `/purchase-orders/breakdowns`(L578)・`/from-breakdowns`(L595) が `/{po_id}`(L656) より前で shadow なし。
+- P-03/P-05 0値表示: `_mo_dict`(L439-440) order_qty/unit_price、発注書HTML(L799-800) qty/price ともに `is not None` 維持。amount は `or 0` で¥0正常。
+- 新規発注バリデーション: `!newLine.material_id`(L264) alert / 受入数量 `qty<=0`(L289) alert 健在。
+- 構文: materials.py py_compile OK、ProcurementPage.tsx・api/index.ts esbuild OK。全角はコメント/docstring/HTML文字列のみ（コード構文への混入なし）。
+**ライブAPI/UI確認**: 無人実行のため web_fetch は対象ドメイン provenance外 → 静的解析で対応。
+**運用メモ**: P-02（既存DBに material_orders.order_no/project_unit_id 列が無い場合 GET /material-orders が500）は `/setup-bom-master-tables` 実行済み前提で本番影響なし。
+**バグ検出**: なし（異常なし）。push はWORKLOG更新のみ。
+
 ### 2026-07-14 — Claude(Cowork) — /procurement 検証（異常なし）
 **触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
 **検証結果**: 静的解析で退行なし。前回(07-13)以降 origin/main に procurement 系コミット無し（HEAD `0848067`＝07-13 WORKLOG更新）。
