@@ -15,6 +15,18 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-07-17 — Claude(Cowork) — /procurement 検証（異常なし）
+**触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
+**検証結果**: 静的解析で退行なし。HEAD==origin/main==`f1f412a`（07-15 ヘルプ同期、procurement系ファイル非該当）＝前回(07-15)以降 procurement コード変更なし＝退行なし。
+- エンドポイント整合: ProcurementPage.tsx の procurementApi 参照17系統すべて api/index.ts に定義あり（MISSING なし）。materials.py 実ルートと整合。
+- P-03/P-05 0値表示: `_mo_dict`(L439-440) order_qty/unit_price、発注書HTML(L799-800) qty/price ともに `is not None` 維持。amount は `or 0` で¥0正常。
+- 新規発注バリデーション: `!newLine.material_id`(L264) alert / 受入数量 `qty<=0`(L289) alert 健在。
+- 構文: materials.py py_compile OK、ProcurementPage.tsx・api/index.ts esbuild OK。全角はコメント/HTML文字列のみ（コード構文への混入なし）。
+**ライブAPI/UI確認**: 無人実行のため web_fetch は対象ドメイン provenance外 → 静的解析で対応。
+**運用メモ**: P-02（既存DBに material_orders.order_no/project_unit_id 列が無い場合 GET /material-orders が500）は `/setup-bom-master-tables` 実行済み前提で本番影響なし。
+**バグ検出**: なし（異常なし）。push はWORKLOG更新のみ。
+
+
 ### 2026-07-15 — Claude(Cowork) — マニュアル（ヘルプページ）を最新機能へ同期
 **触ったファイル**: `frontend/src/pages/HelpPage.tsx`
 **背景**: 前回マニュアル更新(5f78e90, 07-07)以降の機能追加をヘルプに反映。
