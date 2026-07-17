@@ -660,6 +660,12 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
     <tr>
       <td colspan="2" style="border:1px solid #ccc;padding:6px 12px;text-align:right">消費税({int(q.tax_rate or 10)}%)</td>
       <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{int(q.tax_amount or 0):,}</td></tr>'''
+    # 工数が無い見積で「その他 ¥0」を出さない（頭紙の内訳と同じ条件）
+    labor_row_detail = f'''
+  <tr style="font-weight:bold">
+    <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">その他</td>
+    <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.labor_total or 0):,}</td>
+  </tr>''' if q.labor_total else ''
     tax_row_detail = '' if _tax_excluded else f'''
   <tr style="font-weight:bold">
     <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">消費税({int(q.tax_rate or 10)}%)</td>
@@ -797,10 +803,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
     <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">小計</td>
     <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.subtotal or 0):,}</td>
   </tr>
-  <tr style="font-weight:bold">
-    <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">その他</td>
-    <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.labor_total or 0):,}</td>
-  </tr>
+  {labor_row_detail}
   {tax_row_detail}
   <tr style="font-weight:bold;background:#fff9c4;font-size:14px">
     <td colspan="6" style="text-align:right;border:2px solid #000;padding:6px 8px">合計金額{tax_label}</td>
