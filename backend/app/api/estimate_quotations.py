@@ -160,13 +160,20 @@ class QuotationHeaderCreate(BaseModel):
     project_order_id: Optional[str] = None
     child_no: Optional[str] = None
     customer_name: Optional[str] = None
+    customer_contact: Optional[str] = None
     delivery_name: Optional[str] = None
+    delivery_place: Optional[str] = None
     title: Optional[str] = None
     delivery_terms: Optional[str] = None
     payment_terms: Optional[str] = None
     valid_until: Optional[date] = None
+    valid_until_text: Optional[str] = None
+    tax_display: Optional[str] = None          # included / excluded
+    exclusions: Optional[str] = None           # 御見積除外事項（1行1項目）
     issue_date: Optional[date] = None
     sales_person_name: Optional[str] = None
+    created_by_name: Optional[str] = None
+    approver_name: Optional[str] = None
     notes: Optional[str] = None
     internal_notes: Optional[str] = None
     expected_updated_at: Optional[str] = None   # 楽観ロック用（読込時の更新日時）
@@ -198,11 +205,16 @@ def _q_to_dict(q: QuotationHeader) -> dict:
         "id": str(q.id), "quotation_no": q.quotation_no,
         "project_order_id": str(q.project_order_id) if q.project_order_id else None,
         "child_no": q.child_no, "customer_name": q.customer_name,
-        "delivery_name": q.delivery_name, "title": q.title,
+        "customer_contact": q.customer_contact,
+        "delivery_name": q.delivery_name, "delivery_place": q.delivery_place, "title": q.title,
         "delivery_terms": q.delivery_terms, "payment_terms": q.payment_terms,
         "valid_until": q.valid_until.isoformat() if q.valid_until else None,
+        "valid_until_text": q.valid_until_text,
+        "tax_display": q.tax_display or "included",
+        "exclusions": q.exclusions,
         "issue_date": q.issue_date.isoformat() if q.issue_date else None,
         "sales_person_name": q.sales_person_name,
+        "created_by_name": q.created_by_name, "approver_name": q.approver_name,
         "subtotal": int(q.subtotal or 0), "tax_rate": float(q.tax_rate or 10),
         "tax_amount": int(q.tax_amount or 0), "total_amount": int(q.total_amount or 0),
         "labor_total": int(q.labor_total or 0), "status": q.status,
@@ -269,11 +281,15 @@ def create_quotation(data: QuotationHeaderCreate, db: Session = Depends(get_db))
         quotation_no=_gen_quotation_no(db),
         project_order_id=data.project_order_id,
         child_no=data.child_no,
-        customer_name=nfkc(customer_name), delivery_name=nfkc(delivery_name),
+        customer_name=nfkc(customer_name), customer_contact=nfkc(data.customer_contact),
+        delivery_name=nfkc(delivery_name), delivery_place=nfkc(data.delivery_place),
         title=nfkc(title), delivery_terms=nfkc(data.delivery_terms),
         payment_terms=nfkc(data.payment_terms), valid_until=data.valid_until,
+        valid_until_text=nfkc(data.valid_until_text),
+        tax_display=data.tax_display or "included", exclusions=nfkc(data.exclusions),
         issue_date=data.issue_date or date.today(),
         sales_person_name=nfkc(sales_person_name),
+        created_by_name=nfkc(data.created_by_name), approver_name=nfkc(data.approver_name),
         subtotal=subtotal, tax_amount=tax, total_amount=total, labor_total=labor_total,
         notes=nfkc(data.notes), internal_notes=nfkc(data.internal_notes),
     )
@@ -324,10 +340,14 @@ def duplicate_quotation(quotation_id: str, data: dict, db: Session = Depends(get
     new_q = QuotationHeader(
         quotation_no=_gen_quotation_no(db),
         project_order_id=po.id, child_no=po.child_no,
-        customer_name=customer_name, delivery_name=delivery_name,
+        customer_name=customer_name, customer_contact=src.customer_contact,
+        delivery_name=delivery_name, delivery_place=src.delivery_place,
         title=title, delivery_terms=src.delivery_terms, payment_terms=src.payment_terms,
-        valid_until=src.valid_until, issue_date=date.today(),
+        valid_until=src.valid_until, valid_until_text=src.valid_until_text,
+        tax_display=src.tax_display, exclusions=src.exclusions,
+        issue_date=date.today(),
         sales_person_name=sales_person_name,
+        created_by_name=src.created_by_name, approver_name=src.approver_name,
         subtotal=src.subtotal, tax_rate=src.tax_rate, tax_amount=src.tax_amount,
         total_amount=src.total_amount, labor_total=src.labor_total,
         notes=src.notes, internal_notes=src.internal_notes,
@@ -628,15 +648,49 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
             <td style="border:1px solid #ccc;padding:6px 12px">その他</td>
             <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{int(q.labor_total):,}</td></tr>'''
 
+    # ===== 税抜/税込 表示 =====
+    _tax_excluded = (q.tax_display or "included") == "excluded"
+    _subtotal_all = int((q.subtotal or 0) + (q.labor_total or 0))
+    grand_total = _subtotal_all if _tax_excluded else int(q.total_amount or 0)
+    tax_label = "(税抜)" if _tax_excluded else "(消費税込み)"
+    tax_note = ('<div style="margin-top:8px;font-size:11px">※上記金額には消費税は含まれておりません。</div>'
+                if _tax_excluded else '')
+    # 税抜表示のときは消費税行を出さない（合計＝税抜金額）。頭紙と明細でcolspanが異なる
+    tax_row = '' if _tax_excluded else f'''
+    <tr>
+      <td colspan="2" style="border:1px solid #ccc;padding:6px 12px;text-align:right">消費税({int(q.tax_rate or 10)}%)</td>
+      <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{int(q.tax_amount or 0):,}</td></tr>'''
+    tax_row_detail = '' if _tax_excluded else f'''
+  <tr style="font-weight:bold">
+    <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">消費税({int(q.tax_rate or 10)}%)</td>
+    <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.tax_amount or 0):,}</td>
+  </tr>'''
+
+    # ===== 御見積除外事項（1行1項目）=====
+    _exc = [l.strip() for l in (q.exclusions or "").splitlines() if l.strip()]
+    exclusions_html = ''
+    if _exc:
+        _rows = "".join(f'<div style="padding:1px 0">{l}</div>' for l in _exc)
+        exclusions_html = f'''
+  <div style="margin-top:16px;font-size:11px">
+    <div style="font-weight:bold;margin-bottom:4px">※ 御見積除外事項</div>
+    <div style="border:1px solid #ccc;padding:6px 10px;line-height:1.5">{_rows}</div>
+  </div>'''
+
+    # 宛名（注文主＋御担当者）・受渡場所・見積有効期限
+    addressee = " ".join(x for x in (q.customer_name, q.customer_contact) if x) or " "
+    delivery_place = q.delivery_place or q.delivery_name or " "
+    valid_until_disp = q.valid_until_text or (q.valid_until or " ")
+
     cover_html = f'''
 <div style="page-break-after:always">
   <div style="text-align:right;font-size:12px">No. {q.quotation_no}</div>
   <div style="text-align:right;font-size:12px;margin-bottom:4px">日付 {q.issue_date or '    '}</div>
   <h1 style="text-align:center;font-size:24px;margin:6px 0 14px;letter-spacing:8px">御 見 積 書</h1>
-  <div style="font-size:18px;font-weight:bold;border-bottom:2px solid #000;padding-bottom:4px">{q.customer_name or ' '} &nbsp; 殿</div>
+  <div style="font-size:18px;font-weight:bold;border-bottom:2px solid #000;padding-bottom:4px">{addressee} &nbsp; 殿</div>
   <div style="margin:8px 0 18px;font-size:12px">件名: {q.title or ' '}　／　納入先: {q.delivery_name or ' '}　／　担当: {q.sales_person_name or ' '}</div>
   <table style="width:100%;margin-bottom:18px"><tr>
-    <td style="font-size:16px;font-weight:bold">合計金額　￥<span style="font-size:22px">{int(q.total_amount or 0):,}</span>　<span style="font-size:11px;color:#888">(消費税込み)</span></td>
+    <td style="font-size:16px;font-weight:bold">合計金額　￥<span style="font-size:22px">{grand_total:,}</span>　<span style="font-size:11px;color:#888">{tax_label}</span></td>
   </tr></table>
   <h3 style="font-size:14px;margin:10px 0 6px">■ 大分類別 内訳（総括）</h3>
   <table style="width:68%;border-collapse:collapse;font-size:13px">
@@ -648,14 +702,14 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
     {section_rows}
     <tr style="font-weight:bold;background:#f5f5f5">
       <td colspan="2" style="border:1px solid #ccc;padding:6px 12px;text-align:right">小計</td>
-      <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{int((q.subtotal or 0)+(q.labor_total or 0)):,}</td></tr>
-    <tr>
-      <td colspan="2" style="border:1px solid #ccc;padding:6px 12px;text-align:right">消費税({int(q.tax_rate or 10)}%)</td>
-      <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{int(q.tax_amount or 0):,}</td></tr>
+      <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{_subtotal_all:,}</td></tr>
+    {tax_row}
     <tr style="font-weight:bold;background:#fff9c4;font-size:15px">
-      <td colspan="2" style="border:2px solid #000;padding:8px 12px;text-align:right">合計金額</td>
-      <td style="border:2px solid #000;padding:8px 12px;text-align:right">¥{int(q.total_amount or 0):,}</td></tr>
+      <td colspan="2" style="border:2px solid #000;padding:8px 12px;text-align:right">合計金額{tax_label}</td>
+      <td style="border:2px solid #000;padding:8px 12px;text-align:right">¥{grand_total:,}</td></tr>
   </table>
+  {tax_note}
+  {exclusions_html}
   <div style="margin-top:14px;font-size:11px;color:#666">※ 内訳明細は次ページ以降をご参照ください。</div>
 </div>
 '''
@@ -690,21 +744,21 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
   <tr>
     <td style="width:55%;vertical-align:bottom">
       <div style="font-size:18px;font-weight:bold;border-bottom:2px solid #000;padding-bottom:4px">
-        {q.customer_name or ' '} &nbsp; 殿
+        {addressee} &nbsp; 殿
       </div>
       <div style="margin-top:6px;font-size:12px">納入先: {q.delivery_name or ' '}</div>
     </td>
     <td style="width:45%;vertical-align:top;padding-left:20px">
       <table cellspacing="0" style="font-size:11px">
         <tr><td colspan="2" style="font-size:18px;font-weight:bold">合計金額 ￥&nbsp;
-          <span style="font-size:22px">{int(q.total_amount or 0):,}</span>
+          <span style="font-size:22px">{grand_total:,}</span>
         </td></tr>
-        <tr><td style="color:#888">(消費税込み)</td></tr>
+        <tr><td style="color:#888">{tax_label}</td></tr>
         <tr><td colspan="2" style="padding-top:8px">
           <table style="font-size:11px;border-collapse:collapse;width:100%">
             <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">納入期限</td><td style="border:1px solid #ccc;padding:3px 8px">{q.delivery_terms or ' '}</td></tr>
-            <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">受渡場所</td><td style="border:1px solid #ccc;padding:3px 8px">{q.delivery_name or ' '}</td></tr>
-            <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">見積有効期限</td><td style="border:1px solid #ccc;padding:3px 8px">{q.valid_until or ' '}</td></tr>
+            <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">受渡場所</td><td style="border:1px solid #ccc;padding:3px 8px">{delivery_place}</td></tr>
+            <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">見積有効期限</td><td style="border:1px solid #ccc;padding:3px 8px">{valid_until_disp}</td></tr>
             <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">御支払条件</td><td style="border:1px solid #ccc;padding:3px 8px">{q.payment_terms or ' '}</td></tr>
           </table>
         </td></tr>
@@ -747,16 +801,15 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
     <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">その他</td>
     <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.labor_total or 0):,}</td>
   </tr>
-  <tr style="font-weight:bold">
-    <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">消費税({int(q.tax_rate or 10)}%)</td>
-    <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.tax_amount or 0):,}</td>
-  </tr>
+  {tax_row_detail}
   <tr style="font-weight:bold;background:#fff9c4;font-size:14px">
-    <td colspan="6" style="text-align:right;border:2px solid #000;padding:6px 8px">合計金額</td>
-    <td style="text-align:right;border:2px solid #000;padding:6px 8px">¥{int(q.total_amount or 0):,}</td>
+    <td colspan="6" style="text-align:right;border:2px solid #000;padding:6px 8px">合計金額{tax_label}</td>
+    <td style="text-align:right;border:2px solid #000;padding:6px 8px">¥{grand_total:,}</td>
   </tr>
 </tfoot>
 </table>
+{tax_note}
+{exclusions_html}
 
 <!-- 会社情報フッター -->
 <div style="margin-top:30px;border:2px solid #000;padding:10px;display:flex;align-items:center">
@@ -767,9 +820,9 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
     E-mail: tech@inoue-d.co.jp
   </div>
   <div style="margin-left:auto;font-size:11px">
-    担当: {q.sales_person_name or ' '}<br>
-    作成:     <br>
-    検印:     
+    担当: {q.sales_person_name or '　　　'}<br>
+    作成: {q.created_by_name or '　　　'}<br>
+    検印: {q.approver_name or '　　　'}
   </div>
 </div>
 </body></html>"""

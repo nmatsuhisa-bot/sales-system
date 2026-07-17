@@ -63,10 +63,12 @@ export default function EstimateFormPage() {
   const [header, setHeader] = useState({
     project_order_id: projectOrderId,
     child_no: childNo,
-    customer_name: '', delivery_name: '', title: '',
+    customer_name: '', customer_contact: '', delivery_name: '', delivery_place: '', title: '',
     delivery_terms: '受注後　　ヶ月', payment_terms: '納品後30日以内',
-    valid_until: '', issue_date: new Date().toISOString().split('T')[0],
-    sales_person_name: '', notes: '', internal_notes: '',
+    valid_until: '', valid_until_text: '', tax_display: 'included', exclusions: '',
+    issue_date: new Date().toISOString().split('T')[0],
+    sales_person_name: '', created_by_name: '', approver_name: '',
+    notes: '', internal_notes: '',
   });
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [laborDetails, setLaborDetails] = useState<LaborDetail[]>([]);
@@ -126,13 +128,20 @@ export default function EstimateFormPage() {
           project_order_id: q.project_order_id || '',
           child_no: q.child_no || '',
           customer_name: q.customer_name || '',
+          customer_contact: q.customer_contact || '',
           delivery_name: q.delivery_name || '',
+          delivery_place: q.delivery_place || '',
           title: q.title || '',
           delivery_terms: q.delivery_terms || '',
           payment_terms: q.payment_terms || '',
           valid_until: q.valid_until || '',
+          valid_until_text: q.valid_until_text || '',
+          tax_display: q.tax_display || 'included',
+          exclusions: q.exclusions || '',
           issue_date: q.issue_date || '',
           sales_person_name: q.sales_person_name || '',
+          created_by_name: q.created_by_name || '',
+          approver_name: q.approver_name || '',
           notes: q.notes || '',
           internal_notes: q.internal_notes || '',
         });
@@ -445,11 +454,34 @@ export default function EstimateFormPage() {
             </select>
           </div>
           <HeaderField header={header} setHeader={setHeader} label="注文主" name="customer_name" />
+          <HeaderField header={header} setHeader={setHeader} label="注文主 御担当者" name="customer_contact" />
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">金額の表示</label>
+            <select value={header.tax_display}
+              onChange={e => setHeader(h => ({ ...h, tax_display: e.target.value }))}
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
+              <option value="included">税込（合計金額に消費税を含む）</option>
+              <option value="excluded">税抜（※消費税は含みません を明記）</option>
+            </select>
+          </div>
           <HeaderField header={header} setHeader={setHeader} label="納入先" name="delivery_name" />
+          <HeaderField header={header} setHeader={setHeader} label="受渡場所（空欄なら納入先）" name="delivery_place" cols={2} />
           <HeaderField header={header} setHeader={setHeader} label="見積日" name="issue_date" type="date" />
-          <HeaderField header={header} setHeader={setHeader} label="有効期限" name="valid_until" type="date" />
-          <HeaderField header={header} setHeader={setHeader} label="納期" name="delivery_terms" />
-          <HeaderField header={header} setHeader={setHeader} label="支払条件" name="payment_terms" />
+          <HeaderField header={header} setHeader={setHeader} label="有効期限（日付）" name="valid_until" type="date" />
+          <HeaderField header={header} setHeader={setHeader} label="有効期限（文言・優先／例: 3ヶ月）" name="valid_until_text" />
+          <HeaderField header={header} setHeader={setHeader} label="納入期限（例: 御協議）" name="delivery_terms" />
+          <HeaderField header={header} setHeader={setHeader} label="支払条件" name="payment_terms" cols={2} />
+          <HeaderField header={header} setHeader={setHeader} label="作成" name="created_by_name" />
+          <HeaderField header={header} setHeader={setHeader} label="検印" name="approver_name" />
+          <div className="md:col-span-3">
+            <label className="block text-xs text-gray-500 mb-1">
+              御見積除外事項（1行1項目・見積書に印字）
+            </label>
+            <textarea value={header.exclusions} rows={4}
+              onChange={e => setHeader(h => ({ ...h, exclusions: e.target.value }))}
+              placeholder={'基礎工事:アンカーボルト並セット\n電気配線1次側:制御盤への電源配線\n既設ダクト処分'}
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+          </div>
           <HeaderField header={header} setHeader={setHeader} label="備考" name="notes" cols={2} />
           <HeaderField header={header} setHeader={setHeader} label="社内メモ" name="internal_notes" />
         </div>
@@ -620,8 +652,16 @@ export default function EstimateFormPage() {
             <div className="flex justify-between text-gray-600"><span>社内工数小計</span><span>¥{laborTotal.toLocaleString()}</span></div>
             <div className="flex justify-between text-gray-600"><span>消費税（10%）</span><span>¥{tax.toLocaleString()}</span></div>
             <div className="flex justify-between text-lg font-bold text-gray-800 border-t pt-2">
-              <span>合計金額</span><span className="text-blue-700">¥{total.toLocaleString()}</span>
+              <span>合計金額{header.tax_display === 'excluded' ? '（税抜）' : '（税込）'}</span>
+              <span className="text-blue-700">
+                ¥{(header.tax_display === 'excluded' ? subtotal : total).toLocaleString()}
+              </span>
             </div>
+            {header.tax_display === 'excluded' && (
+              <p className="text-[11px] text-gray-400 text-right pt-1">
+                見積書は税抜で印字されます（システム内の管理金額は税込 ¥{total.toLocaleString()}）
+              </p>
+            )}
           </div>
         </div>
       </div>

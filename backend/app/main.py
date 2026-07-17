@@ -283,6 +283,29 @@ def setup_order_ticket_shipping():
     return {"status": "ok", "message": "受注票 前受金3回・出荷方法カラム追加完了"}
 
 
+@app.get("/setup-quotation-cover-fields")
+def setup_quotation_cover_fields():
+    """見積書に御担当者・受渡場所・有効期限テキスト・税抜表示・除外事項・作成/検印カラムを追加"""
+    from app.db.models import engine
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            for sql in [
+                "ALTER TABLE quotation_headers ADD COLUMN IF NOT EXISTS customer_contact VARCHAR(100)",
+                "ALTER TABLE quotation_headers ADD COLUMN IF NOT EXISTS delivery_place VARCHAR(300)",
+                "ALTER TABLE quotation_headers ADD COLUMN IF NOT EXISTS valid_until_text VARCHAR(50)",
+                "ALTER TABLE quotation_headers ADD COLUMN IF NOT EXISTS tax_display VARCHAR(20) DEFAULT 'included'",
+                "ALTER TABLE quotation_headers ADD COLUMN IF NOT EXISTS exclusions TEXT",
+                "ALTER TABLE quotation_headers ADD COLUMN IF NOT EXISTS created_by_name VARCHAR(100)",
+                "ALTER TABLE quotation_headers ADD COLUMN IF NOT EXISTS approver_name VARCHAR(100)",
+            ]:
+                conn.execute(text(sql))
+            conn.commit()
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    return {"status": "ok", "message": "見積書 頭紙項目カラム追加完了"}
+
+
 @app.get("/setup-bfq-patterns")
 def setup_bfq_patterns():
     """BFQ見積パターン（系列/本体/排風型式/オプション）テーブル作成＋マスタ投入。

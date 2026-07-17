@@ -613,13 +613,20 @@ class QuotationHeader(Base):
     project_order_id = Column(UUID(as_uuid=True), ForeignKey("project_orders.id"))
     child_no = Column(String(100))
     customer_name = Column(String(200))
+    customer_contact = Column(String(100))     # 注文主の御担当者（例: 大江課長）
     delivery_name = Column(String(300))
+    delivery_place = Column(String(300))       # 受渡場所（未入力時は納入先を流用）
     title = Column(String(500))
-    delivery_terms = Column(String(200))
+    delivery_terms = Column(String(200))       # 納入期限（御協議 等）
     payment_terms = Column(String(200))
     valid_until = Column(Date)
+    valid_until_text = Column(String(50))      # 見積有効期限の相対表記（3ヶ月 等）。優先して表示
+    tax_display = Column(String(20), default='included')  # included=税込表示 / excluded=税抜表示
+    exclusions = Column(Text)                  # 御見積除外事項（1行1項目）
     issue_date = Column(Date)
     sales_person_name = Column(String(100))
+    created_by_name = Column(String(100))      # 作成者（帳票の「作成」欄）
+    approver_name = Column(String(100))        # 検印者（帳票の「検印」欄）
     subtotal = Column(Numeric(15, 0), default=0)
     tax_rate = Column(Numeric(5, 2), default=10)
     tax_amount = Column(Numeric(15, 0), default=0)
