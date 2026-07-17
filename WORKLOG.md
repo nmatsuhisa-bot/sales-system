@@ -15,6 +15,19 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-07-18 — Claude(Cowork) — /procurement 検証（異常なし）
+**触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
+**検証結果**: 静的解析で退行なし。前回(07-17朝 `f1f412a`)以降 origin/main に新規コミット `eb7fddc`（業務コード指定で500になる不具合の修正／UUID列cast失敗）ほか 32ad8f5/300008d/9c966a6 等あり。**いずれも procurement 非該当**（変更対象: arrangements.py, estimate_quotations.py, masters.py, projects.py, models.py, その他 estimate/amount 系）。materials.py・ProcurementPage.tsx・api/index.ts への変更なし＝退行なし。
+- **eb7fddc の波及確認**: models.py に共通ヘルパー `pk_or_code()` 追加＋`or_` import のみ。MaterialMaster/BomItem/MaterialOrder/Supplier 各モデル定義は不変。materials.py の `or_(` は L23/L211 の name/code ilike 検索のみで UUID cast の500バグ対象外、`.id == *_id` は UUID主キーの直接参照＝同種バグなし。→ procurement に修正不要。
+- エンドポイント整合: ProcurementPage.tsx の procurementApi 参照17系統すべて api/index.ts に定義あり（MISSING なし）。materials.py 実ルートと整合。
+- P-03/P-05 0値表示: `_mo_dict`(L439-440) order_qty/unit_price、発注書HTML(L799-800) qty/price ともに `is not None` 維持。amount は `or 0` で¥0正常。
+- 新規発注バリデーション: `!newLine.material_id`(L264) alert / 受入数量 `qty<=0`(L289) alert 健在。
+- 構文: materials.py・models.py py_compile OK、ProcurementPage.tsx・api/index.ts esbuild OK。
+**ライブAPI/UI確認**: 無人実行のため web_fetch は対象ドメイン provenance外 → 静的解析で対応。
+**運用メモ**: P-02（既存DBに material_orders.order_no/project_unit_id 列が無い場合 GET /material-orders が500）は `/setup-bom-master-tables` 実行済み前提で本番影響なし。
+**バグ検出**: なし（異常なし）。push はWORKLOG更新のみ。
+
+
 ### 2026-07-17 — Claude(Cowork) — /procurement 検証（異常なし）
 **触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
 **検証結果**: 静的解析で退行なし。HEAD==origin/main==`f1f412a`（07-15 ヘルプ同期、procurement系ファイル非該当）＝前回(07-15)以降 procurement コード変更なし＝退行なし。
