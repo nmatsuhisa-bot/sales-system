@@ -657,11 +657,12 @@ export default function EstimateFormPage() {
                 ¥{(header.tax_display === 'excluded' ? subtotal : total).toLocaleString()}
               </span>
             </div>
-            {header.tax_display === 'excluded' && (
-              <p className="text-[11px] text-gray-400 text-right pt-1">
-                見積書は税抜で印字されます（システム内の管理金額は税込 ¥{total.toLocaleString()}）
-              </p>
-            )}
+            <p className="text-[11px] text-gray-400 text-right pt-1">
+              {header.tax_display === 'excluded'
+                ? `見積書は税抜で印字されます（税込は ¥${total.toLocaleString()}）`
+                : `見積書は税込で印字されます（税抜は ¥${subtotal.toLocaleString()}）`}
+              <br />案件金額・売上計画表・工番/単番判定は税抜 ¥{subtotal.toLocaleString()} で扱われます
+            </p>
           </div>
         </div>
       </div>

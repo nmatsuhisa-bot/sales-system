@@ -283,6 +283,82 @@ def setup_order_ticket_shipping():
     return {"status": "ok", "message": "受注票 前受金3回・出荷方法カラム追加完了"}
 
 
+@app.get("/migrate-amounts-to-net")
+def migrate_amounts_to_net(apply: bool = False):
+    """既存の案件金額・受注票金額を税込→税抜（見積の subtotal+labor_total）へ再計算する。
+    見積書の総額(total_amount)は税込のまま。?apply=true で実行、既定はドライラン。
+    見積明細を正とするため再実行しても同じ結果になる。"""
+    from app.db.models import (
+        SessionLocal, QuotationHeader, OrderTicket, ProjectOrder,
+        ProjectOrderQuotation, Project,
+    )
+    from sqlalchemy import func
+    db = SessionLocal()
+    try:
+        nets = {
+            q.id: int((q.subtotal or 0) + (q.labor_total or 0))
+            for q in db.query(QuotationHeader).all()
+        }
+        by_no = {q.quotation_no: nets[q.id] for q in db.query(QuotationHeader).all() if q.quotation_no}
+        changed = {"order_tickets": 0, "project_orders": 0, "order_quotations": 0, "projects": 0}
+        samples = []
+
+        # 受注票: 紐づく見積の税抜金額へ
+        for t in db.query(OrderTicket).all():
+            if t.quotation_id and t.quotation_id in nets:
+                new = nets[t.quotation_id]
+                if int(t.total_amount or 0) != new:
+                    if len(samples) < 5:
+                        samples.append({"受注票": t.ticket_no, "旧(税込)": int(t.total_amount or 0), "新(税抜)": new})
+                    changed["order_tickets"] += 1
+                    if apply:
+                        t.total_amount = new
+
+        # 案件子ID: 見積番号から税抜金額へ
+        for o in db.query(ProjectOrder).all():
+            new = by_no.get(o.quotation_no) if o.quotation_no else None
+            if new is None:
+                continue
+            if int(o.quotation_total or 0) != new or int(o.quotation_amount or 0) != new:
+                changed["project_orders"] += 1
+                if apply:
+                    o.quotation_total = new
+                    o.quotation_amount = new
+
+        for oq in db.query(ProjectOrderQuotation).all():
+            new = by_no.get(oq.quotation_no) if oq.quotation_no else None
+            if new is not None and int(oq.quotation_total or 0) != new:
+                changed["order_quotations"] += 1
+                if apply:
+                    oq.quotation_total = new
+
+        if apply:
+            db.flush()
+            # 親案件の最終受注金額を子ID合計で再計算
+            for p in db.query(Project).all():
+                total = db.query(func.sum(ProjectOrder.quotation_total)).filter(
+                    ProjectOrder.project_id == p.id
+                ).scalar() or 0
+                if int(p.final_order_amount or 0) != int(total):
+                    changed["projects"] += 1
+                    p.final_order_amount = int(total)
+            db.commit()
+        else:
+            db.rollback()
+
+        return {
+            "status": "ok",
+            "mode": "適用" if apply else "ドライラン（?apply=true で実行）",
+            "更新件数": changed,
+            "例": samples,
+        }
+    except Exception as e:
+        db.rollback()
+        return {"status": "error", "message": str(e)}
+    finally:
+        db.close()
+
+
 @app.get("/setup-quotation-cover-fields")
 def setup_quotation_cover_fields():
     """見積書に御担当者・受渡場所・有効期限テキスト・税抜表示・除外事項・作成/検印カラムを追加"""

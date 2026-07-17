@@ -10,6 +10,10 @@ const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600', adopted: 'bg-blue-100 text-blue-700', received: 'bg-green-100 text-green-700'
 };
 
+// 社内の管理金額は税抜（機器・工事 + 社内工数）で統一。工番/単番の判定も税抜。
+export const KOBAN_THRESHOLD = 3000000;
+export const netAmount = (q: any) => (q?.subtotal || 0) + (q?.labor_total || 0);
+
 export default function EstimateListPage() {
   const [searchParams] = useSearchParams();
   const childNo = searchParams.get('child_no') || '';
@@ -64,7 +68,7 @@ export default function EstimateListPage() {
   };
 
   const handleIssueTicket = async (id: string, total: number) => {
-    const type = total >= 3000000 ? '工番（300万円以上）' : '単番（300万円未満）';
+    const type = total >= KOBAN_THRESHOLD ? '工番（税抜300万円以上）' : '単番（税抜300万円未満）';
     const confirmMsg = `受注票を発行します。\n種別: ${type}\nよろしいですか？`;
       if (!confirm(confirmMsg)) return;
     try {
@@ -109,7 +113,7 @@ export default function EstimateListPage() {
               <th className="px-4 py-3 text-left font-medium text-gray-600">顧客名</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">件名</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">見積日</th>
-              <th className="px-4 py-3 text-right font-medium text-gray-600">合計金額（税込）</th>
+              <th className="px-4 py-3 text-right font-medium text-gray-600">合計金額（税抜）</th>
               <th className="px-4 py-3 text-center font-medium text-gray-600">状態</th>
               <th className="px-4 py-3 text-center font-medium text-gray-600">操作</th>
             </tr>
@@ -127,9 +131,9 @@ export default function EstimateListPage() {
                 <td className="px-4 py-3 text-gray-600 max-w-xs truncate">{q.title || '—'}</td>
                 <td className="px-4 py-3 text-gray-500">{q.issue_date || '—'}</td>
                 <td className="px-4 py-3 text-right font-bold text-gray-800">
-                  ¥{(q.total_amount || 0).toLocaleString()}
-                  <span className={`ml-2 text-xs ${q.total_amount >= 3000000 ? 'text-purple-600' : 'text-orange-600'}`}>
-                    {q.total_amount >= 3000000 ? '工番' : '単番'}
+                  ¥{netAmount(q).toLocaleString()}
+                  <span className={`ml-2 text-xs ${netAmount(q) >= KOBAN_THRESHOLD ? 'text-purple-600' : 'text-orange-600'}`}>
+                    {netAmount(q) >= KOBAN_THRESHOLD ? '工番' : '単番'}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-center">
@@ -144,7 +148,7 @@ export default function EstimateListPage() {
                         className="text-xs text-green-600 hover:text-green-800 flex items-center gap-1">
                         <Printer size={12} /> 見積PDF
                       </button>
-                      <button onClick={() => handleIssueTicket(q.id, q.total_amount)}
+                      <button onClick={() => handleIssueTicket(q.id, netAmount(q))}
                         className="text-xs bg-purple-600 text-white px-2 py-0.5 rounded hover:bg-purple-700">
                         受注票
                       </button>

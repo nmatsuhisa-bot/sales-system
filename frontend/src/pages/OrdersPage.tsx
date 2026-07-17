@@ -81,7 +81,7 @@ export default function OrdersPage() {
               <th className="px-4 py-3 text-left font-medium text-gray-600">出荷予定日</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">顧客納期</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">売上計上日</th>
-              <th className="px-4 py-3 text-right font-medium text-gray-600">金額（税込）</th>
+              <th className="px-4 py-3 text-right font-medium text-gray-600">金額（税抜）</th>
               <th className="px-4 py-3 text-center font-medium text-gray-600">注文書</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">納期</th>
               <th className="px-4 py-3 text-right font-medium text-gray-600">前受金</th>
@@ -211,12 +211,12 @@ function OrderTicketEditModal({ ticket, onClose, onSaved }: { ticket: any; onClo
         <div className="space-y-3">
           <div>
             <label className="block text-sm text-gray-600 mb-1">種別（工番/単番）
-              <span className="text-[10px] text-gray-400 ml-1">発行時に300万円で自動判定・手動変更可</span>
+              <span className="text-[10px] text-gray-400 ml-1">発行時に税抜300万円で自動判定・手動変更可</span>
             </label>
             <select value={ticketType} onChange={e => setTicketType(e.target.value)}
               className="w-full border rounded px-3 py-2 text-sm">
-              <option value="koban">工番（300万円以上）</option>
-              <option value="tanban">単番（300万円未満）</option>
+              <option value="koban">工番（税抜300万円以上）</option>
+              <option value="tanban">単番（税抜300万円未満）</option>
             </select>
           </div>
           <div>

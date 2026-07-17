@@ -412,13 +412,15 @@ def duplicate_project_order(order_id: str, db: Session = Depends(get_db)):
 def link_quotation(order_id: str, quotation_id: str, db: Session = Depends(get_db)):
     # B003修正: 旧Quotationモデルから新QuotationHeaderモデルへ
     from app.db.models import QuotationHeader
+    from app.api.estimate_quotations import net_amount
     o = db.query(ProjectOrder).filter(or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)).first()
     q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
     if not o or not q: raise HTTPException(404)
     # project_orders.quotation_id はFK制約が旧テーブルを参照するため書き込まない
+    # 案件金額は税抜で保持（総額total_amountは税込のため使わない）
     o.quotation_no = q.quotation_no
-    o.quotation_total = q.total_amount
-    o.quotation_amount = q.total_amount
+    o.quotation_total = net_amount(q)
+    o.quotation_amount = net_amount(q)
     o.quotation_issue_date = q.issue_date
     exists = db.query(ProjectOrderQuotation).filter(
         ProjectOrderQuotation.project_order_id == o.id,
@@ -427,7 +429,7 @@ def link_quotation(order_id: str, quotation_id: str, db: Session = Depends(get_d
     if not exists:
         # B001対応: ProjectOrderQuotationのquotation_idも旧FK制約があるため書き込まない
         db.add(ProjectOrderQuotation(project_order_id=o.id, quotation_no=q.quotation_no,
-            quotation_total=q.total_amount, quotation_issue_date=q.issue_date))
+            quotation_total=net_amount(q), quotation_issue_date=q.issue_date))
     db.flush()
     # 親案件の最終受注金額を子ID合計で自動更新
     if o.project_id:

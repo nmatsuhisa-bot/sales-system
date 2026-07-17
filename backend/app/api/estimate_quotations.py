@@ -20,6 +20,15 @@ from app.db.models import (
 
 router = APIRouter()
 
+# 工番/単番の判定しきい値（税抜）
+KOBAN_THRESHOLD = 3000000
+
+def net_amount(q: "QuotationHeader") -> int:
+    """見積の税抜合計（機器・工事 + 社内工数）。
+    案件金額・受注票・売上計画表など社内の集計金額はすべてこの税抜金額で統一する。
+    総額(total_amount)は税込のまま保持し、見積書の印字にのみ使う。"""
+    return int((q.subtotal or 0) + (q.labor_total or 0))
+
 def _sync_project_final_amount(project_order: "ProjectOrder", db: Session):
     """受注票発行・見積採用時に親案件の最終受注金額を子ID合計で自動更新する"""
     if not project_order.project_id:
@@ -439,7 +448,7 @@ def _ot_filter(ticket_id: str):
 @router.put("/order-ticket/{ticket_id}")
 def update_order_ticket(ticket_id: str, data: dict, db: Session = Depends(get_db)):
     """受注票の受注時項目（注文書有無・納期・前受金）と種別（工番/単番）を更新。
-    種別は発行時に300万円で自動判定されるが、ここで手動変更できる。"""
+    種別は発行時に税抜300万円で自動判定されるが、ここで手動変更できる。"""
     t = db.query(OrderTicket).filter(_ot_filter(ticket_id)).first()
     if not t:
         raise HTTPException(404, "受注票が見つかりません")
@@ -555,8 +564,8 @@ def adopt_quotation(quotation_id: str, db: Session = Depends(get_db)):
     po = db.query(ProjectOrder).filter(ProjectOrder.id == q.project_order_id).first()
     if po:
         po.quotation_no = q.quotation_no
-        po.quotation_total = q.total_amount
-        po.quotation_amount = q.total_amount
+        po.quotation_total = net_amount(q)
+        po.quotation_amount = net_amount(q)
         po.quotation_issue_date = q.issue_date
         if po.status in ("営業中", None):
             po.status = "内示"
@@ -840,8 +849,9 @@ def issue_order_ticket(quotation_id: str, db: Session = Depends(get_db)):
     q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
     if not q: raise HTTPException(404)
 
-    total = int(q.total_amount or 0)
-    ticket_type = "koban" if total >= 3000000 else "tanban"
+    # 工番/単番の判定・受注票の金額はいずれも税抜
+    total = net_amount(q)
+    ticket_type = "koban" if total >= KOBAN_THRESHOLD else "tanban"
 
     # 子IDに既存のアクティブな受注票があるか確認
     existing_tickets = []
@@ -886,8 +896,8 @@ def issue_order_ticket(quotation_id: str, db: Session = Depends(get_db)):
         po = db.query(ProjectOrder).filter(ProjectOrder.id == q.project_order_id).first()
         if po:
             po.quotation_no = q.quotation_no
-            po.quotation_total = q.total_amount
-            po.quotation_amount = q.total_amount
+            po.quotation_total = net_amount(q)
+            po.quotation_amount = net_amount(q)
             po.quotation_issue_date = q.issue_date
             po.status = "受注"
             db.flush()
@@ -1015,7 +1025,7 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
     <td style="background:#eee;border:1px solid #999;padding:4px 8px">担当者</td>
     <td style="border:1px solid #999;padding:4px 8px">{t.sales_person_name or ' '}</td>
     <td style="background:#eee;border:1px solid #999;padding:4px 8px">区分</td>
-    <td style="border:1px solid #999;padding:4px 8px">{'工番(300万円以上)' if is_koban else '単番(300万円未満)'}</td>
+    <td style="border:1px solid #999;padding:4px 8px">{'工番(税抜300万円以上)' if is_koban else '単番(税抜300万円未満)'}</td>
   </tr>
   <tr>
     <td style="background:#eee;border:1px solid #999;padding:4px 8px">顧客納期</td>

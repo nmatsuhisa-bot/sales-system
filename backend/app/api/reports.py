@@ -49,7 +49,10 @@ def dashboard(year: int = Query(default=None), db: Session = Depends(get_db)):
         extract('month', QuotationHeader.issue_date) == cur_month
     ).scalar() or 0
 
-    monthly_quote_amount = db.query(func.sum(QuotationHeader.total_amount)).filter(
+    # 金額は税抜（機器・工事 + 社内工数）で集計する
+    monthly_quote_amount = db.query(
+        func.sum(func.coalesce(QuotationHeader.subtotal, 0) + func.coalesce(QuotationHeader.labor_total, 0))
+    ).filter(
         extract('year', QuotationHeader.issue_date) == cur_year,
         extract('month', QuotationHeader.issue_date) == cur_month
     ).scalar() or 0
