@@ -14,6 +14,7 @@ from app.db.models import (
     get_db, QuotationHeader, QuotationLineItem, QuotationLaborDetail,
     OrderTicket, ProjectOrder, Project,
     EstimateBfrBody, EstimateBfrFan, EstimateBfrRv,
+    EstimateBfqSeries, EstimateBfqBody, EstimateBfqFan, EstimateBfqOption,
     EstimateScaBody, EstimatePlFan, EstimateCyclone, EstimateLaborItem
 )
 
@@ -57,6 +58,49 @@ def get_bfr_fans(bfr_model: str, db: Session = Depends(get_db)):
 def get_bfr_rvs(bfr_model: str, db: Session = Depends(get_db)):
     items = db.query(EstimateBfrRv).filter(EstimateBfrRv.bfr_model == bfr_model, EstimateBfrRv.is_active == True).all()
     return [{"id": str(i.id), "rv_model": i.rv_model, "kw": float(i.kw or 0), "price": int(i.price or 0), "quantity": i.quantity} for i in items]
+
+@router.get("/patterns/bfq")
+def get_bfq_patterns(db: Session = Depends(get_db)):
+    """BFQ見積パターン一式（系列・本体・排風型式・オプション）をまとめて返す。
+    周波数/電圧/シェーカー位置/スイッチは全系列共通の選択肢。"""
+    series = db.query(EstimateBfqSeries).filter(EstimateBfqSeries.is_active == True).order_by(EstimateBfqSeries.sort_order).all()
+    bodies = db.query(EstimateBfqBody).filter(EstimateBfqBody.is_active == True).order_by(EstimateBfqBody.sort_order).all()
+    fans = db.query(EstimateBfqFan).filter(EstimateBfqFan.is_active == True).all()
+    opts = db.query(EstimateBfqOption).filter(EstimateBfqOption.is_active == True).order_by(EstimateBfqOption.sort_order).all()
+    return {
+        "series": [{
+            "series": s.series, "indoor_outdoor": s.indoor_outdoor, "flange_type": s.flange_type,
+            "maker": s.maker, "slide_base": s.slide_base, "remarks": s.remarks,
+            "panel_price": int(s.panel_price or 0),
+            "case_breaker": s.case_breaker,
+            "case_breaker_price": int(s.case_breaker_price) if s.case_breaker_price is not None else None,
+            "push_switch": s.push_switch,
+            "push_switch_price": int(s.push_switch_price) if s.push_switch_price is not None else None,
+        } for s in series],
+        "bodies": [{
+            "id": str(b.id), "model_code": b.model_code, "series": b.series,
+            "base_price": int(b.base_price) if b.base_price is not None else None,
+            "price_note": b.price_note, "fan_kw": float(b.fan_kw or 0),
+            "filter_dia": b.filter_dia, "filter_length": b.filter_length, "filter_count": b.filter_count,
+            "shaker": b.shaker, "shaker_kw": float(b.shaker_kw) if b.shaker_kw is not None else None,
+            "dust_recovery": b.dust_recovery,
+        } for b in bodies],
+        "fans": [{"series": f.series, "hz": f.hz, "fan_model": f.fan_model} for f in fans],
+        "options": [{
+            "id": str(o.id), "category": o.category, "series": o.series,
+            "option_name": o.option_name, "spec": o.spec,
+            "price": int(o.price or 0),
+            "unit_price": int(o.unit_price) if o.unit_price is not None else None,
+            "is_provisional": bool(o.is_provisional),
+        } for o in opts],
+        "choices": {
+            "hz": [50, 60],
+            "voltage": [200, 380, 400, 440],
+            "shaker_position": ["標準", "逆勝手"],
+            "switch": ["なし", "モーターブレーカー", "モーターブレーカー+押しボタンスイッチ", "制御盤"],
+        },
+    }
+
 
 @router.get("/patterns/sca-bodies")
 def get_sca_bodies(db: Session = Depends(get_db)):
@@ -343,10 +387,15 @@ def list_order_tickets(
                 "total_amount": int(t.total_amount or 0),
                 "order_date": str(t.order_date) if t.order_date else None,
                 "has_order_sheet": t.has_order_sheet,
+                "has_drawing": t.has_drawing,
+                "has_contract": t.has_contract,
                 "delivery_date": str(t.delivery_date) if t.delivery_date else None,
                 "advance_payment": int(t.advance_payment) if t.advance_payment is not None else None,
                 "advance_payments": t.advance_payments or [],
                 "shipping_method": t.shipping_method,
+                "parts_input_status": t.parts_input_status,
+                "parts_order_status": t.parts_order_status,
+                "stock_minus_status": t.stock_minus_status,
                 # 子ID（案件）から取得する日付
                 "expected_shipment_date": str(t.project_order.expected_shipment_date) if t.project_order and t.project_order.expected_shipment_date else None,
                 "customer_delivery_date": str(t.project_order.customer_delivery_date) if t.project_order and t.project_order.customer_delivery_date else None,
@@ -378,6 +427,14 @@ def update_order_ticket(ticket_id: str, data: dict, db: Session = Depends(get_db
         t.ticket_type = data["ticket_type"]
     if "has_order_sheet" in data:
         t.has_order_sheet = data["has_order_sheet"]
+    if "has_drawing" in data:
+        t.has_drawing = data["has_drawing"]
+    if "has_contract" in data:
+        t.has_contract = data["has_contract"]
+    for _f in ("parts_input_status", "parts_order_status", "stock_minus_status"):
+        if _f in data:
+            v = data[_f]
+            setattr(t, _f, v if v in ("未", "済") else None)
     if "delivery_date" in data:
         t.delivery_date = date.fromisoformat(data["delivery_date"]) if data["delivery_date"] else None
     if "advance_payment" in data:
@@ -397,10 +454,15 @@ def update_order_ticket(ticket_id: str, data: dict, db: Session = Depends(get_db
     return {
         "id": str(t.id), "ticket_no": t.ticket_no, "ticket_type": t.ticket_type,
         "has_order_sheet": t.has_order_sheet,
+        "has_drawing": t.has_drawing,
+        "has_contract": t.has_contract,
         "delivery_date": str(t.delivery_date) if t.delivery_date else None,
         "advance_payment": int(t.advance_payment) if t.advance_payment is not None else None,
         "advance_payments": t.advance_payments or [],
         "shipping_method": t.shipping_method,
+        "parts_input_status": t.parts_input_status,
+        "parts_order_status": t.parts_order_status,
+        "stock_minus_status": t.stock_minus_status,
         "order_date": str(t.order_date) if t.order_date else None,
     }
 
@@ -798,7 +860,18 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
         if v is False: return "有 ・ <b><u>無</u></b>"
         return "有 ・ 無"
     order_sheet_disp = _yn(t.has_order_sheet)
+    drawing_disp = _yn(t.has_drawing)
+    contract_disp = _yn(t.has_contract)
     delivery_disp = t.delivery_date.strftime("%Y/%m/%d") if t.delivery_date else "　　　年　　月　　日"
+
+    # 部品手配・在庫マイナス（未・済。該当側を太字下線で強調）
+    def _ms(v):
+        if v == "済": return "未 ・ <b><u>済</u></b>"
+        if v == "未": return "<b><u>未</u></b> ・ 済"
+        return "未 ・ 済"
+    parts_html = (f'<div>部品入力: {_ms(t.parts_input_status)}</div>'
+                  f'<div style="margin-top:3px">注文: {_ms(t.parts_order_status)}</div>'
+                  f'<div style="margin-top:3px">在庫マイナス: {_ms(t.stock_minus_status)}</div>')
     _adv = int(t.advance_payment) if t.advance_payment is not None else None
     if _adv and _adv > 0:
         advance_disp = f"<b><u>有</u></b> ・ 無　¥{_adv:,}"
@@ -925,10 +998,16 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
 
 <div style="margin-top:20px;border:1px solid #999;padding:8px;font-size:10px">
   <table style="width:100%"><tr>
-    <td>{ship_html}</td>
-    <td style="text-align:right">納期: {delivery_disp}</td>
+    <td style="vertical-align:top">
+      <div>{ship_html}</div>
+      <div style="margin-top:6px">納期: {delivery_disp}</div>
+      <div style="margin-top:6px">図面: {drawing_disp}　注文書: {order_sheet_disp}　契約書: {contract_disp}</div>
+    </td>
+    <td style="width:180px;vertical-align:top;border-left:1px solid #999;padding-left:8px">
+      <div style="font-weight:bold;text-align:center;background:#eee;padding:2px;margin-bottom:4px">部品手配・在庫マイナス</div>
+      {parts_html}
+    </td>
   </tr></table>
-  <div style="margin-top:6px">図面: 有 ・ 無　注文書: {order_sheet_disp}{'　契約書: 有 ・ 無' if is_koban else ''}</div>
 </div>
 
 <div style="margin-top:12px;display:flex;align-items:stretch">

@@ -487,6 +487,67 @@ class EstimateBfrRv(Base):
     quantity = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
 
+# ----- BFQ（型式別パターン。xlsx「BFQ見積パターン」準拠）-----
+class EstimateBfqSeries(Base):
+    """BFQ系列（BFQ3/5/7/10/15）ごとの『決まり』値とスイッチ・制御盤価格"""
+    __tablename__ = "estimate_bfq_series"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    series = Column(String(20), nullable=False)        # BFQ3 / BFQ5 / BFQ7 / BFQ10 / BFQ15
+    indoor_outdoor = Column(String(20))                # 屋内/屋外
+    flange_type = Column(String(20))                   # フランジ/脚取付
+    maker = Column(String(50))                         # メーカ
+    slide_base = Column(String(20))                    # スライドベース
+    remarks = Column(String(100))                      # 備考（IE3 等）
+    panel_price = Column(Numeric(15, 0))               # 制御盤：電動シェーキング（標準）
+    case_breaker = Column(String(50))                  # ケースブレーカ型式
+    case_breaker_price = Column(Numeric(15, 0))
+    push_switch = Column(String(50))                   # 押しボタンスイッチ型式
+    push_switch_price = Column(Numeric(15, 0))
+    sort_order = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+
+class EstimateBfqBody(Base):
+    """BFQ本体（型式ごと）"""
+    __tablename__ = "estimate_bfq_bodies"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    model_code = Column(String(50), nullable=False)    # BFQ3 / BFQ3S / BFQ3V ...
+    series = Column(String(20), nullable=False)        # BFQ3
+    base_price = Column(Numeric(15, 0))                # 本体価格（NULL=マスタ未確定）
+    price_note = Column(String(100))                   # '600000+RV' 等、価格が式表記の場合の原文
+    fan_kw = Column(Numeric(5, 2))                     # 排風機kW
+    filter_dia = Column(Integer)                       # フィルター径φ
+    filter_length = Column(String(20))                 # 1400L / 2000L
+    filter_count = Column(Integer)                     # フィルター本数
+    shaker = Column(String(20))                        # なし / 手動 / 電動
+    shaker_kw = Column(Numeric(5, 2))                  # 払い落しギヤモータkW（なし=NULL）
+    dust_recovery = Column(String(50))                 # 袋受φ575 / H:空送 / RV / Qコンテナ / フレコン受
+    sort_order = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+
+class EstimateBfqFan(Base):
+    """BFQ 周波数 → 排風型式（系列×Hzで決まる）"""
+    __tablename__ = "estimate_bfq_fans"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    series = Column(String(20), nullable=False)
+    hz = Column(Integer, nullable=False)               # 50 / 60
+    fan_model = Column(String(50))                     # PLD2.2-2R54
+    is_active = Column(Boolean, default=True)
+
+class EstimateBfqOption(Base):
+    """BFQ オプション（ダスト回収方式・制御盤追加仕様ごとの選択肢）"""
+    __tablename__ = "estimate_bfq_options"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    category = Column(String(30), nullable=False)      # 空送 / RV / フレコン / Qコンテナ / 制御盤追加
+    series = Column(String(20))                        # 対象系列（NULL=全系列共通）
+    option_name = Column(String(100))                  # 選択肢名
+    spec = Column(String(50))                          # 径・kW 等
+    price = Column(Numeric(15, 0))                     # 価格
+    unit_price = Column(Numeric(15, 0))                # 空送のH型単品価格 等の副次価格
+    is_provisional = Column(Boolean, default=False)    # 仮価格（要確定）
+    sort_order = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+
+
 class EstimateScaBody(Base):
     __tablename__ = "estimate_sca_bodies"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -630,10 +691,16 @@ class OrderTicket(Base):
     sales_person_name = Column(String(100))
     # 受注時項目（会議「次の手配」項目11）
     has_order_sheet = Column(Boolean)          # 注文書有無（True=有 / False=無 / NULL=未確認）
+    has_drawing = Column(Boolean)              # 図面有無（True=有 / False=無 / NULL=未確認）
+    has_contract = Column(Boolean)             # 契約書有無（True=有 / False=無 / NULL=未確認）
     delivery_date = Column(Date)               # 納期
     advance_payment = Column(Numeric(15, 0))   # 前受金額（旧・単一。NULL/0=なし）
     advance_payments = Column(JSON)            # 前受金 [{date, amount}] 最大3回（分割入金）
     shipping_method = Column(String(50))       # 出荷方法（トラック出荷/宅配出荷/井上納品/引取）
+    # 部品手配・在庫マイナス（未 / 済 / NULL=未入力）
+    parts_input_status = Column(String(10))    # 部品入力
+    parts_order_status = Column(String(10))    # 注文
+    stock_minus_status = Column(String(10))    # 在庫マイナス
     notes = Column(Text)
     is_active = Column(Boolean, default=True, server_default="true")
     created_at = Column(DateTime, server_default=func.now())

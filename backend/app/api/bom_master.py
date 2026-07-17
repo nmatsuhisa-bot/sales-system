@@ -308,11 +308,12 @@ def delete_sample_data(db: Session = Depends(get_db)):
 
 @router.post("/seed-from-estimate-patterns")
 def seed_from_estimate_patterns(db: Session = Depends(get_db)):
-    """既存の見積パターン（BFR本体/ファン/RV・SCA本体・PLファン・サイクロン・自動ダンパー）を
-    製品マスタ・ユニットマスタへ取込み、BFR本体↔ファン/RV を製品構成BOMで紐付ける。
+    """既存の見積パターン（BFR本体/ファン/RV・BFQ本体/排風機/RV・SCA本体・PLファン・サイクロン・自動ダンパー）を
+    製品マスタ・ユニットマスタへ取込み、本体↔ファン/RV を製品構成BOMで紐付ける。
     既存コードはスキップ（再実行で重複しない）。"""
     from app.db.models import (
         EstimateBfrBody, EstimateBfrFan, EstimateBfrRv,
+        EstimateBfqBody, EstimateBfqFan, EstimateBfqOption,
         EstimateScaBody, EstimatePlFan, EstimateCyclone, EstimateAutoDamper,
     )
     stats = {"products": 0, "units": 0, "links": 0}
@@ -370,6 +371,26 @@ def seed_from_estimate_patterns(db: Session = Depends(get_db)):
         u, _ = ensure_unit(f"RV-{r.rv_model}", f"ロータリーバルブ {r.rv_model}", "RV", r.rv_model, r.price, r.rv_model)
         prod = db.query(ProductMaster).filter(ProductMaster.product_code == f"BFR-{r.bfr_model}").first()
         link(prod, u, r.quantity)
+
+    # BFQ本体 → 製品マスタ（本体価格が未設定の型式も型式管理のため取込む）
+    for b in db.query(EstimateBfqBody).filter(EstimateBfqBody.is_active == True).all():
+        ensure_product(f"BFQ-{b.model_code}", f"BFQ本体 {b.model_code}", "BFQ", b.model_code, b.base_price, b.model_code)
+
+    # BFQ排風機（周波数別）→ ユニット + BFQ本体（同系列）への紐付け
+    for f in db.query(EstimateBfqFan).filter(EstimateBfqFan.is_active == True).all():
+        if not f.fan_model:
+            continue
+        u, _ = ensure_unit(f"FAN-{f.fan_model}", f"排風機 {f.fan_model}", "ファン", f.fan_model, None, f.fan_model)
+        for b in db.query(EstimateBfqBody).filter(
+            EstimateBfqBody.series == f.series, EstimateBfqBody.is_active == True
+        ).all():
+            link(db.query(ProductMaster).filter(ProductMaster.product_code == f"BFQ-{b.model_code}").first(), u, 1)
+
+    # BFQ RVオプション → ユニット
+    for o in db.query(EstimateBfqOption).filter(
+        EstimateBfqOption.category == "RV", EstimateBfqOption.is_active == True
+    ).all():
+        ensure_unit(f"RV-{o.option_name}", f"ロータリーバルブ {o.option_name}", "RV", o.option_name, o.price, o.option_name)
 
     # PLファン → ユニット
     for f in db.query(EstimatePlFan).filter(EstimatePlFan.is_active == True).all():

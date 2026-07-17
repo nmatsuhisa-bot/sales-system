@@ -77,10 +77,16 @@ export default function EstimateFormPage() {
   // パターン選択用
   const [showBfrPattern, setShowBfrPattern] = useState(false);
   const [showScaPattern, setShowScaPattern] = useState(false);
+  const [showBfqPattern, setShowBfqPattern] = useState(false);
   const [bfrFans, setBfrFans] = useState<any[]>([]);
   const [bfrRvs, setBfrRvs] = useState<any[]>([]);
   const [bfrSel, setBfrSel] = useState({ body: '', filterType: '', fan: '', rv: '', hasPurgeCircuit: false });
   const [scaSel, setScaSel] = useState({ body: '', hasPl: false, pl: '', hasCyclone: false, cyclone: '' });
+  const [bfq, setBfq] = useState<any>(null);
+  const [bfqSel, setBfqSel] = useState({
+    model: '', hz: 50, voltage: 200, shakerPos: '標準', switch: 'なし',
+    dustOpt: '', panelAdds: [] as string[],
+  });
 
   // 合計計算
   const itemsTotal = lineItems.reduce((s, i) => s + i.unit_price * i.quantity, 0);
@@ -91,6 +97,7 @@ export default function EstimateFormPage() {
 
   useEffect(() => {
     estimateApi.getBfrBodies().then(r => setBfrBodies(r.data));
+    estimateApi.getBfqPatterns().then(r => setBfq(r.data)).catch(() => {});
     estimateApi.getScaBodies().then(r => setScaBodies(r.data));
     estimateApi.getPlFans().then(r => setPlFans(r.data));
     estimateApi.getCyclones().then(r => setCyclones(r.data));
@@ -205,6 +212,87 @@ export default function EstimateFormPage() {
     }
     setLineItems(prev => [...prev, ...items]);
     setShowBfrPattern(false);
+  };
+
+  // ===== BFQ パターン（型式を選ぶと系列の決まり値・排風型式・オプションが決まる）=====
+  const bfqBody = bfq?.bodies.find((b: any) => b.model_code === bfqSel.model) || null;
+  const bfqSeries = bfqBody ? bfq.series.find((s: any) => s.series === bfqBody.series) : null;
+  const bfqFanModel = bfqBody ? bfq.fans.find((f: any) => f.series === bfqBody.series && f.hz === bfqSel.hz)?.fan_model || '' : '';
+  // ダスト回収方式ごとに選ぶオプションの種別を決める
+  const bfqDustCat = (() => {
+    const d = bfqBody?.dust_recovery || '';
+    if (d.startsWith('H:')) return '空送';
+    if (d === 'RV') return 'RV';
+    if (d === 'フレコン受') return 'フレコン';
+    if (d === 'Qコンテナ') return 'Qコンテナ';
+    return '';
+  })();
+  const bfqDustOpts: any[] = bfq && bfqDustCat
+    ? bfq.options.filter((o: any) => o.category === bfqDustCat && (!o.series || o.series === bfqBody?.series))
+    : [];
+  const bfqPanelAdds: any[] = bfq ? bfq.options.filter((o: any) => o.category === '制御盤追加') : [];
+  const bfqSelDustOpt = bfqDustOpts.find((o: any) => o.id === bfqSel.dustOpt) || null;
+  // スイッチと制御盤は排他（xlsx注記「スイッチと制御盤を同時に選ぶことはない」）
+  const bfqSwitchPrice = (() => {
+    if (!bfqSeries) return 0;
+    const cb = bfqSeries.case_breaker_price || 0;
+    const ps = bfqSeries.push_switch_price || 0;
+    if (bfqSel.switch === 'モーターブレーカー') return cb;
+    if (bfqSel.switch === 'モーターブレーカー+押しボタンスイッチ') return cb + ps;
+    if (bfqSel.switch === '制御盤') {
+      return (bfqSeries.panel_price || 0)
+        + bfqPanelAdds.filter(o => bfqSel.panelAdds.includes(o.id)).reduce((s, o) => s + (o.price || 0), 0);
+    }
+    return 0;
+  })();
+  const bfqTotal = (bfqBody?.base_price || 0) + (bfqSelDustOpt?.price || 0) + bfqSwitchPrice;
+
+  const addBfqToItems = () => {
+    if (!bfqBody) return;
+    const items: LineItem[] = [];
+    let no = lineItems.length + 1;
+    const spec = [
+      `型式: ${bfqBody.model_code}`,
+      `排風機: ${bfqFanModel || '—'}　${bfqBody.fan_kw}kW　${bfqSel.hz}Hz　${bfqSel.voltage}V`,
+      `フィルター: ${bfqBody.filter_dia ? `φ${bfqBody.filter_dia}×` : ''}${bfqBody.filter_length}×${bfqBody.filter_count}本`,
+      `シェーカー: ${bfqBody.shaker}${bfqBody.shaker !== 'なし' ? `（${bfqSel.shakerPos}）` : ''}${bfqBody.shaker_kw ? `　払い落しギヤモータ ${bfqBody.shaker_kw}kW` : ''}`,
+      `ダスト回収: ${bfqBody.dust_recovery}`,
+      bfqSeries ? `${bfqSeries.indoor_outdoor}／${bfqSeries.flange_type}／${bfqSeries.maker}／スライドベース${bfqSeries.slide_base}／${bfqSeries.remarks}` : '',
+    ].filter(Boolean).join('\n');
+    items.push({
+      line_no: no++, section: '集塵装置:BFQ', sub_section: 'BFQ本体',
+      item_name: `バグフィルター集塵機 ${bfqBody.model_code}`,
+      spec_detail: spec, quantity: 1, unit: '式',
+      unit_price: bfqBody.base_price || 0, product_type: 'BFQ',
+      spec_json: {
+        model: bfqBody.model_code, series: bfqBody.series, hz: bfqSel.hz,
+        voltage: bfqSel.voltage, shaker_position: bfqSel.shakerPos, fan_model: bfqFanModel,
+      },
+    });
+    if (bfqSelDustOpt) {
+      items.push({
+        line_no: no++, section: '集塵装置:BFQ', sub_section: bfqDustCat,
+        item_name: `${bfqBody.dust_recovery}　${bfqSelDustOpt.option_name}`,
+        spec_detail: bfqSelDustOpt.spec || '', quantity: 1, unit: '式',
+        unit_price: bfqSelDustOpt.price || 0, product_type: 'BFQ',
+        spec_json: { category: bfqDustCat, option: bfqSelDustOpt.option_name },
+      });
+    }
+    if (bfqSel.switch !== 'なし' && bfqSwitchPrice > 0) {
+      const isPanel = bfqSel.switch === '制御盤';
+      const adds = bfqPanelAdds.filter(o => bfqSel.panelAdds.includes(o.id));
+      items.push({
+        line_no: no++, section: '集塵装置:BFQ', sub_section: isPanel ? '制御盤' : 'スイッチ',
+        item_name: isPanel ? '制御盤（電動シェーキング）' : bfqSel.switch,
+        spec_detail: isPanel
+          ? adds.map(o => o.option_name).join('\n')
+          : [bfqSeries?.case_breaker, bfqSel.switch.includes('押しボタン') ? bfqSeries?.push_switch : ''].filter(Boolean).join('　'),
+        quantity: 1, unit: '式', unit_price: bfqSwitchPrice, product_type: 'BFQ',
+        spec_json: { switch: bfqSel.switch, panel_adds: adds.map(o => o.option_name) },
+      });
+    }
+    setLineItems(prev => [...prev, ...items]);
+    setShowBfqPattern(false);
   };
 
   // SCAパターンを明細に追加
@@ -387,6 +475,10 @@ export default function EstimateFormPage() {
             <button onClick={() => setShowBfrPattern(true)}
               className="bg-blue-50 border border-blue-300 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-blue-100">
               + BFR パターン追加
+            </button>
+            <button onClick={() => setShowBfqPattern(true)}
+              className="bg-teal-50 border border-teal-300 text-teal-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-teal-100">
+              + BFQ パターン追加
             </button>
             <button onClick={() => setShowScaPattern(true)}
               className="bg-orange-50 border border-orange-300 text-orange-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-orange-100">
@@ -585,6 +677,130 @@ export default function EstimateFormPage() {
             <div className="flex justify-end gap-3 mt-5">
               <button onClick={() => setShowBfrPattern(false)} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 text-sm">キャンセル</button>
               <button onClick={addBfrToItems} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">明細に追加</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BFQパターンモーダル */}
+      {showBfqPattern && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[85vh] overflow-y-auto">
+            <h3 className="text-lg font-bold mb-4">BFQ パターン選択</h3>
+            {!bfq ? (
+              <div className="text-sm text-gray-500 py-6 text-center">
+                BFQパターンマスタが未投入です。<br />
+                <span className="text-xs">管理者に <code>/setup-bfq-patterns</code> の実行を依頼してください。</span>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">型式</label>
+                  <select value={bfqSel.model}
+                    onChange={e => setBfqSel(s => ({ ...s, model: e.target.value, dustOpt: '', panelAdds: [] }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                    <option value="">選択</option>
+                    {bfq.bodies.map((b: any) => (
+                      <option key={b.model_code} value={b.model_code}>
+                        {b.model_code}（{b.fan_kw}kW・{b.dust_recovery}）
+                        {b.base_price == null ? '　※本体価格 未設定' : `　¥${b.base_price.toLocaleString()}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {bfqBody && (<>
+                  {bfqBody.base_price == null && (
+                    <div className="bg-amber-50 border border-amber-300 text-amber-800 rounded-lg p-2 text-xs">
+                      この型式はマスタに本体価格がありません{bfqBody.price_note ? `（原本の記載: ${bfqBody.price_note}）` : ''}。
+                      明細に追加後、単価を手入力してください。
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">周波数</label>
+                      <select value={bfqSel.hz} onChange={e => setBfqSel(s => ({ ...s, hz: Number(e.target.value) }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                        {bfq.choices.hz.map((h: number) => <option key={h} value={h}>{h}Hz</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">電圧</label>
+                      <select value={bfqSel.voltage} onChange={e => setBfqSel(s => ({ ...s, voltage: Number(e.target.value) }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                        {bfq.choices.voltage.map((v: number) => <option key={v} value={v}>{v}V</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-2.5 text-xs text-gray-600 space-y-0.5">
+                    <div>排風型式（周波数で決定）: <strong className="text-gray-800">{bfqFanModel || '—'}</strong></div>
+                    <div>フィルター: {bfqBody.filter_dia ? `φ${bfqBody.filter_dia}×` : ''}{bfqBody.filter_length}×{bfqBody.filter_count}本　／　シェーカー: {bfqBody.shaker}</div>
+                    {bfqSeries && <div>{bfqSeries.indoor_outdoor}／{bfqSeries.flange_type}／{bfqSeries.maker}／スライドベース{bfqSeries.slide_base}／{bfqSeries.remarks}</div>}
+                  </div>
+                  {bfqBody.shaker !== 'なし' && (
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">シェーカー位置</label>
+                      <select value={bfqSel.shakerPos} onChange={e => setBfqSel(s => ({ ...s, shakerPos: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                        {bfq.choices.shaker_position.map((p: string) => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  {bfqDustCat && (
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">
+                        {bfqBody.dust_recovery} のオプション
+                        {bfqDustOpts.some(o => o.is_provisional) && <span className="text-amber-600 ml-1">※価格は仮</span>}
+                      </label>
+                      <select value={bfqSel.dustOpt} onChange={e => setBfqSel(s => ({ ...s, dustOpt: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                        <option value="">選択しない</option>
+                        {bfqDustOpts.map(o => (
+                          <option key={o.id} value={o.id}>
+                            {o.option_name}{o.spec && o.spec !== o.option_name ? ` ${o.spec}` : ''} ¥{(o.price || 0).toLocaleString()}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">スイッチ／制御盤（排他）</label>
+                    <select value={bfqSel.switch}
+                      onChange={e => setBfqSel(s => ({ ...s, switch: e.target.value, panelAdds: [] }))}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                      {bfq.choices.switch.map((sw: string) => <option key={sw} value={sw}>{sw}</option>)}
+                    </select>
+                  </div>
+                  {bfqSel.switch === '制御盤' && (
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">
+                        制御盤 追加仕様（複数選択可）　標準: ¥{(bfqSeries?.panel_price || 0).toLocaleString()}
+                      </label>
+                      <div className="space-y-1 border border-gray-200 rounded-lg p-2">
+                        {bfqPanelAdds.map(o => (
+                          <label key={o.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                            <input type="checkbox" checked={bfqSel.panelAdds.includes(o.id)}
+                              onChange={e => setBfqSel(s => ({
+                                ...s,
+                                panelAdds: e.target.checked ? [...s.panelAdds, o.id] : s.panelAdds.filter(x => x !== o.id),
+                              }))} />
+                            <span className="flex-1">{o.option_name}</span>
+                            <span className="text-xs text-gray-500">+¥{(o.price || 0).toLocaleString()}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center bg-blue-50 rounded-lg px-3 py-2 text-sm">
+                    <span className="text-gray-600">追加される金額</span>
+                    <strong className="text-blue-700 text-base">¥{bfqTotal.toLocaleString()}</strong>
+                  </div>
+                </>)}
+              </div>
+            )}
+            <div className="flex justify-end gap-3 mt-5">
+              <button onClick={() => setShowBfqPattern(false)} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 text-sm">キャンセル</button>
+              <button onClick={addBfqToItems} disabled={!bfqBody}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">明細に追加</button>
             </div>
           </div>
         </div>

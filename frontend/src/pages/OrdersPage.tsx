@@ -151,12 +151,19 @@ export default function OrdersPage() {
   );
 }
 
-// ========== 受注項目 編集モーダル（注文書有無・納期・前受金・受注日） ==========
+// 有無（Boolean|null）↔ セレクト文字列の相互変換
+const ynToStr = (v: boolean | null | undefined) => (v === true ? 'true' : v === false ? 'false' : '');
+const strToYn = (s: string) => (s === '' ? null : s === 'true');
+
+// ========== 受注項目 編集モーダル（注文書/図面/契約書有無・納期・前受金・出荷方法・部品手配） ==========
 function OrderTicketEditModal({ ticket, onClose, onSaved }: { ticket: any; onClose: () => void; onSaved: () => void }) {
   const [ticketType, setTicketType] = useState<string>(ticket.ticket_type || 'tanban');
-  const [orderSheet, setOrderSheet] = useState<string>(
-    ticket.has_order_sheet === true ? 'true' : ticket.has_order_sheet === false ? 'false' : ''
-  );
+  const [orderSheet, setOrderSheet] = useState<string>(ynToStr(ticket.has_order_sheet));
+  const [drawing, setDrawing] = useState<string>(ynToStr(ticket.has_drawing));
+  const [contract, setContract] = useState<string>(ynToStr(ticket.has_contract));
+  const [partsInput, setPartsInput] = useState<string>(ticket.parts_input_status || '');
+  const [partsOrder, setPartsOrder] = useState<string>(ticket.parts_order_status || '');
+  const [stockMinus, setStockMinus] = useState<string>(ticket.stock_minus_status || '');
   const [deliveryDate, setDeliveryDate] = useState<string>(ticket.delivery_date || '');
   const [advPays, setAdvPays] = useState<{ date: string; amount: string }[]>(() => {
     const base = (ticket.advance_payments || []).map((a: any) => ({ date: a.date || '', amount: a.amount != null ? String(a.amount) : '' }));
@@ -173,10 +180,15 @@ function OrderTicketEditModal({ ticket, onClose, onSaved }: { ticket: any; onClo
     try {
       await estimateApi.updateOrderTicket(ticket.id, {
         ticket_type: ticketType,
-        has_order_sheet: orderSheet === '' ? null : orderSheet === 'true',
+        has_order_sheet: strToYn(orderSheet),
+        has_drawing: strToYn(drawing),
+        has_contract: strToYn(contract),
         delivery_date: deliveryDate || null,
         advance_payments: advPays.map(a => ({ date: a.date || null, amount: a.amount ? Number(a.amount) : null })).filter(a => a.date || a.amount),
         shipping_method: shipMethod || null,
+        parts_input_status: partsInput || null,
+        parts_order_status: partsOrder || null,
+        stock_minus_status: stockMinus || null,
         order_date: orderDate || null,
       });
       onSaved();
@@ -187,7 +199,7 @@ function OrderTicketEditModal({ ticket, onClose, onSaved }: { ticket: any; onClo
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-gray-800">受注項目の編集</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
@@ -208,13 +220,24 @@ function OrderTicketEditModal({ ticket, onClose, onSaved }: { ticket: any; onClo
             </select>
           </div>
           <div>
-            <label className="block text-sm text-gray-600 mb-1">注文書</label>
-            <select value={orderSheet} onChange={e => setOrderSheet(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm">
-              <option value="">未確認</option>
-              <option value="true">有</option>
-              <option value="false">無</option>
-            </select>
+            <label className="block text-sm text-gray-600 mb-1">書類の有無</label>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                ['注文書', orderSheet, setOrderSheet],
+                ['図面', drawing, setDrawing],
+                ['契約書', contract, setContract],
+              ] as const).map(([label, val, set]) => (
+                <div key={label}>
+                  <span className="block text-xs text-gray-400 mb-0.5">{label}</span>
+                  <select value={val} onChange={e => (set as any)(e.target.value)}
+                    className="w-full border rounded px-2 py-2 text-sm">
+                    <option value="">未確認</option>
+                    <option value="true">有</option>
+                    <option value="false">無</option>
+                  </select>
+                </div>
+              ))}
+            </div>
           </div>
           <div>
             <label className="block text-sm text-gray-600 mb-1">納期</label>
@@ -245,6 +268,26 @@ function OrderTicketEditModal({ ticket, onClose, onSaved }: { ticket: any; onClo
               <option value="井上納品">井上納品</option>
               <option value="引取">引取</option>
             </select>
+          </div>
+          <div>
+            <label className="block text-sm text-gray-600 mb-1">部品手配・在庫マイナス</label>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                ['部品入力', partsInput, setPartsInput],
+                ['注文', partsOrder, setPartsOrder],
+                ['在庫マイナス', stockMinus, setStockMinus],
+              ] as const).map(([label, val, set]) => (
+                <div key={label}>
+                  <span className="block text-xs text-gray-400 mb-0.5">{label}</span>
+                  <select value={val} onChange={e => (set as any)(e.target.value)}
+                    className="w-full border rounded px-2 py-2 text-sm">
+                    <option value="">未入力</option>
+                    <option value="未">未</option>
+                    <option value="済">済</option>
+                  </select>
+                </div>
+              ))}
+            </div>
           </div>
           <div>
             <label className="block text-sm text-gray-600 mb-1">受注日</label>

@@ -152,6 +152,7 @@ export const estimateApi = {
   getBfrBodies: () => api.get('/estimate-quotations/patterns/bfr-bodies'),
   getBfrFans: (model: string) => api.get(`/estimate-quotations/patterns/bfr-fans/${model}`),
   getBfrRvs: (model: string) => api.get(`/estimate-quotations/patterns/bfr-rvs/${model}`),
+  getBfqPatterns: () => api.get('/estimate-quotations/patterns/bfq'),
   getScaBodies: () => api.get('/estimate-quotations/patterns/sca-bodies'),
   getPlFans: () => api.get('/estimate-quotations/patterns/pl-fans'),
   getCyclones: () => api.get('/estimate-quotations/patterns/cyclones'),

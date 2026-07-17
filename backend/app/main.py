@@ -283,6 +283,160 @@ def setup_order_ticket_shipping():
     return {"status": "ok", "message": "受注票 前受金3回・出荷方法カラム追加完了"}
 
 
+@app.get("/setup-bfq-patterns")
+def setup_bfq_patterns():
+    """BFQ見積パターン（系列/本体/排風型式/オプション）テーブル作成＋マスタ投入。
+    出典: 「2026.2.9_BFQ見積パターン.xlsx」BFQシート。再実行時は洗い替え。"""
+    from app.db.models import (
+        engine, SessionLocal,
+        EstimateBfqSeries, EstimateBfqBody, EstimateBfqFan, EstimateBfqOption,
+    )
+    EstimateBfqSeries.__table__.create(bind=engine, checkfirst=True)
+    EstimateBfqBody.__table__.create(bind=engine, checkfirst=True)
+    EstimateBfqFan.__table__.create(bind=engine, checkfirst=True)
+    EstimateBfqOption.__table__.create(bind=engine, checkfirst=True)
+
+    db = SessionLocal()
+    try:
+        for M in (EstimateBfqSeries, EstimateBfqBody, EstimateBfqFan, EstimateBfqOption):
+            db.query(M).delete()
+
+        # 系列ごとの『決まり』値・スイッチ・制御盤（標準=電動シェーキング）
+        # (series, 制御盤標準価格, ケースブレーカ, 価格, 押しボタン, 価格)
+        for i, (s, panel, cb, cbp, ps, psp) in enumerate([
+            ("BFQ3", 146000, "NCD-30 3P15", 8000, "AS480", 3200),
+            ("BFQ5", 146000, "NCD-30 3P25", 8000, "AS480", 3200),
+            ("BFQ7", 161000, "NCD-30 3P30", 8000, "AS480", 3200),
+            ("BFQ10", 175000, "NCD-50 3P40", 11000, "AS480", 3200),
+            ("BFQ15", 255000, "なし(制御盤)", None, "なし(制御盤)", None),
+        ]):
+            db.add(EstimateBfqSeries(
+                series=s, indoor_outdoor="屋内", flange_type="フランジ", maker="日立",
+                slide_base="無", remarks="IE3", panel_price=panel,
+                case_breaker=cb, case_breaker_price=cbp,
+                push_switch=ps, push_switch_price=psp, sort_order=i,
+            ))
+
+        # 周波数 → 排風型式
+        for s, hz, fm in [
+            ("BFQ3", 50, "PLD2.2-2R54"), ("BFQ3", 60, "PLD2.2-2R65"),
+            ("BFQ5", 50, "PLD3.7-2R53"), ("BFQ5", 60, "PLD3.7-2R64"),
+            ("BFQ7", 50, "PLD5.5-2R52"), ("BFQ7", 60, "PLD5.5-4R63"),
+            ("BFQ10", 50, "PLD7.5-4R50"), ("BFQ10", 60, "PLD7.5-4R60"),
+            ("BFQ15", 50, "PLD11-4R52"), ("BFQ15", 60, "PLD11-4R62"),
+        ]:
+            db.add(EstimateBfqFan(series=s, hz=hz, fan_model=fm))
+
+        # 本体（型式ごと）: (型式, 系列, 本体価格, 価格原文, kW, φ, ﾌｨﾙﾀｰ長, 本数, ｼｪｰｶｰ, 払落kW, ﾀﾞｽﾄ回収)
+        bodies = [
+            ("BFQ3",   "BFQ3", 510000, None, 2.2, 200, "1400L", 14, "なし", None, "袋受φ575"),
+            ("BFQ3S",  "BFQ3", 570000, None, 2.2, 200, "1400L", 14, "手動", None, "袋受φ575"),
+            ("BFQ3V",  "BFQ3", 600000, None, 2.2, 200, "1400L", 14, "電動", 0.2, "袋受φ575"),
+            ("BFQ3HS", "BFQ3", 600000, None, 2.2, 200, "1400L", 14, "手動", None, "H:空送"),
+            ("BFQ3HV", "BFQ3", 630000, None, 2.2, 200, "1400L", 14, "電動", 0.2, "H:空送"),
+            ("BFQ3RV", "BFQ3", None, "600000+RV", 2.2, 200, "1400L", 14, "電動", 0.2, "RV"),
+            ("BFQ5",   "BFQ5", 640000, None, 3.7, 200, "1400L", 25, "なし", None, "袋受φ700"),
+            ("BFQ5S",  "BFQ5", 690000, None, 3.7, 200, "1400L", 25, "手動", None, "袋受φ700"),
+            ("BFQ5V",  "BFQ5", 730000, None, 3.7, 200, "1400L", 25, "電動", 0.2, "袋受φ700"),
+            ("BFQ5HS", "BFQ5", 720000, None, 3.7, 200, "1400L", 25, "手動", None, "H:空送"),
+            ("BFQ5HV", "BFQ5", 760000, None, 3.7, 200, "1400L", 25, "電動", 0.2, "H:空送"),
+            ("BFQ5RV", "BFQ5", None, "730000+RV", 3.7, 200, "1400L", 25, "電動", 0.2, "RV"),
+            ("BFQ5VQ", "BFQ5", None, None, 3.7, 200, "1400L", 25, "電動", 0.2, "Qコンテナ"),
+            ("BFQ7",   "BFQ7", None, None, 5.5, None, "1400L", 36, "なし", None, "袋受φ700"),
+            ("BFQ7S",  "BFQ7", None, None, 5.5, None, "1400L", 36, "手動", None, "袋受φ700"),
+            ("BFQ7V",  "BFQ7", None, None, 5.5, None, "1400L", 36, "電動", 0.2, "袋受φ700"),
+            ("BFQ7HS", "BFQ7", None, None, 5.5, None, "1400L", 36, "手動", None, "H:空送"),
+            ("BFQ7HV", "BFQ7", None, None, 5.5, None, "1400L", 36, "電動", 0.2, "H:空送"),
+            ("BFQ7RV", "BFQ7", None, "1050000+RV", 5.5, None, "1400L", 36, "電動", 0.2, "RV"),
+            ("BFQ7VQ", "BFQ7", None, None, 5.5, None, "1400L", 36, "電動", 0.2, "Qコンテナ"),
+            ("BFQ7Vフレコン", "BFQ7", None, None, 5.5, None, "1400L", 36, "電動", 0.2, "フレコン受"),
+            ("BFQ10V",  "BFQ10", 1140000, None, 7.5, None, "2000L", 36, "電動", 0.2, "袋受φ700"),
+            ("BFQ10HV", "BFQ10", 1260000, None, 7.5, None, "2000L", 36, "電動", 0.2, "H:空送"),
+            ("BFQ10RV", "BFQ10", None, "1140000+RV", 7.5, None, "2000L", 36, "電動", 0.2, "RV"),
+            ("BFQ10VQ", "BFQ10", None, None, 7.5, None, "2000L", 36, "電動", 0.2, "Qコンテナ"),
+            ("BFQ10Vフレコン", "BFQ10", None, None, 7.5, None, "2000L", 36, "電動", 0.2, "フレコン受"),
+            ("BFQ15V",  "BFQ15", 1540000, None, 11, None, "2000L", 42, "電動", 0.4, "袋受φ700"),
+            ("BFQ15HV", "BFQ15", 1570000, None, 11, None, "2000L", 42, "電動", 0.4, "H:空送"),
+            ("BFQ15RV", "BFQ15", None, "1540000+RV", 11, None, "2000L", 42, "電動", 0.4, "RV"),
+            ("BFQ15VQ", "BFQ15", None, "1540000+Qコンテナ", 11, None, "2000L", 42, "電動", 0.4, "Qコンテナ"),
+            ("BFQ15Vフレコン", "BFQ15", None, None, 11, None, "2000L", 42, "電動", 0.4, "フレコン受"),
+        ]
+        for i, (mc, s, bp, note, kw, dia, fl, fc, sh, shkw, dr) in enumerate(bodies):
+            db.add(EstimateBfqBody(
+                model_code=mc, series=s, base_price=bp, price_note=note, fan_kw=kw,
+                filter_dia=dia, filter_length=fl, filter_count=fc,
+                shaker=sh, shaker_kw=shkw, dust_recovery=dr, sort_order=i,
+            ))
+
+        # オプション: 空送（H型）… price=径ごとの価格 / unit_price=H型単品価格
+        for i, (s, dia, p, up) in enumerate([
+            ("BFQ3", "φ150", 30000, 60000),
+            ("BFQ5", "φ150", 30000, 64000),
+            ("BFQ7", "φ150", 30000, 68000), ("BFQ7", "φ175", 30000, 68000),
+            ("BFQ10", "φ175", 30000, 68000), ("BFQ10", "φ200", 30000, 68000),
+            ("BFQ15", "φ175", 30000, 72000), ("BFQ15", "φ200", 30000, 72000),
+        ]):
+            db.add(EstimateBfqOption(category="空送", series=s, option_name=dia,
+                                     spec=dia, price=p, unit_price=up, sort_order=i))
+
+        # オプション: RV（全系列共通・xlsx上「価格(仮)」のため要確定）
+        for i, (m, kw, p) in enumerate([
+            ("RV20×35", 0.2, 250000), ("RV25×40", 0.2, 290000),
+            ("RV25×60", 0.4, 320000), ("RV25×80", 0.75, 390000),
+        ]):
+            db.add(EstimateBfqOption(category="RV", option_name=m, spec=f"{kw}kW",
+                                     price=p, is_provisional=True, sort_order=i))
+
+        # オプション: フレコン受 / Qコンテナ / 制御盤の追加仕様（複数選択可）
+        for i, (m, p) in enumerate([
+            ("継脚長さ変更・サイレンサー短管延長", 50000),
+            ("レベルスイッチ付(フレコン満杯)", 73000),
+            ("改造なし", 0),
+        ]):
+            db.add(EstimateBfqOption(category="フレコン", option_name=m, price=p, sort_order=i))
+        for i, (m, p) in enumerate([("Qコンテナ+予備タンク", 220000), ("Qコンテナ", 142000)]):
+            db.add(EstimateBfqOption(category="Qコンテナ", option_name=m, price=p, sort_order=i))
+        for i, (m, p) in enumerate([
+            ("+外部ファン運転中", 6500), ("+空送ファン付(3.7kwまで)", 48000),
+            ("+RV", 24000), ("+フレコン満杯", 45000),
+            ("+遠隔スイッチ", 25000), ("+欠相保護", 6000),
+        ]):
+            db.add(EstimateBfqOption(category="制御盤追加", option_name=m, price=p, sort_order=i))
+
+        db.commit()
+        counts = {
+            "series": db.query(EstimateBfqSeries).count(),
+            "bodies": db.query(EstimateBfqBody).count(),
+            "fans": db.query(EstimateBfqFan).count(),
+            "options": db.query(EstimateBfqOption).count(),
+            "本体価格が未設定の型式": db.query(EstimateBfqBody).filter(EstimateBfqBody.base_price.is_(None)).count(),
+        }
+        return {"status": "ok", "message": "BFQ見積パターン投入完了", "counts": counts}
+    except Exception as e:
+        db.rollback()
+        return {"status": "error", "message": str(e)}
+    finally:
+        db.close()
+
+
+@app.get("/setup-order-ticket-checks")
+def setup_order_ticket_checks():
+    """受注票に図面/契約書有無・部品手配/在庫マイナス（未・済）カラムを追加"""
+    from app.db.models import engine
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE order_tickets ADD COLUMN IF NOT EXISTS has_drawing BOOLEAN"))
+            conn.execute(text("ALTER TABLE order_tickets ADD COLUMN IF NOT EXISTS has_contract BOOLEAN"))
+            conn.execute(text("ALTER TABLE order_tickets ADD COLUMN IF NOT EXISTS parts_input_status VARCHAR(10)"))
+            conn.execute(text("ALTER TABLE order_tickets ADD COLUMN IF NOT EXISTS parts_order_status VARCHAR(10)"))
+            conn.execute(text("ALTER TABLE order_tickets ADD COLUMN IF NOT EXISTS stock_minus_status VARCHAR(10)"))
+            conn.commit()
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    return {"status": "ok", "message": "受注票 図面/契約書・部品手配カラム追加完了"}
+
+
 @app.get("/setup-customer-delivery-date")
 def setup_customer_delivery_date():
     """案件子IDに顧客納期カラム（customer_delivery_date）を追加"""
