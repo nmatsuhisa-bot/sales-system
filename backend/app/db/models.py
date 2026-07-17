@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, String, Boolean, DateTime, Date, Numeric, Integer, Text, ForeignKey, JSON, UniqueConstraint
+from sqlalchemy import create_engine, Column, String, Boolean, DateTime, Date, Numeric, Integer, Text, ForeignKey, JSON, UniqueConstraint, or_
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
@@ -18,6 +18,21 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def pk_or_code(id_col, code_col, value):
+    """UUID主キー・業務コード（案件ID/子ID/見積番号 等）のどちらでも引けるフィルタ。
+
+    or_(Model.id == v, Model.code == v) と素直に書くと、v が非UUID文字列のとき
+    PostgreSQLが id(UUID列) へのキャストに失敗して InvalidTextRepresentation となり
+    500になる。UUIDとして解釈できるときだけ主キー条件を含めることで回避する。
+    """
+    conds = [code_col == value]
+    try:
+        conds.append(id_col == uuid.UUID(str(value)))
+    except (ValueError, TypeError):
+        pass
+    return or_(*conds)
 
 # =============================================
 # モデル定義

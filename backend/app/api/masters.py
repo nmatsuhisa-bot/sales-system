@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from typing import Optional
 from pydantic import BaseModel
-from app.db.models import get_db, Agency, DeliveryDestination, Employee
+from app.db.models import get_db, pk_or_code, Agency, DeliveryDestination, Employee
 
 router = APIRouter()
 
@@ -39,7 +39,7 @@ def create_agency(data: AgencyIn, db: Session = Depends(get_db)):
 
 @router.put("/agencies/{agency_id}")
 def update_agency(agency_id: str, data: AgencyIn, db: Session = Depends(get_db)):
-    a = db.query(Agency).filter(or_(Agency.id == agency_id, Agency.agency_code == agency_id)).first()
+    a = db.query(Agency).filter(pk_or_code(Agency.id, Agency.agency_code, agency_id)).first()
     if not a: raise HTTPException(404)
     for k, v in data.dict().items(): setattr(a, k, v)
     db.commit(); db.refresh(a)
@@ -47,7 +47,7 @@ def update_agency(agency_id: str, data: AgencyIn, db: Session = Depends(get_db))
 
 @router.delete("/agencies/{agency_id}", status_code=204)
 def delete_agency(agency_id: str, db: Session = Depends(get_db)):
-    a = db.query(Agency).filter(or_(Agency.id == agency_id, Agency.agency_code == agency_id)).first()
+    a = db.query(Agency).filter(pk_or_code(Agency.id, Agency.agency_code, agency_id)).first()
     if not a: raise HTTPException(404)
     a.is_active = False; db.commit()
 
@@ -87,7 +87,7 @@ def create_delivery_destination(data: DeliveryDestinationIn, db: Session = Depen
 @router.put("/delivery-destinations/{dest_id}")
 def update_delivery_destination(dest_id: str, data: DeliveryDestinationIn, db: Session = Depends(get_db)):
     d = db.query(DeliveryDestination).filter(
-        or_(DeliveryDestination.id == dest_id, DeliveryDestination.customer_id == dest_id)
+        pk_or_code(DeliveryDestination.id, DeliveryDestination.customer_id, dest_id)
     ).first()
     if not d: raise HTTPException(404)
     for k, v in data.dict().items(): setattr(d, k, v)
@@ -97,7 +97,7 @@ def update_delivery_destination(dest_id: str, data: DeliveryDestinationIn, db: S
 @router.delete("/delivery-destinations/{dest_id}", status_code=204)
 def delete_delivery_destination(dest_id: str, db: Session = Depends(get_db)):
     d = db.query(DeliveryDestination).filter(
-        or_(DeliveryDestination.id == dest_id, DeliveryDestination.customer_id == dest_id)
+        pk_or_code(DeliveryDestination.id, DeliveryDestination.customer_id, dest_id)
     ).first()
     if not d: raise HTTPException(404)
     d.is_active = False; db.commit()
@@ -127,7 +127,7 @@ def create_employee(data: EmployeeIn, db: Session = Depends(get_db)):
 @router.put("/employees/{emp_id}")
 def update_employee(emp_id: str, data: EmployeeIn, db: Session = Depends(get_db)):
     e = db.query(Employee).filter(
-        or_(Employee.id == emp_id, Employee.employee_code == emp_id)
+        pk_or_code(Employee.id, Employee.employee_code, emp_id)
     ).first()
     if not e: raise HTTPException(404)
     for k, v in data.dict().items(): setattr(e, k, v)
@@ -137,7 +137,7 @@ def update_employee(emp_id: str, data: EmployeeIn, db: Session = Depends(get_db)
 @router.delete("/employees/{emp_id}", status_code=204)
 def delete_employee(emp_id: str, db: Session = Depends(get_db)):
     e = db.query(Employee).filter(
-        or_(Employee.id == emp_id, Employee.employee_code == emp_id)
+        pk_or_code(Employee.id, Employee.employee_code, emp_id)
     ).first()
     if not e: raise HTTPException(404)
     e.is_active = False; db.commit()

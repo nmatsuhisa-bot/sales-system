@@ -11,7 +11,7 @@ import io, uuid
 
 from app.normalize import nfkc
 from app.db.models import (
-    get_db, QuotationHeader, QuotationLineItem, QuotationLaborDetail,
+    get_db, pk_or_code, QuotationHeader, QuotationLineItem, QuotationLaborDetail,
     OrderTicket, ProjectOrder, Project,
     EstimateBfrBody, EstimateBfrFan, EstimateBfrRv,
     EstimateBfqSeries, EstimateBfqBody, EstimateBfqFan, EstimateBfqOption,
@@ -437,13 +437,8 @@ def list_order_tickets(
 
 
 def _ot_filter(ticket_id: str):
-    """UUID・受注番号どちらでも受注票を引けるフィルタ（UUID列への非UUID文字列castエラーを回避）。"""
-    conds = [OrderTicket.ticket_no == ticket_id]
-    try:
-        conds.append(OrderTicket.id == uuid.UUID(str(ticket_id)))
-    except (ValueError, TypeError):
-        pass
-    return or_(*conds)
+    """UUID・受注番号どちらでも受注票を引けるフィルタ。"""
+    return pk_or_code(OrderTicket.id, OrderTicket.ticket_no, ticket_id)
 
 @router.put("/order-ticket/{ticket_id}")
 def update_order_ticket(ticket_id: str, data: dict, db: Session = Depends(get_db)):
@@ -500,7 +495,7 @@ def update_order_ticket(ticket_id: str, data: dict, db: Session = Depends(get_db
 def get_quotation(quotation_id: str, db: Session = Depends(get_db)):
     q = db.query(QuotationHeader).options(
         joinedload(QuotationHeader.line_items), joinedload(QuotationHeader.labor_details)
-    ).filter(or_(QuotationHeader.id == quotation_id, QuotationHeader.quotation_no == quotation_id)).first()
+    ).filter(pk_or_code(QuotationHeader.id, QuotationHeader.quotation_no, quotation_id)).first()
     if not q: raise HTTPException(404)
     return _q_to_dict(q)
 
@@ -1581,7 +1576,7 @@ def crane_pdf(order_id: str, db: Session = Depends(get_db)):
     """クレーン.作業車等依頼書PDF"""
     from app.db.models import ProjectOrder
     po = db.query(ProjectOrder).filter(
-        or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)
+        pk_or_code(ProjectOrder.id, ProjectOrder.child_no, order_id)
     ).first()
     if not po: raise HTTPException(404)
 
@@ -1673,7 +1668,7 @@ def shipping_pdf(order_id: str, db: Session = Depends(get_db)):
     """送り状PDF"""
     from app.db.models import ProjectOrder
     po = db.query(ProjectOrder).filter(
-        or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)
+        pk_or_code(ProjectOrder.id, ProjectOrder.child_no, order_id)
     ).first()
     if not po: raise HTTPException(404)
 
@@ -1754,7 +1749,7 @@ def hotel_pdf(order_id: str, db: Session = Depends(get_db)):
     """宿泊予約票PDF"""
     from app.db.models import ProjectOrder
     po = db.query(ProjectOrder).filter(
-        or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)
+        pk_or_code(ProjectOrder.id, ProjectOrder.child_no, order_id)
     ).first()
     if not po: raise HTTPException(404)
 

@@ -8,7 +8,7 @@ from sqlalchemy import desc, or_, func
 from typing import Optional, List
 from pydantic import BaseModel
 from datetime import date
-from app.db.models import get_db, Project, ProjectOrder, ProjectOrderQuotation
+from app.db.models import get_db, pk_or_code, Project, ProjectOrder, ProjectOrderQuotation
 from app.normalize import nfkc, nfkc_fields
 
 router = APIRouter()
@@ -300,13 +300,13 @@ def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
 def get_project(project_id: str, db: Session = Depends(get_db)):
     p = db.query(Project).options(
         joinedload(Project.project_orders).joinedload(ProjectOrder.linked_quotations)
-    ).filter(or_(Project.id == project_id, Project.project_no == project_id)).first()
+    ).filter(pk_or_code(Project.id, Project.project_no, project_id)).first()
     if not p: raise HTTPException(404, "案件が見つかりません")
     return project_to_dict(p)
 
 @router.put("/{project_id}")
 def update_project(project_id: str, data: ProjectUpdate, db: Session = Depends(get_db)):
-    p = db.query(Project).filter(or_(Project.id == project_id, Project.project_no == project_id)).first()
+    p = db.query(Project).filter(pk_or_code(Project.id, Project.project_no, project_id)).first()
     if not p: raise HTTPException(404)
     _check_version(p.updated_at, data.expected_updated_at)
     for k, v in data.dict(exclude={"expected_updated_at"}, exclude_none=True).items():
@@ -316,13 +316,13 @@ def update_project(project_id: str, data: ProjectUpdate, db: Session = Depends(g
 
 @router.delete("/{project_id}", status_code=204)
 def delete_project(project_id: str, db: Session = Depends(get_db)):
-    p = db.query(Project).filter(or_(Project.id == project_id, Project.project_no == project_id)).first()
+    p = db.query(Project).filter(pk_or_code(Project.id, Project.project_no, project_id)).first()
     if not p: raise HTTPException(404)
     db.delete(p); db.commit()
 
 @router.post("/{project_id}/orders", status_code=201)
 def add_project_order(project_id: str, data: ProjectOrderCreate, db: Session = Depends(get_db)):
-    p = db.query(Project).filter(or_(Project.id == project_id, Project.project_no == project_id)).first()
+    p = db.query(Project).filter(pk_or_code(Project.id, Project.project_no, project_id)).first()
     if not p: raise HTTPException(404)
     o = _make_order(data, p.id, p.project_no, db)
     db.commit(); db.refresh(o)
@@ -362,13 +362,13 @@ def get_project_order(order_id: str, db: Session = Depends(get_db)):
     """子受注（案件ID_子）を単体取得。見積作成時の顧客名・納入先の自動補完に使用。"""
     o = db.query(ProjectOrder).options(
         joinedload(ProjectOrder.linked_quotations)
-    ).filter(or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)).first()
+    ).filter(pk_or_code(ProjectOrder.id, ProjectOrder.child_no, order_id)).first()
     if not o: raise HTTPException(404, "受注が見つかりません")
     return order_to_dict(o)
 
 @router.put("/orders/{order_id}")
 def update_project_order(order_id: str, data: ProjectOrderCreate, db: Session = Depends(get_db)):
-    o = db.query(ProjectOrder).filter(or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)).first()
+    o = db.query(ProjectOrder).filter(pk_or_code(ProjectOrder.id, ProjectOrder.child_no, order_id)).first()
     if not o: raise HTTPException(404)
     _check_version(o.updated_at, data.expected_updated_at)
     for k, v in data.dict(exclude={"child_no", "linked_quotations", "expected_updated_at"}, exclude_none=True).items():
@@ -383,7 +383,7 @@ def update_project_order(order_id: str, data: ProjectOrderCreate, db: Session = 
 
 @router.delete("/orders/{order_id}", status_code=204)
 def delete_project_order(order_id: str, db: Session = Depends(get_db)):
-    o = db.query(ProjectOrder).filter(or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)).first()
+    o = db.query(ProjectOrder).filter(pk_or_code(ProjectOrder.id, ProjectOrder.child_no, order_id)).first()
     if not o: raise HTTPException(404)
     db.delete(o); db.commit()
 
@@ -391,7 +391,7 @@ def delete_project_order(order_id: str, db: Session = Depends(get_db)):
 def duplicate_project_order(order_id: str, db: Session = Depends(get_db)):
     """案件子IDを複製。同じ親案件の配下に新しい子IDを採番して作成。
     見積/受注の紐付け（採用見積・受注金額等）は引き継がず、新しい子IDとして起票する。"""
-    src = db.query(ProjectOrder).filter(or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)).first()
+    src = db.query(ProjectOrder).filter(pk_or_code(ProjectOrder.id, ProjectOrder.child_no, order_id)).first()
     if not src: raise HTTPException(404, "複製元の案件子IDが見つかりません")
     new_child = generate_child_no(src.project_no, db)
     copy_fields = [
@@ -413,7 +413,7 @@ def link_quotation(order_id: str, quotation_id: str, db: Session = Depends(get_d
     # B003修正: 旧Quotationモデルから新QuotationHeaderモデルへ
     from app.db.models import QuotationHeader
     from app.api.estimate_quotations import net_amount
-    o = db.query(ProjectOrder).filter(or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)).first()
+    o = db.query(ProjectOrder).filter(pk_or_code(ProjectOrder.id, ProjectOrder.child_no, order_id)).first()
     q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
     if not o or not q: raise HTTPException(404)
     # project_orders.quotation_id はFK制約が旧テーブルを参照するため書き込まない

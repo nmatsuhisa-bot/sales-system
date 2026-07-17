@@ -8,6 +8,7 @@ from typing import Optional, List, Any
 from pydantic import BaseModel
 import io
 from app.db.models import (
+    pk_or_code,
     get_db, ProjectOrder,
     CraneArrangement, ShippingArrangement, HotelArrangement, ArrangementVendor,
 )
@@ -115,7 +116,7 @@ def esc(v):
 
 def find_order(order_id, db):
     po = db.query(ProjectOrder).filter(
-        or_(ProjectOrder.id == order_id, ProjectOrder.child_no == order_id)
+        pk_or_code(ProjectOrder.id, ProjectOrder.child_no, order_id)
     ).first()
     if not po:
         raise HTTPException(404, "子IDが見つかりません")
