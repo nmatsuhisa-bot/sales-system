@@ -548,31 +548,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
                 <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">¥{sec_total:,}</td>
             </tr>"""
 
-    # 工数明細
-    labor_html = ""
-    if q.labor_details:
-        labor_html = """<div style="margin-top:20px;page-break-before:always">
-        <h3 style="font-size:14px">■ 社内工数内訳</h3>
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
-        <tr style="background:#f0f0f0">
-            <th style="border:1px solid #ccc;padding:4px 8px">作業項目</th>
-            <th style="border:1px solid #ccc;padding:4px 8px;width:80px">数量</th>
-            <th style="border:1px solid #ccc;padding:4px 8px;width:60px">単位</th>
-            <th style="border:1px solid #ccc;padding:4px 8px;width:100px">単価</th>
-            <th style="border:1px solid #ccc;padding:4px 8px;width:120px">金額</th>
-        </tr>"""
-        for l in sorted(q.labor_details, key=lambda x: x.sort_order):
-            labor_html += f"""<tr>
-                <td style="border:1px solid #ccc;padding:4px 8px">{l.item_name}{f' ({l.crane_type})' if l.crane_type else ''}</td>
-                <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">{float(l.quantity or 0)}</td>
-                <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{l.unit}</td>
-                <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">¥{int(l.unit_price or 0):,}</td>
-                <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">¥{int(l.amount or 0):,}</td>
-            </tr>"""
-        labor_html += f"""<tr style="font-weight:bold;background:#f5f5f5">
-            <td colspan="4" style="text-align:right;border:1px solid #ccc;padding:4px 8px">工数合計</td>
-            <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">¥{int(q.labor_total or 0):,}</td>
-        </tr></table></div>"""
+    # 社内工数の内訳は顧客向け見積書には出さない（金額は「その他」として大分類に計上）
 
     # ===== 頭紙（大分類別の内訳サマリー・番号付き）=====
     section_rows = ""
@@ -583,10 +559,11 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
             <td style="border:1px solid #ccc;padding:6px 12px;text-align:center">{sec_no}</td>
             <td style="border:1px solid #ccc;padding:6px 12px">{label}</td>
             <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{sec_total:,}</td></tr>'''
+    # 工数は大分類の続き番号で「その他」として計上
     if q.labor_total:
         section_rows += f'''<tr>
-            <td style="border:1px solid #ccc;padding:6px 12px;text-align:center">—</td>
-            <td style="border:1px solid #ccc;padding:6px 12px">工事工数</td>
+            <td style="border:1px solid #ccc;padding:6px 12px;text-align:center">{len(sections) + 1}</td>
+            <td style="border:1px solid #ccc;padding:6px 12px">その他</td>
             <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{int(q.labor_total):,}</td></tr>'''
 
     cover_html = f'''
@@ -705,7 +682,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
     <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.subtotal or 0):,}</td>
   </tr>
   <tr style="font-weight:bold">
-    <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">工事工数</td>
+    <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">その他</td>
     <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.labor_total or 0):,}</td>
   </tr>
   <tr style="font-weight:bold">
@@ -718,8 +695,6 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
   </tr>
 </tfoot>
 </table>
-
-{labor_html}
 
 <!-- 会社情報フッター -->
 <div style="margin-top:30px;border:2px solid #000;padding:10px;display:flex;align-items:center">
