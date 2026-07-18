@@ -416,9 +416,14 @@ def setup_function_roles():
     """ユーザーに機能権限(function_roles)を追加し、検印承認者の初期設定を行う。
 
     2026-07-18: 検印者をハードコードからユーザーマスタ参照に変更。
-    会議で決定した5名（後藤・江里口・柴田・井上社長・国立）に「検印承認者」を
-    自動付与する。氏名は部分一致で照合し、該当が無い場合は付与されないため
-    ユーザー管理画面で手動設定すること。冪等（既に権限がある人は変更しない）。"""
+
+    ★氏名は「完全一致」で照合する。当初は部分一致にしていたが、社名が井上電設で
+    「井上」姓の社員が4名おり、意図しない3名にも権限が付いてしまった。
+    照合できなかった人はユーザー管理画面で手動設定すること。
+
+    approver 権限は毎回「洗い替え」する（全解除→対象者にのみ付与）ため、
+    誤って付いた権限もこのエンドポイントを再実行すれば正される。
+    ただし画面で手動追加した承認者も消えるため、初期設定時のみ使うこと。"""
     from app.db.models import engine, SessionLocal, User
     from sqlalchemy import text
     from app.roles import has_role
@@ -429,32 +434,37 @@ def setup_function_roles():
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    # 会議2026-07-17で決定した検印承認者5名（氏名の部分一致で照合）
-    TARGETS = ["後藤", "江里口", "柴田", "井上", "国立"]
-    granted, already, unmatched = [], [], []
+    # 会議2026-07-17で決定した検印承認者のうち、ユーザーマスタに実在する人の正式氏名。
+    # 「井上社長」「柴田」「江里口」はユーザー未登録のため画面で手動設定が必要。
+    # ※「国立」は従業員マスタ上は旧字の「國立 信和」
+    TARGETS_EXACT = ["後藤 宗人", "國立 信和"]
+    granted, revoked, unmatched = [], [], []
     db = SessionLocal()
     try:
         users = db.query(User).filter(User.is_active == True).all()
-        for name in TARGETS:
-            hits = [u for u in users if name in (u.full_name or "")]
-            if not hits:
+        by_name = {(u.full_name or "").strip(): u for u in users}
+        # 1) 既存の approver を全解除（誤付与の是正）
+        for u in users:
+            if has_role(u, "approver"):
+                u.function_roles = [r for r in (u.function_roles or []) if r != "approver"]
+                revoked.append(u.full_name)
+        # 2) 完全一致した対象者にのみ付与
+        for name in TARGETS_EXACT:
+            u = by_name.get(name)
+            if not u:
                 unmatched.append(name)
                 continue
-            for u in hits:
-                if has_role(u, "approver"):
-                    already.append(u.full_name)
-                else:
-                    u.function_roles = (u.function_roles or []) + ["approver"]
-                    granted.append(u.full_name)
+            u.function_roles = (u.function_roles or []) + ["approver"]
+            granted.append(u.full_name)
         db.commit()
     except Exception as e:
         db.rollback()
         return {"status": "error", "message": str(e)}
     finally:
         db.close()
-    return {"status": "ok", "message": "機能権限カラム追加＋検印承認者の初期設定完了",
-            "付与": granted, "設定済み": already,
-            "該当ユーザーなし（要手動設定）": unmatched}
+    return {"status": "ok", "message": "検印承認者を洗い替えしました",
+            "付与": granted, "解除（洗い替え前）": revoked,
+            "ユーザー未登録（要手動設定）": unmatched + ["井上社長", "柴田", "江里口"]}
 
 
 @app.get("/setup-project-ticket-type")
