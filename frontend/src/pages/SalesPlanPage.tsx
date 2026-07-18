@@ -103,13 +103,25 @@ export default function SalesPlanPage() {
     tanbanTotal += dispTotal(p);
   }
 
-  // 単番の月次仮計上（見積のない月も平均的な単番売上見込みを計上して年間見通しを立てる）
+  // 単番の月次見込み（今月以降は個別の見積が出揃わないため、この定額で見込む）
   const TANBAN_MONTHLY_EST = 25000000;
-  // 月別合計（工番＋単番＋単番月次仮計上）
+  // 経過月（＝前月まで）かどうか。会計年度は3月〜翌2月のため暦年まで見て判定する
+  //（過去年度を表示中なら全月が経過済み、未来年度なら全月が未経過）
+  const isPastMonth = (m: number) => {
+    const calYear = m >= 3 ? year : year + 1;
+    const today = new Date();
+    const ty = today.getFullYear(), tm = today.getMonth() + 1;
+    return calYear < ty || (calYear === ty && m < tm);
+  };
+  // 単番の月次計上額: 経過月は実数集計、今月以降は定額見込み
+  const tanbanMonth = (m: number) => (isPastMonth(m) ? (tanbanMonths[m] || 0) : TANBAN_MONTHLY_EST);
+  const tanbanSum = MONTH_LIST.reduce((s, m) => s + tanbanMonth(m), 0);
+
+  // 月別合計（工番の実数 ＋ 単番の計上額）。単番は上の1本に集約済みのため二重計上しない
   const monthTotals: Record<number, number> = {};
-  for (const p of projects) for (const m of MONTH_LIST) monthTotals[m] = (monthTotals[m] || 0) + dispMonth(p, m);
-  for (const m of MONTH_LIST) monthTotals[m] = (monthTotals[m] || 0) + TANBAN_MONTHLY_EST;
-  const grandTotal = projects.reduce((s, p) => s + dispTotal(p), 0) + TANBAN_MONTHLY_EST * MONTH_LIST.length;
+  for (const p of kobanProjects) for (const m of MONTH_LIST) monthTotals[m] = (monthTotals[m] || 0) + dispMonth(p, m);
+  for (const m of MONTH_LIST) monthTotals[m] = (monthTotals[m] || 0) + tanbanMonth(m);
+  const grandTotal = kobanProjects.reduce((s, p) => s + dispTotal(p), 0) + tanbanSum;
 
   function toggleStatus(s: string) {
     setSelectedStatuses(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
@@ -155,16 +167,10 @@ export default function SalesPlanPage() {
         ${cell(M(dispTotal(p)), `text-align:right;font-weight:500;background:${C.projTotalBg}`)}
       </tr>`).join('');
 
-    const tanbanRow = tanbanProjects.length ? `<tr style="background:${C.tanbanBg};font-weight:700">
-      <td colspan="6" style="border:1px solid ${C.border};padding:4px 6px">単番（集計） ${tanbanProjects.length}件</td>
-      ${MONTH_LIST.map(m => cell(M(tanbanMonths[m] || 0), `text-align:right;background:${m === currentMonth ? C.curMonthBg : C.tanbanBg}`)).join('')}
-      ${cell(M(tanbanTotal), `text-align:right;background:${C.curMonthBg}`)}
-    </tr>` : '';
-
-    const estRow = `<tr style="background:${C.tanbanBg};color:#666">
-      <td colspan="6" style="border:1px solid ${C.border};padding:4px 6px">単番（月次仮計上 ${M(TANBAN_MONTHLY_EST)}/月）</td>
-      ${MONTH_LIST.map(m => cell(M(TANBAN_MONTHLY_EST), `text-align:right;background:${m === currentMonth ? C.curMonthBg : C.tanbanBg}`)).join('')}
-      ${cell(M(TANBAN_MONTHLY_EST * MONTH_LIST.length), 'text-align:right')}
+    const tanbanRow = `<tr style="background:${C.tanbanBg};font-weight:700">
+      <td colspan="6" style="border:1px solid ${C.border};padding:4px 6px">単番（集計） ${tanbanProjects.length}件　<span style="font-weight:400;color:#666">経過月=実数／今月以降=${M(TANBAN_MONTHLY_EST)}見込</span></td>
+      ${MONTH_LIST.map(m => cell(M(tanbanMonth(m)), `text-align:right;background:${m === currentMonth ? C.curMonthBg : C.tanbanBg}${isPastMonth(m) ? '' : ';color:#666;font-weight:400'}`)).join('')}
+      ${cell(M(tanbanSum), `text-align:right;background:${C.curMonthBg}`)}
     </tr>`;
 
     const footerRow = `<tr style="background:${C.totalBg};font-weight:700">
@@ -183,8 +189,8 @@ export default function SalesPlanPage() {
   * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 </style></head><body>
 <h2>売上計画表　${year}年度（${year}/2/21〜${year + 1}/2/20）</h2>
-<p>対象ステータス：${selectedStatuses.join('・')}　／　単番（合計${(TANBAN_MAX / 1000000)}M未満）は最下部に集計　／　営業中・確度高・内示は予算金額を採用　／　出力日：${new Date().toLocaleDateString('ja-JP')}</p>
-<table>${headerRow}<tbody>${dataRows}</tbody><tfoot>${tanbanRow}${estRow}${footerRow}</tfoot></table>
+<p>対象ステータス：${selectedStatuses.join('・')}　／　単番（合計${(TANBAN_MAX / 1000000)}M未満）は最下部に集計（経過月は実数・今月以降は${M(TANBAN_MONTHLY_EST)}/月の見込み）　／　営業中・確度高・内示は予算金額を採用　／　出力日：${new Date().toLocaleDateString('ja-JP')}</p>
+<table>${headerRow}<tbody>${dataRows}</tbody><tfoot>${tanbanRow}${footerRow}</tfoot></table>
 </body></html>`);
     win.document.close();
     win.onload = () => { win.print(); win.onafterprint = () => win.close(); };
@@ -254,25 +260,21 @@ export default function SalesPlanPage() {
               )}
             </tbody>
             <tfoot>
-              {tanbanProjects.length > 0 && (
-                <tr className="bg-amber-50 font-semibold">
-                  <td className="border border-gray-300 px-2 py-2 sticky left-0 bg-amber-50 z-10 text-amber-800" colSpan={LEFT_COLS}>
-                    単番（集計） {tanbanProjects.length}件 <span className="text-[10px] text-amber-600 font-normal">合計{(TANBAN_MAX / 1000000)}M未満</span>
-                  </td>
-                  {MONTH_LIST.map(m => (
-                    <td key={m} className={`border border-gray-300 px-2 py-2 text-right text-amber-800 ${m === currentMonth ? 'bg-blue-100' : ''}`}>{M(tanbanMonths[m] || 0)}</td>
-                  ))}
-                  <td className="border border-gray-300 px-2 py-2 text-right bg-blue-100 text-amber-800">{M(tanbanTotal)}</td>
-                </tr>
-              )}
-              <tr className="bg-amber-50 text-gray-600">
-                <td className="border border-gray-300 px-2 py-2 sticky left-0 bg-amber-50 z-10" colSpan={LEFT_COLS}>
-                  単番（月次仮計上） <span className="text-[10px] text-amber-600">{M(TANBAN_MONTHLY_EST)}/月・見積なし月の見込み</span>
+              <tr className="bg-amber-50 font-semibold">
+                <td className="border border-gray-300 px-2 py-2 sticky left-0 bg-amber-50 z-10 text-amber-800" colSpan={LEFT_COLS}>
+                  単番（集計） {tanbanProjects.length}件
+                  <span className="text-[10px] text-amber-600 font-normal ml-1">
+                    合計{(TANBAN_MAX / 1000000)}M未満／経過月は実数・今月以降は{M(TANBAN_MONTHLY_EST)}見込み
+                  </span>
                 </td>
                 {MONTH_LIST.map(m => (
-                  <td key={m} className={`border border-gray-300 px-2 py-2 text-right ${m === currentMonth ? 'bg-blue-100' : ''}`}>{M(TANBAN_MONTHLY_EST)}</td>
+                  <td key={m}
+                    title={isPastMonth(m) ? '経過月：実数' : `今月以降：${M(TANBAN_MONTHLY_EST)}見込み`}
+                    className={`border border-gray-300 px-2 py-2 text-right ${m === currentMonth ? 'bg-blue-100' : ''} ${isPastMonth(m) ? 'text-amber-800' : 'text-gray-500 font-normal'}`}>
+                    {M(tanbanMonth(m))}
+                  </td>
                 ))}
-                <td className="border border-gray-300 px-2 py-2 text-right bg-amber-100">{M(TANBAN_MONTHLY_EST * MONTH_LIST.length)}</td>
+                <td className="border border-gray-300 px-2 py-2 text-right bg-blue-100 text-amber-800">{M(tanbanSum)}</td>
               </tr>
               <tr className="bg-gray-100 font-bold">
                 <td className="border border-gray-300 px-2 py-2 sticky left-0 bg-gray-100 z-10" colSpan={LEFT_COLS}>合計</td>
@@ -289,6 +291,7 @@ export default function SalesPlanPage() {
       <div className="mt-4 text-xs text-gray-400">
         ※ 売上計上日（顧客納期）が設定されている案件のみ表示。金額は百万円単位（M）。年度は{year}/2/21〜{year + 1}/2/20。
         単番（案件合計が{(TANBAN_MAX / 1000000)}M未満）は一覧に出さず最下部に集計表示。
+        <br />※ <span className="text-amber-700 font-medium">単番の集計</span>は、<span className="font-medium">経過月（先月まで）は実数</span>、<span className="font-medium">今月以降は{M(TANBAN_MONTHLY_EST)}/月の見込み</span>で計上します（今月以降は個別の見積が出揃わないため）。
         <br />※ <span className="text-blue-700 font-medium">営業中・確度高・内示</span>は案件の<span className="font-medium">予算金額</span>を採用（受注以降は見積金額）。0円でも一覧に表示します。
       </div>
     </div>
