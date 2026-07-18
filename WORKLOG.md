@@ -15,6 +15,31 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-07-18（続） — Claude(Opus) — draft表記統一・売上計画表0表示・CAD→見積自動生成（f665882〜79f2b94）
+**触ったファイル**: estimate_quotations.py / cad_extract.py(新規) / models.py / requirements.txt /
+SalesPlanPage.tsx / EstimateListPage.tsx / EstimateFormPage.tsx / api/index.ts / utils/dxfScan.ts(新規) / docs
+1. **「ドラフト」→「draft」** に統一（PDF透かし・一覧バッジ・承認パネル）
+2. **売上計画表**: `M0()` を追加し、合計行・単番集計行・各行の合計欄は 0 のとき空欄でなく `0` を表示
+   （明細の月次セルは従来どおり空欄のまま。表の見やすさを維持するため）
+3. **CADから見積の自動生成**（プロトタイプ）
+   - `POST /estimate-quotations/from-cad-extract`（画面用・JSON）と `/from-cad`（ファイル直・API用）
+   - 型式抽出 → BFQ/BFR/SCA/PL/サイクロン/ADCマスタ照合 → 大項目1〜5を自動生成。必ず draft
+   - **ダクトは概算**: `径(mm) × 20円 × 想定延長(注記1件×6m)`。★係数は仮値
+     （原本比: 新栄合板 −15% / 西北 +25%。詳細は `docs/CAD作図標準ドラフト_20260718.md` 3.1）
+   - 取付工費・運送費・工数は図面外のため**含まない**
+
+**⚠️ ハマりどころ（重要）**
+- 当初 ezdxf でサーバ側解析にしたが、**実運用の図面(13〜101MB)ではアップロードが通らない**。
+  48MBで395秒・59MBで502。→ **ブラウザ側でDXFを走査**（`frontend/src/utils/dxfScan.ts`）し、
+  抽出結果(数KB)だけ送る方式に変更。同じ59MB図面が **395秒 → 0.24秒 / 送信14.8KB**。
+- ezdxf.readfile は図面全体をメモリ構築するため重い。**ASCII DXFの行走査で十分**（10倍高速）。
+  → `requirements.txt` から ezdxf を削除済み。**再導入しないこと**。
+- 行走査版は **ATTRIB（表題欄の属性）も拾える**ため ezdxf 版より情報が多い
+  （本多木工所で処理風量410m3/minが新たに取得可能に）。
+- バイナリDXFは非対応（先頭の識別子で検知しエラー表示）。LibreDWGの `dwg2dxf` 出力はASCII。
+- JS版とPython版の抽出結果は新栄合板・川井林業で完全一致を確認済み（ロジック変更時は両方直すこと）。
+**検証**: 本番で5図面・大容量含めて生成確認 → **テスト見積4件は削除済み（残存0件）**。
+
 ### 2026-07-18 — Claude(Opus) — 2026-07-17会議対応の一括実装（d5bb0d0〜b3b7b74）
 **触ったファイル**: models.py / main.py / estimate_quotations.py / projects.py / api/index.ts / EstimateFormPage.tsx / EstimateListPage.tsx / OrdersPage.tsx / ProjectsPage.tsx / docs / tools
 **実装内容**（会議サマリーPDF＋見積原本6社との突合に基づく）:
