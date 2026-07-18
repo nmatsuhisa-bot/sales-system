@@ -169,6 +169,17 @@ export const estimateApi = {
   updateOrderTicket: (ticketId: string, data: any) => api.put(`/estimate-quotations/order-ticket/${ticketId}`, data),
   adoptQuotation: (quotationId: string) => api.post(`/estimate-quotations/${quotationId}/adopt`),
   unadoptQuotation: (quotationId: string) => api.delete(`/estimate-quotations/${quotationId}/adopt`),
+  // CAD図面(DXF)から見積骨格を自動生成（プロトタイプ・ダクトは概算）
+  createFromCad: (fileObj: File, opts?: { project_order_id?: string; title?: string }) => {
+    const fd = new FormData();
+    fd.append('file', fileObj);
+    if (opts?.project_order_id) fd.append('project_order_id', opts.project_order_id);
+    if (opts?.title) fd.append('title', opts.title);
+    return api.post('/estimate-quotations/from-cad', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 180000,   // 大きな図面の解析に時間がかかる
+    });
+  },
   // 承認ワークフロー（会議2026-07-17）
   getApprovers: () => api.get('/estimate-quotations/approvers'),
   requestApproval: (quotationId: string, approver_name: string) =>

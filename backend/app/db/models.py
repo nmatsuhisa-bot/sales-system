@@ -643,7 +643,7 @@ class QuotationHeader(Base):
     sales_person_name = Column(String(100))
     created_by_name = Column(String(100))      # 作成者（帳票の「作成」欄）
     approver_name = Column(String(100))        # 検印者（帳票の「検印」欄）
-    # 承認ワークフロー（会議2026-07-17: 承認前は「ドラフト」透かし・承認後に正式発行）
+    # 承認ワークフロー（会議2026-07-17: 承認前は「draft」透かし・承認後に正式発行）
     approval_status = Column(String(20), default='none')  # none=未依頼 / pending=承認待ち / approved=承認済
     approval_requested_at = Column(DateTime)
     approved_at = Column(DateTime)

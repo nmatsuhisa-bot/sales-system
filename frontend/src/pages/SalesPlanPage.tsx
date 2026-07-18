@@ -127,7 +127,10 @@ export default function SalesPlanPage() {
     setSelectedStatuses(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
   }
 
+  // 明細セル: 0や未計上は空欄（表を見やすく保つ）
   const M = (v: number) => v ? (v / 1000000).toFixed(1) + 'M' : '';
+  // 集計セル（合計行・単番集計行・各行の合計欄）: 該当データが無くても空欄にせず 0 を表示
+  const M0 = (v: number) => v ? (v / 1000000).toFixed(1) + 'M' : '0';
   const thClass = "border border-gray-300 px-2 py-2 text-right";
   const tdClass = (m: number) => `border border-gray-300 px-2 py-1 text-right ${m === currentMonth ? 'bg-blue-50' : ''}`;
 
@@ -164,19 +167,19 @@ export default function SalesPlanPage() {
         ${cell(p.sales_person || '—', `color:${C.gray700}`)}
         ${cell(`<span style="color:${STATUS_PRINT_HEX[p.status] || C.gray700};font-weight:600">${p.status}</span>`, '')}
         ${MONTH_LIST.map(m => cell(M(dispMonth(p, m)), `text-align:right;color:${C.gray700};background:${m === currentMonth ? C.curMonthBg : '#fff'}`)).join('')}
-        ${cell(M(dispTotal(p)), `text-align:right;font-weight:500;background:${C.projTotalBg}`)}
+        ${cell(M0(dispTotal(p)), `text-align:right;font-weight:500;background:${C.projTotalBg}`)}
       </tr>`).join('');
 
     const tanbanRow = `<tr style="background:${C.tanbanBg};font-weight:700">
       <td colspan="6" style="border:1px solid ${C.border};padding:4px 6px">単番（集計） ${tanbanProjects.length}件　<span style="font-weight:400;color:#666">経過月=実数／今月以降=${M(TANBAN_MONTHLY_EST)}見込</span></td>
-      ${MONTH_LIST.map(m => cell(M(tanbanMonth(m)), `text-align:right;background:${m === currentMonth ? C.curMonthBg : C.tanbanBg}${isPastMonth(m) ? '' : ';color:#666;font-weight:400'}`)).join('')}
-      ${cell(M(tanbanSum), `text-align:right;background:${C.curMonthBg}`)}
+      ${MONTH_LIST.map(m => cell(M0(tanbanMonth(m)), `text-align:right;background:${m === currentMonth ? C.curMonthBg : C.tanbanBg}${isPastMonth(m) ? '' : ';color:#666;font-weight:400'}`)).join('')}
+      ${cell(M0(tanbanSum), `text-align:right;background:${C.curMonthBg}`)}
     </tr>`;
 
     const footerRow = `<tr style="background:${C.totalBg};font-weight:700">
       <td colspan="6" style="border:1px solid ${C.border};padding:4px 6px">合計</td>
-      ${MONTH_LIST.map(m => cell(M(monthTotals[m] || 0), `text-align:right;background:${m === currentMonth ? C.curMonthBg : C.totalBg}`)).join('')}
-      ${cell(M(grandTotal), `text-align:right;background:${C.grandTotalBg}`)}
+      ${MONTH_LIST.map(m => cell(M0(monthTotals[m] || 0), `text-align:right;background:${m === currentMonth ? C.curMonthBg : C.totalBg}`)).join('')}
+      ${cell(M0(grandTotal), `text-align:right;background:${C.grandTotalBg}`)}
     </tr>`;
 
     win.document.write(`<!DOCTYPE html>
@@ -252,7 +255,7 @@ export default function SalesPlanPage() {
                     <span className={`text-xs font-medium ${STATUS_PRINT_COLORS[p.status] || 'text-gray-600'}`}>{p.status}</span>
                   </td>
                   {MONTH_LIST.map(m => <td key={m} className={tdClass(m)}>{M(dispMonth(p, m))}</td>)}
-                  <td className="border border-gray-300 px-2 py-1 text-right font-medium bg-gray-50">{M(dispTotal(p))}</td>
+                  <td className="border border-gray-300 px-2 py-1 text-right font-medium bg-gray-50">{M0(dispTotal(p))}</td>
                 </tr>
               ))}
               {sortedKoban.length === 0 && (
@@ -271,17 +274,17 @@ export default function SalesPlanPage() {
                   <td key={m}
                     title={isPastMonth(m) ? '経過月：実数' : `今月以降：${M(TANBAN_MONTHLY_EST)}見込み`}
                     className={`border border-gray-300 px-2 py-2 text-right ${m === currentMonth ? 'bg-blue-100' : ''} ${isPastMonth(m) ? 'text-amber-800' : 'text-gray-500 font-normal'}`}>
-                    {M(tanbanMonth(m))}
+                    {M0(tanbanMonth(m))}
                   </td>
                 ))}
-                <td className="border border-gray-300 px-2 py-2 text-right bg-blue-100 text-amber-800">{M(tanbanSum)}</td>
+                <td className="border border-gray-300 px-2 py-2 text-right bg-blue-100 text-amber-800">{M0(tanbanSum)}</td>
               </tr>
               <tr className="bg-gray-100 font-bold">
                 <td className="border border-gray-300 px-2 py-2 sticky left-0 bg-gray-100 z-10" colSpan={LEFT_COLS}>合計</td>
                 {MONTH_LIST.map(m => (
-                  <td key={m} className={`border border-gray-300 px-2 py-2 text-right ${m === currentMonth ? 'bg-blue-100' : ''}`}>{M(monthTotals[m] || 0)}</td>
+                  <td key={m} className={`border border-gray-300 px-2 py-2 text-right ${m === currentMonth ? 'bg-blue-100' : ''}`}>{M0(monthTotals[m] || 0)}</td>
                 ))}
-                <td className="border border-gray-300 px-2 py-2 text-right bg-gray-200">{M(grandTotal)}</td>
+                <td className="border border-gray-300 px-2 py-2 text-right bg-gray-200">{M0(grandTotal)}</td>
               </tr>
             </tfoot>
           </table>

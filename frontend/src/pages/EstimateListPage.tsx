@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { estimateApi, API_BASE } from '../api';
-import { Plus, FileText, Search, Printer, Copy, X } from 'lucide-react';
+import { Plus, FileText, Search, Printer, Copy, X, Upload } from 'lucide-react';
 import OrderSearchInput from '../components/common/OrderSearchInput';
 
 // 見積ステータス: 下書 / 受注（採用済）/ 受注済（受注票発行済）
@@ -23,6 +23,7 @@ export default function EstimateListPage() {
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
   const [dupFor, setDupFor] = useState<any>(null); // 複製対象の見積
+  const [showCad, setShowCad] = useState(false);   // CADから見積作成モーダル
   const navigate = useNavigate();
 
   const doDuplicate = async (order: any) => {
@@ -92,11 +93,17 @@ export default function EstimateListPage() {
           {childNo && <p className="text-sm text-blue-600 mt-1">子ID: {childNo} の見積一覧</p>}
           <p className="text-sm text-gray-500 mt-1">全 {total} 件</p>
         </div>
-        <Link
-          to={`/estimates/new${childNo ? `?child_no=${childNo}` : ''}`}
-          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm">
-          <Plus size={16} /> 新規見積作成
-        </Link>
+        <div className="flex gap-2">
+          <button onClick={() => setShowCad(true)}
+            className="flex items-center gap-2 bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 text-sm">
+            <Upload size={16} /> CADから見積作成
+          </button>
+          <Link
+            to={`/estimates/new${childNo ? `?child_no=${childNo}` : ''}`}
+            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm">
+            <Plus size={16} /> 新規見積作成
+          </Link>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm p-3 mb-4 flex items-center gap-2 border border-gray-100">
@@ -148,7 +155,7 @@ export default function EstimateListPage() {
                     ) : q.approval_status === 'pending' ? (
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">承認待ち</span>
                     ) : (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-500">ドラフト</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-500">draft</span>
                     )}
                   </div>
                 </td>
@@ -207,6 +214,116 @@ export default function EstimateListPage() {
           </div>
         </div>
       )}
+
+      {showCad && <CadEstimateModal onClose={() => setShowCad(false)} onCreated={(id) => navigate(`/estimates/${id}/edit`)} />}
+    </div>
+  );
+}
+
+// ========== CADから見積作成（プロトタイプ・ダクトは概算） ==========
+function CadEstimateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [order, setOrder] = useState<any>(null);
+  const [title, setTitle] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<any>(null);
+  const [error, setError] = useState('');
+
+  const run = async () => {
+    if (!file) { setError('DXFファイルを選択してください'); return; }
+    setBusy(true); setError('');
+    try {
+      const r = await estimateApi.createFromCad(file, {
+        project_order_id: order?.id, title: title || undefined,
+      });
+      setResult(r.data);
+    } catch (e: any) {
+      setError(e.response?.data?.detail || '解析に失敗しました');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl p-6 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-bold text-gray-800">CAD図面から見積を作成</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+
+        {!result ? (<>
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-xs text-amber-800">
+            <p className="font-semibold mb-1">プロトタイプです。生成結果は必ず確認してください。</p>
+            <ul className="list-disc pl-4 space-y-0.5">
+              <li>図面のブロック名・文字から自社製品の型式を抽出し、パターンマスタの単価を当てます</li>
+              <li><b>ダクトは概算</b>です（図面から実長が取れないため、径と注記数から算出）</li>
+              <li>取付工費・運送費・工数は図面外の情報のため<b>含まれません</b></li>
+              <li>DWGしか無い場合は AutoCAD の <b>DXFOUT</b> で「AutoCAD 2018 DXF」に書き出してください</li>
+            </ul>
+          </div>
+
+          <label className="block text-xs text-gray-500 mb-1">DXFファイル</label>
+          <input type="file" accept=".dxf" onChange={e => { setFile(e.target.files?.[0] || null); setError(''); }}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-1" />
+          {file && <p className="text-[11px] text-gray-500 mb-3">{file.name}（{(file.size / 1024 / 1024).toFixed(1)}MB）</p>}
+
+          <label className="block text-xs text-gray-500 mb-1 mt-3">案件ID / 子ID（任意・注文主と納入先を引き継ぎます）</label>
+          <OrderSearchInput onSelect={(o: any) => setOrder(o)} placeholder="案件ID または 子ID で検索" />
+          {order && <p className="text-[11px] text-blue-600 mt-1">✓ {order.child_no || order.project_no} を選択中</p>}
+
+          <label className="block text-xs text-gray-500 mb-1 mt-3">件名（任意）</label>
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="空欄なら案件名またはファイル名"
+            className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
+
+          {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
+
+          <div className="flex justify-end gap-2 mt-5">
+            <button onClick={onClose} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">キャンセル</button>
+            <button onClick={run} disabled={busy || !file}
+              className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 disabled:opacity-50">
+              {busy ? '解析中...' : '解析して見積を作成'}
+            </button>
+          </div>
+        </>) : (<>
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-3 text-sm">
+            <p className="font-bold text-green-800">{result.quotation_no} を作成しました（draft）</p>
+            <p className="text-green-700 mt-1">機器・ダクト概算 合計 ¥{Number(result.subtotal).toLocaleString()}（税抜）</p>
+          </div>
+
+          <div className="text-xs text-gray-600 mb-3">
+            <p className="font-semibold mb-1">図面から抽出した型式</p>
+            <div className="flex flex-wrap gap-1">
+              {Object.entries(result.models || {}).map(([m, c]: any) => (
+                <span key={m} className="bg-gray-100 px-2 py-0.5 rounded">{m} ×{c}</span>
+              ))}
+            </div>
+          </div>
+
+          {result.duct?.lines?.length > 0 && (
+            <div className="text-xs text-gray-600 mb-3">
+              <p className="font-semibold mb-1">ダクト概算 ¥{Number(result.duct.total).toLocaleString()}</p>
+              <div className="max-h-32 overflow-y-auto border rounded p-2 space-y-0.5">
+                {result.duct.lines.map((l: any) => (
+                  <div key={l.dia}>φ{l.dia}：注記{l.count}件 → {l.run_m}m × {Number(l.rate_per_m).toLocaleString()}円/m = ¥{Number(l.amount).toLocaleString()}</div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {result.warnings?.length > 0 && (
+            <ul className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 list-disc pl-6 space-y-1 mb-3">
+              {result.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
+            </ul>
+          )}
+
+          <div className="flex justify-end gap-2 mt-4">
+            <button onClick={onClose} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">閉じる</button>
+            <button onClick={() => onCreated(result.id)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+              見積を開いて編集
+            </button>
+          </div>
+        </>)}
+      </div>
     </div>
   );
 }

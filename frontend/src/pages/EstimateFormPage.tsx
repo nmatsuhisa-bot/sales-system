@@ -87,7 +87,7 @@ export default function EstimateFormPage() {
   const [activeTab, setActiveTab] = useState<'items' | 'labor'>('items');
   const [loading, setLoading] = useState(false);
   const [loadedUpdatedAt, setLoadedUpdatedAt] = useState<string | null>(null);
-  // 承認ワークフロー（会議2026-07-17: 承認前はドラフト透かし）
+  // 承認ワークフロー（会議2026-07-17: 承認前はdraft透かし）
   const [approvers, setApprovers] = useState<string[]>([]);
   const [approval, setApproval] = useState<{ status: string; requested_at: string | null; approved_at: string | null }>({
     status: 'none', requested_at: null, approved_at: null,
@@ -428,7 +428,7 @@ export default function EstimateFormPage() {
   };
   const handleApprove = async () => {
     if (!id) return;
-    if (!confirm(`検印者「${header.approver_name}」として承認します。よろしいですか？\n承認するとPDFの「ドラフト」透かしが外れ、正式発行できます。`)) return;
+    if (!confirm(`検印者「${header.approver_name}」として承認します。よろしいですか？\n承認するとPDFの「draft」透かしが外れ、正式発行できます。`)) return;
     try {
       const r = await estimateApi.approveQuotation(id);
       alert(r.data.message);
@@ -437,7 +437,7 @@ export default function EstimateFormPage() {
   };
   const handleRejectApproval = async () => {
     if (!id) return;
-    if (!confirm('差し戻します（承認は取り消され、ドラフト透かしが復活します）。よろしいですか？')) return;
+    if (!confirm('差し戻します（承認は取り消され、draft透かしが復活します）。よろしいですか？')) return;
     try {
       const r = await estimateApi.rejectApproval(id);
       alert(r.data.message);
@@ -569,7 +569,7 @@ export default function EstimateFormPage() {
         </div>
       </div>
 
-      {/* 承認ワークフロー（会議2026-07-17: 単独で正式発行できない仕組み。承認までPDFに「ドラフト」透かし） */}
+      {/* 承認ワークフロー（会議2026-07-17: 単独で正式発行できない仕組み。承認までPDFに「draft」透かし） */}
       {isEdit && (
         <div className={`rounded-xl p-4 mb-4 border ${
           approval.status === 'approved' ? 'bg-green-50 border-green-200' :
@@ -581,7 +581,7 @@ export default function EstimateFormPage() {
             ) : approval.status === 'pending' ? (
               <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500 text-white">承認待ち: {header.approver_name}</span>
             ) : (
-              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-gray-400 text-white">未依頼（PDFはドラフト透かし）</span>
+              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-gray-400 text-white">未依頼（PDFはdraft透かし）</span>
             )}
             <div className="ml-auto flex gap-2">
               {approval.status === 'none' && (
@@ -609,7 +609,7 @@ export default function EstimateFormPage() {
             </div>
           </div>
           <p className="text-[11px] text-gray-500 mt-2">
-            承認前でも印刷できますが「ドラフト」透かしが入ります。承認後に内容を保存し直すと承認は解除され、再依頼が必要になります。
+            承認前でも印刷できますが「draft」透かしが入ります。承認後に内容を保存し直すと承認は解除され、再依頼が必要になります。
             {approval.approved_at && approval.status === 'approved' && ` 承認日時: ${new Date(approval.approved_at).toLocaleString('ja-JP')}`}
           </p>
         </div>

@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """見積書 API"""
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc, or_, func
 from typing import Optional, List
 from pydantic import BaseModel
 from datetime import date, datetime
-import io, uuid
+import io, uuid, collections
 
 from app.normalize import nfkc
 from app.db.models import (
@@ -15,13 +15,16 @@ from app.db.models import (
     OrderTicket, OrderTicketFile, ProjectOrder, Project,
     EstimateBfrBody, EstimateBfrFan, EstimateBfrRv,
     EstimateBfqSeries, EstimateBfqBody, EstimateBfqFan, EstimateBfqOption,
-    EstimateScaBody, EstimatePlFan, EstimateCyclone, EstimateLaborItem
+    EstimateScaBody, EstimatePlFan, EstimateCyclone, EstimateAutoDamper, EstimateLaborItem
 )
 
 router = APIRouter()
 
 # 工番/単番の判定しきい値（税抜）
 KOBAN_THRESHOLD = 3000000
+
+# CAD図面(DXF)アップロードの上限
+MAX_CAD_FILE_SIZE = 80 * 1024 * 1024
 
 # 承認権限者（会議2026-07-17で決定した5名。2026-07-18 氏名確定）
 APPROVERS = ["後藤", "江里口", "柴田", "井上社長", "国立"]
@@ -46,6 +49,216 @@ def _sync_project_final_amount(project_order: "ProjectOrder", db: Session):
 # =============================================
 # 見積パターンマスタ取得
 # =============================================
+@router.post("/from-cad", status_code=201)
+async def create_quotation_from_cad(
+    file: UploadFile = File(...),
+    project_order_id: Optional[str] = Form(None),
+    title: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    """CAD図面(DXF)から見積の骨格を自動生成する（プロトタイプ）。
+
+    図面のブロック名・テキストから自社製品の型式を抽出し、見積パターンマスタと
+    照合して大項目1〜5の明細を作成する。ダクトは図面から実長が取れないため概算。
+    生成物は必ず draft（未承認）。単価が引けない行は0円で作成され、要手入力。
+
+    DWGしか無い場合は AutoCAD の DXFOUT で「AutoCAD 2018 DXF」に書き出すこと。
+    """
+    import tempfile, os as _os
+    from app.cad_extract import (
+        extract_from_dxf, duct_estimate, family_of, FAMILY, SECTION_NAMES,
+        DUCT_RATE_PER_MM_M, DUCT_DEFAULT_RUN_M,
+    )
+
+    fname = file.filename or ""
+    if not fname.lower().endswith(".dxf"):
+        raise HTTPException(400, "DXFファイルを指定してください（DWGはAutoCADのDXFOUTで変換）")
+    blob = await file.read()
+    if len(blob) > MAX_CAD_FILE_SIZE:
+        raise HTTPException(400, f"ファイルサイズは{MAX_CAD_FILE_SIZE // 1024 // 1024}MBまでです")
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".dxf", delete=False) as tf:
+            tf.write(blob)
+            tmp_path = tf.name
+        try:
+            info = extract_from_dxf(tmp_path)
+        except ImportError:
+            raise HTTPException(500, "ezdxf が未導入のため図面を解析できません")
+        except Exception as e:
+            raise HTTPException(400, f"DXFの解析に失敗しました: {e}")
+    finally:
+        if tmp_path and _os.path.exists(tmp_path):
+            _os.unlink(tmp_path)
+
+    # ---- 型式をパターンマスタと照合して単価を決める ----
+    def _lookup_price(model: str, fam: str):
+        """(単価, 出典) を返す。マスタに無ければ (0, None)"""
+        if fam == "BFQ":
+            b = db.query(EstimateBfqBody).filter(EstimateBfqBody.model_code == model).first() \
+                or db.query(EstimateBfqBody).filter(EstimateBfqBody.model_code.ilike(f"{model}%")).first()
+            if b and b.base_price is not None:
+                return int(b.base_price), "BFQパターンマスタ"
+            if b:
+                return 0, "BFQパターンマスタ(本体価格未確定)"
+        elif fam == "BFR":
+            b = db.query(EstimateBfrBody).filter(EstimateBfrBody.model_code == model).first()
+            if not b:
+                # BFR5X6 ⇔ BFR5×6 の表記差を吸収
+                alt = model.replace("X", "×")
+                b = db.query(EstimateBfrBody).filter(EstimateBfrBody.model_code == alt).first()
+            if b:
+                base = int(b.base_price or 0)
+                filt = int(b.filter_price or 0) * int(b.filter_count or 0)
+                return base + filt, "BFRパターンマスタ(本体+フィルター)"
+        elif fam in ("SCA", "SCD"):
+            b = db.query(EstimateScaBody).filter(EstimateScaBody.model_code == model).first()
+            if b:
+                return int(b.base_price or 0), "SCAパターンマスタ"
+        elif fam in ("PL", "PLD"):
+            b = db.query(EstimatePlFan).filter(EstimatePlFan.model_code == model).first()
+            if b:
+                return int(b.price or 0), "PLファンマスタ"
+        elif fam in ("CY", "CYP", "CYT"):
+            b = db.query(EstimateCyclone).filter(EstimateCyclone.model_code == model).first()
+            if b:
+                return int(b.price or 0), "サイクロンマスタ"
+        elif fam == "ADC":
+            b = db.query(EstimateAutoDamper).filter(EstimateAutoDamper.model_code == model).first()
+            if b:
+                return int(b.price or 0), "オートダンパマスタ"
+        return 0, None
+
+    # ---- 大項目ごとに明細を組み立てる ----
+    sections = collections.defaultdict(list)   # 大項目番号 → [明細dict]
+    unmatched = []                             # マスタで単価が引けなかった型式
+    for model, cnt in sorted(info["models"].items()):
+        fam = family_of(model)
+        if not fam:
+            continue
+        sec, label = FAMILY[fam]
+        price, src = _lookup_price(model, fam)
+        if not price:
+            unmatched.append(model)
+        spec = [f"型式: {model}", f"図面内の出現: {cnt}箇所"]
+        if src:
+            spec.append(f"単価出典: {src}")
+        else:
+            spec.append("※パターンマスタに該当なし。単価を手入力してください")
+        sections[sec].append({
+            "name": f"{label} {model}", "spec": "\n".join(spec),
+            "qty": 1, "unit": "式", "price": price,
+        })
+
+    # 制御盤（図面テキスト・制御盤ブロックから）
+    if info["panel_texts"] or info["panel_blocks"]:
+        spec = ["図面の記載:"] + [f"・{t}" for t in info["panel_texts"]] if info["panel_texts"] else []
+        spec = spec or ["図面に制御盤ブロックあり"]
+        spec.append("※単価を手入力してください")
+        sections[5].append({
+            "name": "制御盤", "spec": "\n".join(spec),
+            "qty": 1, "unit": "式", "price": 0,
+        })
+
+    # ダクト部品（概算）
+    duct = duct_estimate(info["dia"])
+    if duct["lines"]:
+        detail = [
+            "★概算（図面からダクト実長は取得できないため下式で算出）",
+            f"概算式: 径(mm) × {DUCT_RATE_PER_MM_M}円 × 想定延長(m)",
+            f"想定延長: 図面の径注記1件あたり {DUCT_DEFAULT_RUN_M}m",
+            "",
+        ]
+        for l in duct["lines"]:
+            detail.append(
+                f"φ{l['dia']}: 注記{l['count']}件 → {l['run_m']}m × {l['rate_per_m']:,}円/m = {l['amount']:,}円"
+            )
+        detail.append("")
+        detail.append("※係数は仮値。実長の自動積算にはダクトを専用レイヤーに中心線1本で作図する必要あり")
+        sections[6].append({
+            "name": "ﾀﾞｸﾄ部品（概算）", "spec": "\n".join(detail),
+            "qty": 1, "unit": "式", "price": duct["total"],
+        })
+
+    if not sections:
+        raise HTTPException(400, "図面から自社製品の型式を抽出できませんでした。ブロック名に型式が入っているか確認してください")
+
+    # ---- 見積を作成（draft・未承認）----
+    customer_name = delivery_name = sales_person_name = None
+    child_no = None
+    po = None
+    if project_order_id:
+        po = db.query(ProjectOrder).filter(
+            pk_or_code(ProjectOrder.id, ProjectOrder.child_no, project_order_id)
+        ).first()
+        if po:
+            customer_name = po.agency_name or po.customer_name
+            delivery_name = po.customer_name
+            sales_person_name = po.sales_person_name
+            child_no = po.child_no
+
+    q = QuotationHeader(
+        quotation_no=_gen_quotation_no(db),
+        project_order_id=po.id if po else None,
+        child_no=child_no,
+        customer_name=nfkc(customer_name),
+        delivery_name=nfkc(delivery_name),
+        title=nfkc(title or (po.project_name if po else None) or f"CAD自動生成: {fname}"),
+        issue_date=date.today(),
+        sales_person_name=nfkc(sales_person_name),
+        tax_display="excluded",
+        status="draft",
+        internal_notes=(
+            f"CAD自動生成（{fname}）\n"
+            f"DXF={info['dxf_version']} 単位コード={info['insunits']}\n"
+            f"抽出型式: {', '.join(sorted(info['models'])) or 'なし'}\n"
+            f"ダクトは概算（径{len(info['dia'])}種）。単価未確定の型式: {', '.join(unmatched) or 'なし'}"
+            + ("\n※図面に「既設」の記載あり。見積対象外の機器が含まれていないか確認してください"
+               if info["has_existing_note"] else "")
+        ),
+    )
+    db.add(q)
+    db.flush()
+
+    line_no = 1
+    for sec in sorted(sections):
+        for item in sections[sec]:
+            db.add(QuotationLineItem(
+                quotation_id=q.id, line_no=line_no,
+                section=SECTION_NAMES[sec], sub_section=None,
+                item_name=nfkc(item["name"]), spec_detail=item["spec"],
+                quantity=item["qty"], unit=item["unit"],
+                unit_price=item["price"], amount=int(item["price"] * item["qty"]),
+                product_type="CAD自動生成",
+            ))
+            line_no += 1
+
+    subtotal = sum(int(i["price"] * i["qty"]) for s in sections.values() for i in s)
+    q.subtotal = subtotal
+    q.labor_total = 0
+    q.tax_amount = int(subtotal * 0.1)
+    q.total_amount = subtotal + int(subtotal * 0.1)
+    db.commit()
+    db.refresh(q)
+
+    return {
+        "id": str(q.id),
+        "quotation_no": q.quotation_no,
+        "subtotal": subtotal,
+        "models": info["models"],
+        "duct": {"total": duct["total"], "lines": duct["lines"]},
+        "unmatched_models": unmatched,
+        "has_existing_note": info["has_existing_note"],
+        "warnings": (
+            ([f"単価がマスタに無い型式: {', '.join(unmatched)}"] if unmatched else [])
+            + (["ダクトは概算です。係数は仮値のため必ず確認してください"] if duct["lines"] else [])
+            + (["図面に「既設」の記載があります。見積対象外の機器が含まれていないか確認してください"]
+               if info["has_existing_note"] else [])
+        ),
+    }
+
+
 @router.get("/approvers")
 def list_approvers():
     """承認権限者の候補5名（会議2026-07-17決定・2026-07-18氏名確定）。
@@ -613,7 +826,7 @@ def unadopt_quotation(quotation_id: str, db: Session = Depends(get_db)):
 
 # =============================================
 # 承認ワークフロー（会議2026-07-17）
-# 作成者が承認者を選択して依頼 → 承認前の印刷は「ドラフト」透かし → 承認で正式発行
+# 作成者が承認者を選択して依頼 → 承認前の印刷は「draft」透かし → 承認で正式発行
 # =============================================
 @router.post("/{quotation_id}/request-approval")
 def request_approval(quotation_id: str, data: dict, db: Session = Depends(get_db)):
@@ -632,7 +845,7 @@ def request_approval(quotation_id: str, data: dict, db: Session = Depends(get_db
 
 @router.post("/{quotation_id}/approve")
 def approve_quotation(quotation_id: str, db: Session = Depends(get_db)):
-    """承認: ドラフト透かしが外れ、正式発行が可能になる"""
+    """承認: draft透かしが外れ、正式発行が可能になる"""
     q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
     if not q: raise HTTPException(404, "見積が見つかりません")
     if not q.approver_name:
@@ -663,7 +876,7 @@ def export_pdf(quotation_id: str, db: Session = Depends(get_db)):
     ).filter(QuotationHeader.id == quotation_id).first()
     if not q: raise HTTPException(404)
 
-    # ドラフト透かし: 承認完了までは印刷可だが「ドラフト」表示（会議2026-07-17）
+    # draft透かし: 承認完了までは印刷可だが「draft」表示（会議2026-07-17）
     html = _build_quotation_html(q, is_draft=((q.approval_status or 'none') != 'approved'))
     return StreamingResponse(
         io.BytesIO(html.encode("utf-8")),
@@ -676,10 +889,10 @@ def _zenkaku_amount(n: int) -> str:
     return f"{n:,}".translate(str.maketrans("0123456789", "０１２３４５６７８９")) + "-"
 
 def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
-    # 「ドラフト」透かし（position:fixedで印刷全ページに出る。承認後は消える）
+    # 「draft」透かし（position:fixedで印刷全ページに出る。承認後は消える）
     draft_watermark = ('''
 <div style="position:fixed;top:38%;left:8%;right:8%;text-align:center;z-index:999;pointer-events:none;
-    font-size:110px;font-weight:bold;color:rgba(200,30,30,0.16);transform:rotate(-18deg);letter-spacing:30px">ドラフト</div>
+    font-size:110px;font-weight:bold;color:rgba(200,30,30,0.16);transform:rotate(-18deg);letter-spacing:30px">draft</div>
 ''' if is_draft else '')
 
     def _amt_cell(item) -> str:
@@ -888,7 +1101,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
   <span style="margin-left:15px;font-size:12px;color:#555">印刷ダイアログで"PDFに保存"を選択してください</span>
 </div>
 
-<!-- ドラフト透かし(status=draftの場合のみ) -->
+<!-- draft透かし(未承認の場合のみ) -->
 {draft_watermark}
 
 <!-- 頭紙: 大分類別 内訳サマリー -->
