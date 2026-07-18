@@ -38,6 +38,14 @@ export default function OrdersPage() {
   const handlePdf = (id: string) => {
     window.open(`${API_BASE}/estimate-quotations/order-ticket/${id}/pdf`, '_blank');
   };
+  // 受注票＋見積書の同時印刷（会議2026-07-17: 二度手間を省く）
+  const handlePdfWithQuotation = (id: string) => {
+    window.open(`${API_BASE}/estimate-quotations/order-ticket/${id}/pdf?with_quotation=1`, '_blank');
+  };
+  // 元となる見積書のプレビュー
+  const handleQuotationPdf = (quotationId: string) => {
+    window.open(`${API_BASE}/estimate-quotations/${quotationId}/pdf`, '_blank');
+  };
 
   return (
     <div className="p-6">
@@ -51,7 +59,7 @@ export default function OrdersPage() {
       <div className="bg-white rounded-xl shadow-sm p-4 mb-4 flex gap-3">
         <div className="flex items-center gap-2 flex-1 border border-gray-200 rounded-lg px-3 py-2">
           <Search size={16} className="text-gray-400" />
-          <input placeholder="受注番号・顧客名・子IDで検索" value={search}
+          <input placeholder="受注番号・注文主・子IDで検索" value={search}
             onChange={e => setSearch(e.target.value)} className="flex-1 outline-none text-sm" />
         </div>
         <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
@@ -121,11 +129,16 @@ export default function OrdersPage() {
                   {t.advance_payment ? `¥${Number(t.advance_payment).toLocaleString()}` : '—'}
                 </td>
                 <td className="px-4 py-3 text-center whitespace-nowrap">
-                  <button onClick={() => setEditTicket(t)} className="text-blue-600 hover:text-blue-800 mr-3" title="受注項目を編集">
+                  <button onClick={() => setEditTicket(t)} className="text-blue-600 hover:text-blue-800 mr-2" title="受注項目を編集">
                     <Pencil size={15} />
                   </button>
-                  <button onClick={() => handlePdf(t.id)} className="text-green-600 hover:text-green-800" title="受注票PDF">
+                  <button onClick={() => handlePdf(t.id)} className="text-green-600 hover:text-green-800 mr-2" title="受注票PDF">
                     <FileText size={16} />
+                  </button>
+                  <button onClick={() => handlePdfWithQuotation(t.id)}
+                    className="text-[10px] bg-green-50 border border-green-300 text-green-700 px-1.5 py-0.5 rounded hover:bg-green-100"
+                    title="受注票と見積書を同時に印刷">
+                    +見積書
                   </button>
                 </td>
               </tr>
@@ -175,6 +188,42 @@ function OrderTicketEditModal({ ticket, onClose, onSaved }: { ticket: any; onClo
   const [saving, setSaving] = useState(false);
   const setAdv = (i: number, patch: any) => setAdvPays(rows => rows.map((r, j) => j === i ? { ...r, ...patch } : r));
 
+  // 関連書類（注文書・契約書等のPDFアップロード。会議2026-07-17）
+  const [files, setFiles] = useState<any[]>([]);
+  const [fileKind, setFileKind] = useState('注文書');
+  const [uploading, setUploading] = useState(false);
+  const loadFiles = () => {
+    estimateApi.listTicketFiles(ticket.id).then(r => setFiles(r.data || [])).catch(() => {});
+  };
+  useEffect(() => { loadFiles(); }, [ticket.id]);
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    if (f.size > 10 * 1024 * 1024) { alert('ファイルサイズは10MBまでです'); return; }
+    setUploading(true);
+    try {
+      const b64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+        reader.onerror = reject;
+        reader.readAsDataURL(f);
+      });
+      await estimateApi.uploadTicketFile(ticket.id, {
+        file_kind: fileKind, filename: f.name,
+        content_type: f.type || 'application/pdf', content_base64: b64,
+      });
+      loadFiles();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'アップロードに失敗しました');
+    } finally { setUploading(false); }
+  };
+  const handleDeleteFile = async (fileId: string, name: string) => {
+    if (!confirm(`「${name}」を削除しますか？`)) return;
+    try { await estimateApi.deleteTicketFile(fileId); loadFiles(); }
+    catch (err: any) { alert(err.response?.data?.detail || '削除に失敗しました'); }
+  };
+
   const save = async () => {
     setSaving(true);
     try {
@@ -204,9 +253,18 @@ function OrderTicketEditModal({ ticket, onClose, onSaved }: { ticket: any; onClo
           <h3 className="text-lg font-bold text-gray-800">受注項目の編集</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
-        <div className="text-xs text-gray-500 mb-4">
+        <div className="text-xs text-gray-500 mb-2">
           {ticket.ticket_no}　{ticket.child_no || ''}　{ticket.customer_name || ''}
         </div>
+        {/* 元見積の参照（内容を確認しながら受注情報を更新できるように。会議2026-07-17） */}
+        {ticket.quotation_id && (
+          <div className="flex items-center gap-2 mb-4 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+            <FileText size={14} className="text-blue-500" />
+            <span className="text-xs text-gray-600">元見積: {ticket.quotation_no || ticket.quotation_id}</span>
+            <button onClick={() => window.open(`${API_BASE}/estimate-quotations/${ticket.quotation_id}/pdf`, '_blank')}
+              className="ml-auto text-xs text-blue-600 hover:underline">見積書を開く</button>
+          </div>
+        )}
 
         <div className="space-y-3">
           <div>
@@ -293,6 +351,40 @@ function OrderTicketEditModal({ ticket, onClose, onSaved }: { ticket: any; onClo
             <label className="block text-sm text-gray-600 mb-1">受注日</label>
             <input type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)}
               className="w-full border rounded px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-600 mb-1">関連書類（注文書・契約書等のPDF保管）</label>
+            <div className="flex items-center gap-2 mb-2">
+              <select value={fileKind} onChange={e => setFileKind(e.target.value)}
+                className="border rounded px-2 py-1.5 text-sm">
+                <option value="注文書">注文書</option>
+                <option value="契約書">契約書</option>
+                <option value="図面">図面</option>
+                <option value="その他">その他</option>
+              </select>
+              <label className={`text-sm px-3 py-1.5 rounded border cursor-pointer ${uploading ? 'bg-gray-100 text-gray-400' : 'bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100'}`}>
+                {uploading ? 'アップロード中...' : '＋ PDFをアップロード'}
+                <input type="file" accept="application/pdf,.pdf" className="hidden" onChange={handleUpload} disabled={uploading} />
+              </label>
+              <span className="text-[10px] text-gray-400">1件10MBまで</span>
+            </div>
+            {files.length > 0 ? (
+              <ul className="space-y-1">
+                {files.map(f => (
+                  <li key={f.id} className="flex items-center gap-2 text-xs bg-gray-50 rounded px-2 py-1.5">
+                    <span className="px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 text-[10px]">{f.file_kind || 'その他'}</span>
+                    <a href={`${API_BASE}/estimate-quotations/order-ticket-file/${f.id}`} target="_blank" rel="noreferrer"
+                      className="text-blue-600 hover:underline flex-1 truncate">{f.filename}</a>
+                    <span className="text-gray-400">{(f.file_size / 1024 / 1024).toFixed(1)}MB</span>
+                    <button onClick={() => handleDeleteFile(f.id, f.filename)} className="text-red-300 hover:text-red-500">
+                      <X size={13} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-gray-400">アップロード済みの書類はありません</p>
+            )}
           </div>
         </div>
 
