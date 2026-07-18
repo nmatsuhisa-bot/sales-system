@@ -28,8 +28,8 @@ router = APIRouter()
 # ここは小さい図面の直叩き用。サーバのメモリを守るため小さく抑えている。
 MAX_CAD_FILE_SIZE = 8 * 1024 * 1024
 
-# 承認権限者（会議2026-07-17で決定した5名。2026-07-18 氏名確定）
-APPROVERS = ["後藤", "江里口", "柴田", "井上社長", "国立"]
+# 承認権限者はユーザーマスタの機能権限「検印承認者」(approver) を持つ人。
+# 以前はここに氏名をハードコードしていたが、ユーザー管理画面で設定する方式に変更した。
 
 def net_amount(q: "QuotationHeader") -> int:
     """見積の税抜合計（機器・工事 + 社内工数 − 出精値引）。
@@ -321,10 +321,15 @@ def _build_quotation_from_cad_info(info: dict, fname: str, project_order_id, tit
 
 
 @router.get("/approvers")
-def list_approvers():
-    """承認権限者の候補5名（会議2026-07-17決定・2026-07-18氏名確定）。
+def list_approvers(db: Session = Depends(get_db)):
+    """承認権限者の候補。ユーザーマスタで機能権限「検印承認者」を付与された人を返す。
     ※ /{quotation_id} より先に定義すること（ルート衝突防止）"""
-    return {"approvers": APPROVERS}
+    from app.roles import users_with_role
+    users = users_with_role(db, "approver")
+    return {
+        "approvers": [u.full_name for u in users],
+        "users": [{"id": str(u.id), "full_name": u.full_name, "department": u.department} for u in users],
+    }
 
 @router.get("/patterns/bfr-bodies")
 def get_bfr_bodies(db: Session = Depends(get_db)):
@@ -904,7 +909,16 @@ def request_approval(quotation_id: str, data: dict, db: Session = Depends(get_db
     approver = (data or {}).get("approver_name") or q.approver_name
     if not approver:
         raise HTTPException(400, "検印者（承認者）を選択してください")
-    q.approver_name = nfkc(approver)
+    # 検印承認者の権限を持つ人か検証（ユーザー管理で権限を外された人を弾く）
+    from app.roles import users_with_role
+    approver = nfkc(approver)
+    if approver not in [u.full_name for u in users_with_role(db, "approver")]:
+        raise HTTPException(
+            400,
+            f"「{approver}」は検印承認者の権限を持っていません。"
+            "ユーザー管理で機能権限「検印承認者」を付与してください",
+        )
+    q.approver_name = approver
     q.approval_status = "pending"
     q.approval_requested_at = datetime.now()
     q.approved_at = None

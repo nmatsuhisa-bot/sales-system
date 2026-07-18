@@ -6,19 +6,33 @@ export default function UsersPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [modal, setModal] = useState<any>(null);
   const [form, setForm] = useState<any>({});
+  // 機能権限の定義はサーバから取得（app/roles.py に追加すれば画面にも自動で出る）
+  const [functionRoles, setFunctionRoles] = useState<any[]>([]);
 
   const load = () => authApi.listUsers().then(r => setUsers(r.data || []));
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    authApi.listFunctionRoles().then(r => setFunctionRoles(r.data.function_roles || [])).catch(() => {});
+  }, []);
 
-  const openNew = () => { setForm({ role: 'user', password: 'user1234' }); setModal({ isNew: true }); };
-  const openEdit = (u: any) => { setForm({ ...u, password: '' }); setModal({ isNew: false }); };
+  const openNew = () => { setForm({ role: 'user', password: 'user1234', function_roles: [] }); setModal({ isNew: true }); };
+  const openEdit = (u: any) => { setForm({ ...u, password: '', function_roles: u.function_roles || [] }); setModal({ isNew: false }); };
+
+  // 機能権限は複数選択（1ユーザーが複数の役割を担える）
+  const toggleFunctionRole = (key: string) => {
+    setForm((f: any) => {
+      const cur: string[] = f.function_roles || [];
+      return { ...f, function_roles: cur.includes(key) ? cur.filter(k => k !== key) : [...cur, key] };
+    });
+  };
 
   const handleSave = async () => {
     try {
+      const roles = form.function_roles || [];
       if (modal.isNew) {
-        await authApi.createUser({ email: form.email, full_name: form.full_name, password: form.password, role: form.role || 'user', department: form.department || null });
+        await authApi.createUser({ email: form.email, full_name: form.full_name, password: form.password, role: form.role || 'user', function_roles: roles, department: form.department || null });
       } else {
-        await authApi.updateUser(form.id, { email: form.email, full_name: form.full_name, role: form.role, department: form.department || null, password: form.password || undefined });
+        await authApi.updateUser(form.id, { email: form.email, full_name: form.full_name, role: form.role, function_roles: roles, department: form.department || null, password: form.password || undefined });
       }
       setModal(null);
       load();
@@ -58,6 +72,7 @@ export default function UsersPage() {
               <th className="px-4 py-3 text-left font-medium text-gray-600">メールアドレス</th>
               <th className="px-4 py-3 text-center font-medium text-gray-600">部門</th>
               <th className="px-4 py-3 text-center font-medium text-gray-600">権限</th>
+              <th className="px-4 py-3 text-center font-medium text-gray-600">機能権限</th>
               <th className="px-4 py-3 text-center font-medium text-gray-600">操作</th>
             </tr>
           </thead>
@@ -75,6 +90,17 @@ export default function UsersPage() {
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${u.role === 'admin' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
                     {u.role === 'admin' ? '管理者' : 'ユーザー'}
                   </span>
+                </td>
+                <td className="px-4 py-3 text-center">
+                  {(u.function_roles || []).length > 0 ? (
+                    <span className="flex flex-wrap gap-1 justify-center">
+                      {(u.function_roles || []).map((k: string) => (
+                        <span key={k} className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700">
+                          {functionRoles.find(r => r.key === k)?.label || k}
+                        </span>
+                      ))}
+                    </span>
+                  ) : <span className="text-xs text-gray-300">—</span>}
                 </td>
                 <td className="px-4 py-3 text-center flex items-center justify-center gap-2">
                   <button onClick={() => handleResetPassword(u)} className="text-yellow-500 hover:text-yellow-700" title="パスワード変更"><Key size={14} /></button>
@@ -126,6 +152,32 @@ export default function UsersPage() {
                   <option value="製造">製造</option>
                   <option value="管理部">管理部</option>
                 </select>
+              </div>
+              {/* 機能権限（複数選択可）。1ユーザーが複数の役割を担える */}
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">
+                  機能権限
+                  <span className="text-[10px] text-gray-400 ml-1">複数選択可。担当する業務機能を指定します</span>
+                </label>
+                <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
+                  {functionRoles.map(r => {
+                    const checked = (form.function_roles || []).includes(r.key);
+                    return (
+                      <label key={r.key}
+                        className={`flex items-start gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50 ${checked ? 'bg-blue-50' : ''}`}>
+                        <input type="checkbox" checked={checked}
+                          onChange={() => toggleFunctionRole(r.key)} className="mt-0.5" />
+                        <span>
+                          <span className="text-sm font-medium text-gray-800">{r.label}</span>
+                          {r.description && <span className="block text-[11px] text-gray-500">{r.description}</span>}
+                        </span>
+                      </label>
+                    );
+                  })}
+                  {functionRoles.length === 0 && (
+                    <p className="px-3 py-2 text-xs text-gray-400">選択できる機能権限がありません</p>
+                  )}
+                </div>
               </div>
             </div>
             <div className="flex justify-end gap-3 mt-5">

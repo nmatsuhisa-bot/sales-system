@@ -44,7 +44,11 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(100), nullable=False)
-    role = Column(String(50), default="staff")
+    role = Column(String(50), default="staff")   # 基本権限: admin / staff（システム管理用）
+    # 機能権限（複数可）。基本権限とは別軸で、機能ごとの担当を表す。
+    # 例: ["approver"] = 検印承認者。将来の機能権限もこの配列に追加していく。
+    # 定義は app/roles.py の FUNCTION_ROLES を参照
+    function_roles = Column(JSON, default=list)
     department = Column(String(50))            # 所属部門（営業/施工 等）。スケジュール絞込・権限用
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())

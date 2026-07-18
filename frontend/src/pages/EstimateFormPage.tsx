@@ -544,16 +544,21 @@ export default function EstimateFormPage() {
           </div>
           <HeaderField header={header} setHeader={setHeader} label="作成" name="created_by_name" />
           <div>
-            <label className="block text-xs text-gray-500 mb-1">検印（承認者・5名から選択）</label>
+            <label className="block text-xs text-gray-500 mb-1">検印（承認者）</label>
             <select value={header.approver_name}
               onChange={e => setHeader(h => ({ ...h, approver_name: e.target.value }))}
               className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
               <option value="">選択</option>
               {approvers.map(a => <option key={a} value={a}>{a}</option>)}
               {header.approver_name && !approvers.includes(header.approver_name) && (
-                <option value={header.approver_name}>{header.approver_name}</option>
+                <option value={header.approver_name}>{header.approver_name}（権限なし）</option>
               )}
             </select>
+            {approvers.length === 0 && (
+              <p className="text-[11px] text-red-500 mt-0.5">
+                検印承認者が登録されていません。ユーザー管理で機能権限「検印承認者」を付与してください
+              </p>
+            )}
           </div>
           <div className="md:col-span-3">
             <label className="block text-xs text-gray-500 mb-1">

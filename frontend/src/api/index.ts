@@ -338,6 +338,8 @@ export const scheduleApi = {
 export const authApi = {
   listUsers: () => api.get('/auth/users'),
   listTeam: () => api.get('/auth/team'),
+  // 機能権限の定義一覧（検印承認者など。複数選択可）
+  listFunctionRoles: () => api.get('/auth/function-roles'),
   createUser: (data: any) => api.post('/auth/users', data),
   updateUser: (id: string, data: any) => api.put(`/auth/users/${id}`, data),
   deleteUser: (id: string) => api.delete(`/auth/users/${id}`),

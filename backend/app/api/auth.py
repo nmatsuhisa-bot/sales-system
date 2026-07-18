@@ -3,13 +3,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime, timedelta
 import jwt
 import bcrypt
 import os
 
 from app.db.models import get_db, User
+from app.roles import FUNCTION_ROLES, normalize_roles
 
 router = APIRouter()
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key")
@@ -62,13 +63,22 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 @router.get("/me")
 def get_me(current_user: User = Depends(get_current_user)):
     return {"id": str(current_user.id), "email": current_user.email,
-            "full_name": current_user.full_name, "role": current_user.role, "department": current_user.department}
+            "full_name": current_user.full_name, "role": current_user.role,
+            "function_roles": current_user.function_roles or [],
+            "department": current_user.department}
+
+@router.get("/function-roles")
+def list_function_roles():
+    """機能権限の一覧（画面のチェックボックスはこれを元に描画する）。
+    権限を増やすときは app/roles.py の FUNCTION_ROLES に追加するだけでよい。"""
+    return {"function_roles": FUNCTION_ROLES}
 
 class UserCreate(BaseModel):
     email: str
     password: str
     full_name: str
     role: str = "staff"
+    function_roles: List[str] = []
     department: Optional[str] = None
 
 def require_admin(current_user: User = Depends(get_current_user)):
@@ -83,11 +93,13 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), _: User = Depen
     if db.query(User).filter(User.email == data.email).first():
         raise HTTPException(400, "このメールアドレスは既に使用されています")
     hashed = bcrypt.hashpw(data.password.encode(), bcrypt.gensalt()).decode()
-    user = User(email=data.email, hashed_password=hashed, full_name=data.full_name, role=data.role, department=data.department)
+    user = User(email=data.email, hashed_password=hashed, full_name=data.full_name, role=data.role,
+                function_roles=normalize_roles(data.function_roles), department=data.department)
     db.add(user)
     db.commit()
     db.refresh(user)
-    return {"id": str(user.id), "email": user.email, "full_name": user.full_name, "role": user.role, "department": user.department}
+    return {"id": str(user.id), "email": user.email, "full_name": user.full_name, "role": user.role,
+            "function_roles": user.function_roles or [], "department": user.department}
 
 
 # =============================================
@@ -97,6 +109,7 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), _: User = Depen
 def list_users(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     users = db.query(User).filter(User.is_active == True).order_by(User.created_at).all()
     return [{"id": str(u.id), "email": u.email, "full_name": u.full_name, "role": u.role,
+             "function_roles": u.function_roles or [],
              "department": u.department,
              "is_active": u.is_active, "created_at": u.created_at.isoformat() if u.created_at else None}
             for u in users]
@@ -111,6 +124,7 @@ class UserUpdate(BaseModel):
     email: Optional[str] = None
     full_name: Optional[str] = None
     role: Optional[str] = None
+    function_roles: Optional[List[str]] = None   # 空配列＝全解除。Noneなら変更しない
     department: Optional[str] = None
     password: Optional[str] = None
 
@@ -121,11 +135,14 @@ def update_user(user_id: str, data: UserUpdate, db: Session = Depends(get_db), _
     if data.email: u.email = data.email
     if data.full_name: u.full_name = data.full_name
     if data.role: u.role = data.role
+    if data.function_roles is not None:
+        u.function_roles = normalize_roles(data.function_roles)
     if data.department is not None: u.department = data.department or None
     if data.password:
         u.hashed_password = bcrypt.hashpw(data.password.encode(), bcrypt.gensalt()).decode()
     db.commit()
-    return {"id": str(u.id), "email": u.email, "full_name": u.full_name, "role": u.role, "department": u.department}
+    return {"id": str(u.id), "email": u.email, "full_name": u.full_name, "role": u.role,
+            "function_roles": u.function_roles or [], "department": u.department}
 
 @router.delete("/users/{user_id}", status_code=204)
 def delete_user(user_id: str, db: Session = Depends(get_db), _: User = Depends(require_admin)):

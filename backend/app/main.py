@@ -411,6 +411,52 @@ def setup_approval_workflow():
     return {"status": "ok", "message": "承認ワークフロー・出精値引・金額表示制御・確度・受注票ファイル 追加完了"}
 
 
+@app.get("/setup-function-roles")
+def setup_function_roles():
+    """ユーザーに機能権限(function_roles)を追加し、検印承認者の初期設定を行う。
+
+    2026-07-18: 検印者をハードコードからユーザーマスタ参照に変更。
+    会議で決定した5名（後藤・江里口・柴田・井上社長・国立）に「検印承認者」を
+    自動付与する。氏名は部分一致で照合し、該当が無い場合は付与されないため
+    ユーザー管理画面で手動設定すること。冪等（既に権限がある人は変更しない）。"""
+    from app.db.models import engine, SessionLocal, User
+    from sqlalchemy import text
+    from app.roles import has_role
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS function_roles JSON"))
+            conn.commit()
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    # 会議2026-07-17で決定した検印承認者5名（氏名の部分一致で照合）
+    TARGETS = ["後藤", "江里口", "柴田", "井上", "国立"]
+    granted, already, unmatched = [], [], []
+    db = SessionLocal()
+    try:
+        users = db.query(User).filter(User.is_active == True).all()
+        for name in TARGETS:
+            hits = [u for u in users if name in (u.full_name or "")]
+            if not hits:
+                unmatched.append(name)
+                continue
+            for u in hits:
+                if has_role(u, "approver"):
+                    already.append(u.full_name)
+                else:
+                    u.function_roles = (u.function_roles or []) + ["approver"]
+                    granted.append(u.full_name)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        return {"status": "error", "message": str(e)}
+    finally:
+        db.close()
+    return {"status": "ok", "message": "機能権限カラム追加＋検印承認者の初期設定完了",
+            "付与": granted, "設定済み": already,
+            "該当ユーザーなし（要手動設定）": unmatched}
+
+
 @app.get("/setup-project-ticket-type")
 def setup_project_ticket_type():
     """案件子IDに工番/単番の区分を追加し、既存データへ現在の判定結果を引き継ぐ。
