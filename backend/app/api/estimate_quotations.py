@@ -84,8 +84,8 @@ async def create_quotation_from_cad(
             tmp_path = tf.name
         try:
             info = extract_from_dxf(tmp_path)
-        except ImportError:
-            raise HTTPException(500, "ezdxf が未導入のため図面を解析できません")
+        except ValueError as e:
+            raise HTTPException(400, str(e))
         except Exception as e:
             raise HTTPException(400, f"DXFの解析に失敗しました: {e}")
     finally:

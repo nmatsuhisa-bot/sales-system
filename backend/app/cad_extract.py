@@ -115,18 +115,90 @@ def _canon(model: str) -> str:
     return model.upper().replace(" ", "").replace("×", "X")
 
 
+def _scan_dxf(path: str):
+    """ASCII DXFを1行ずつ走査して、ENTITIES区の
+    INSERTのブロック名（group code 2）と TEXT/MTEXT の文字（group code 1/3）を拾う。
+
+    ezdxf.readfile は図面全体をメモリに構築するため、大きな図面（実例で59MB）では
+    サーバのメモリ・実行時間の上限に掛かる。必要なのはブロック名と文字だけなので
+    ストリーミングで読む。DXFは「グループコード行 → 値行」の繰り返し。
+    """
+    # バイナリDXFはこの方式では読めない。CAD側でASCII保存してもらう
+    with open(path, "rb") as bf:
+        if bf.read(22).startswith(b"AutoCAD Binary DXF"):
+            raise ValueError(
+                "バイナリDXFには対応していません。AutoCADで「AutoCAD 2018 DXF」"
+                "（ASCII形式）として保存し直してください"
+            )
+
+    block_names = []
+    texts = []
+    insunits = None
+    acadver = None
+    in_entities = False
+    section_next = False        # 直前が (0, SECTION) で、次の (2, 名前) が区名
+    entity = None               # 現在のエンティティ種別
+    pending_header_var = None   # 直前に読んだ (9, $VARNAME)
+
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        while True:
+            code_line = f.readline()
+            if not code_line:
+                break
+            value_line = f.readline()
+            if not value_line:
+                break
+            code = code_line.strip()
+            value = value_line.rstrip("\r\n")
+
+            if code == "0":
+                v = value.strip()
+                if v == "SECTION":
+                    section_next = True
+                    entity = None
+                    continue
+                if v == "ENDSEC":
+                    in_entities = False
+                    entity = None
+                    continue
+                entity = v
+                continue
+
+            if section_next and code == "2":
+                in_entities = (value.strip() == "ENTITIES")
+                section_next = False
+                continue
+
+            # HEADER の $INSUNITS / $ACADVER
+            if code == "9":
+                pending_header_var = value.strip()
+                continue
+            if pending_header_var == "$INSUNITS" and code == "70":
+                insunits = value.strip()
+                pending_header_var = None
+                continue
+            if pending_header_var == "$ACADVER" and code == "1":
+                acadver = value.strip()
+                pending_header_var = None
+                continue
+
+            if not in_entities:
+                continue
+            if entity == "INSERT" and code == "2":
+                block_names.append(value.strip())
+            elif entity in ("TEXT", "MTEXT", "ATTRIB") and code in ("1", "3"):
+                texts.append(value)
+
+    return block_names, texts, insunits, acadver
+
+
 def extract_from_dxf(path: str) -> dict:
-    """DXFを解析して型式・仕様・ダクト径を返す。ezdxf が必要。"""
-    import ezdxf
-    doc = ezdxf.readfile(path)
-    msp = doc.modelspace()
+    """DXF(ASCII)を解析して型式・仕様・ダクト径を返す。外部ライブラリ不要。"""
+    block_names, raw_texts, insunits, acadver = _scan_dxf(path)
 
     models = collections.Counter()      # 型式 → 出現数（ブロック＋テキスト）
     panel_blocks = 0
-    texts = []
-
-    for e in msp.query("INSERT"):
-        name = e.dxf.name
+    for name in block_names:
         # 「SCA30制御盤」等、制御盤ブロックに機器型式が含まれる場合は制御盤として数える
         if "制御盤" in name:
             panel_blocks += 1
@@ -134,8 +206,8 @@ def extract_from_dxf(path: str) -> dict:
         for m in MODEL_RE.findall(_normalize_block_name(name)):
             models[_canon(m)] += 1
 
-    for e in msp.query("TEXT MTEXT"):
-        raw = e.text if e.dxftype() == "MTEXT" else e.dxf.text
+    texts = []
+    for raw in raw_texts:
         t = _mtext_plain(raw).strip()
         if t:
             texts.append(t)
@@ -169,8 +241,8 @@ def extract_from_dxf(path: str) -> dict:
         "flow_m3min": sorted({int(x.replace(",", "")) for x in FLOW_RE.findall(body)}),
         "dia": dict(dia),
         "has_existing_note": bool(EXISTING_RE.search(body)),
-        "dxf_version": doc.dxfversion,
-        "insunits": doc.header.get("$INSUNITS"),
+        "dxf_version": acadver,
+        "insunits": insunits,
     }
 
 
