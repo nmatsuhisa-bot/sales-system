@@ -15,6 +15,21 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-07-18（続2） — Claude(Opus) — Renderメモリ超過の是正（0632525）
+**事象**: Renderから「sales-backend exceeded its memory limit」通知。インスタンスが自動再起動し
+一時的に停止した。**原因は当セッションの検証**（59MB/48MBのDXFを `/from-cad` へ直接アップロード）。
+**根本原因**: アップロード経路が「**全体をメモリに読み込んでからサイズ検査**」していた。
+`blob = await file.read()` の時点で59MBがRAMに載り、上限80MBの検査はその後だった。
+**対処**（`backend/app/api/estimate_quotations.py`）:
+- `/from-cad`: 1MBずつ temp ファイルへストリーム書き出し。超過検知で即中断(413)。
+  上限 80MB → **8MB**（実運用サイズはブラウザ解析の `/from-cad-extract` を使うため）
+- 受注票の関連書類: **base64はデコード前に長さで弾く**（デコード後検査だと一瞬メモリに載る）
+- `/from-cad-extract`: ブロック名/テキストの件数上限を追加
+
+> **今後の鉄則**: アップロードを受ける処理は「**読み込む前・デコードする前にサイズを検査**」する。
+> 全体を一度にメモリへ載せない。大きな入力はブラウザ側で要約してから送る設計にする。
+> 本番APIへ大きなファイルを投げる検証は、事前にサイズ上限の実装を確認してから行うこと。
+
 ### 2026-07-18（続） — Claude(Opus) — draft表記統一・売上計画表0表示・CAD→見積自動生成（f665882〜79f2b94）
 **触ったファイル**: estimate_quotations.py / cad_extract.py(新規) / models.py / requirements.txt /
 SalesPlanPage.tsx / EstimateListPage.tsx / EstimateFormPage.tsx / api/index.ts / utils/dxfScan.ts(新規) / docs
