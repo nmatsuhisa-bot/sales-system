@@ -193,9 +193,17 @@ def _scan_dxf(path: str):
 
 
 def extract_from_dxf(path: str) -> dict:
-    """DXF(ASCII)を解析して型式・仕様・ダクト径を返す。外部ライブラリ不要。"""
+    """DXF(ASCII)ファイルを解析して型式・仕様・ダクト径を返す。外部ライブラリ不要。"""
     block_names, raw_texts, insunits, acadver = _scan_dxf(path)
+    return analyze(block_names, raw_texts, insunits, acadver)
 
+
+def analyze(block_names, raw_texts, insunits=None, acadver=None) -> dict:
+    """走査済みのブロック名・テキストから見積要素を組み立てる。
+
+    大きな図面はブラウザ側で走査して結果だけ送る（アップロード量を数KBに抑える）ため、
+    ファイル読み取りと分析を分離している。
+    """
     models = collections.Counter()      # 型式 → 出現数（ブロック＋テキスト）
     panel_blocks = 0
     for name in block_names:

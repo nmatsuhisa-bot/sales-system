@@ -56,19 +56,14 @@ async def create_quotation_from_cad(
     title: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
-    """CAD図面(DXF)から見積の骨格を自動生成する（プロトタイプ）。
+    """CAD図面(DXF)ファイルを直接アップロードして見積を自動生成する。
 
-    図面のブロック名・テキストから自社製品の型式を抽出し、見積パターンマスタと
-    照合して大項目1〜5の明細を作成する。ダクトは図面から実長が取れないため概算。
-    生成物は必ず draft（未承認）。単価が引けない行は0円で作成され、要手入力。
-
-    DWGしか無い場合は AutoCAD の DXFOUT で「AutoCAD 2018 DXF」に書き出すこと。
+    ※ 実運用の図面は数十MBあり、アップロードがサーバ側の上限に掛かるため、
+    画面からは /from-cad-extract（ブラウザで走査した結果だけを送る）を使う。
+    こちらは小さい図面・API直叩き用に残している。
     """
     import tempfile, os as _os
-    from app.cad_extract import (
-        extract_from_dxf, duct_estimate, family_of, FAMILY, SECTION_NAMES,
-        DUCT_RATE_PER_MM_M, DUCT_DEFAULT_RUN_M,
-    )
+    from app.cad_extract import extract_from_dxf
 
     fname = file.filename or ""
     if not fname.lower().endswith(".dxf"):
@@ -91,6 +86,47 @@ async def create_quotation_from_cad(
     finally:
         if tmp_path and _os.path.exists(tmp_path):
             _os.unlink(tmp_path)
+
+    return _build_quotation_from_cad_info(info, fname, project_order_id, title, db)
+
+
+class CadExtractIn(BaseModel):
+    """ブラウザでDXFを走査した結果（アップロード量を数KBに抑えるため）"""
+    filename: str
+    block_names: List[str] = []          # INSERTのブロック名（重複はそのまま）
+    texts: List[str] = []                # TEXT/MTEXT/ATTRIBの文字（関連するもののみ）
+    insunits: Optional[str] = None
+    acadver: Optional[str] = None
+    project_order_id: Optional[str] = None
+    title: Optional[str] = None
+
+
+@router.post("/from-cad-extract", status_code=201)
+def create_quotation_from_cad_extract(data: CadExtractIn, db: Session = Depends(get_db)):
+    """ブラウザで走査済みのCAD情報から見積の骨格を自動生成する（画面はこちらを使う）。
+
+    実運用の図面は13〜101MBあり、そのままアップロードするとサーバの
+    リクエスト上限・タイムアウトに掛かる。ブラウザ側でDXFを1行ずつ走査し、
+    ブロック名と関連テキストだけ（数KB）を送る。
+    """
+    from app.cad_extract import analyze
+    if not data.block_names and not data.texts:
+        raise HTTPException(400, "図面から情報を抽出できませんでした")
+    info = analyze(data.block_names, data.texts, data.insunits, data.acadver)
+    return _build_quotation_from_cad_info(
+        info, data.filename, data.project_order_id, data.title, db
+    )
+
+
+def _build_quotation_from_cad_info(info: dict, fname: str, project_order_id, title, db: Session):
+    """抽出結果 → パターンマスタ照合 → 見積(draft)作成。
+
+    ダクトは図面から実長が取れないため概算。単価が引けない行は0円で作成され、要手入力。
+    """
+    from app.cad_extract import (
+        duct_estimate, family_of, FAMILY, SECTION_NAMES,
+        DUCT_RATE_PER_MM_M, DUCT_DEFAULT_RUN_M,
+    )
 
     # ---- 型式をパターンマスタと照合して単価を決める ----
     def _lookup_price(model: str, fam: str):

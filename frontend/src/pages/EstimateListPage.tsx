@@ -3,6 +3,7 @@ import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { estimateApi, API_BASE } from '../api';
 import { Plus, FileText, Search, Printer, Copy, X, Upload } from 'lucide-react';
 import OrderSearchInput from '../components/common/OrderSearchInput';
+import { scanDxf } from '../utils/dxfScan';
 
 // 見積ステータス: 下書 / 受注（採用済）/ 受注済（受注票発行済）
 const STATUS_LABELS: Record<string, string> = { draft: '下書', adopted: '受注', received: '受注済' };
@@ -229,17 +230,29 @@ function CadEstimateModal({ onClose, onCreated }: { onClose: () => void; onCreat
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState('');
 
+  const [phase, setPhase] = useState('');
+
   const run = async () => {
     if (!file) { setError('DXFファイルを選択してください'); return; }
     setBusy(true); setError('');
     try {
-      const r = await estimateApi.createFromCad(file, {
-        project_order_id: order?.id, title: title || undefined,
+      // 図面は数十MBあるためブラウザ内で走査し、抽出結果だけを送る
+      setPhase('図面を解析中...');
+      const scan = await scanDxf(file);
+      setPhase('見積を作成中...');
+      const r = await estimateApi.createFromCadExtract({
+        filename: file.name,
+        block_names: scan.block_names,
+        texts: scan.texts,
+        insunits: scan.insunits,
+        acadver: scan.acadver,
+        project_order_id: order?.id,
+        title: title || undefined,
       });
-      setResult(r.data);
+      setResult({ ...r.data, scan: scan.stats });
     } catch (e: any) {
-      setError(e.response?.data?.detail || '解析に失敗しました');
-    } finally { setBusy(false); }
+      setError(e.response?.data?.detail || e.message || '解析に失敗しました');
+    } finally { setBusy(false); setPhase(''); }
   };
 
   return (
@@ -280,13 +293,18 @@ function CadEstimateModal({ onClose, onCreated }: { onClose: () => void; onCreat
             <button onClick={onClose} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">キャンセル</button>
             <button onClick={run} disabled={busy || !file}
               className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-700 disabled:opacity-50">
-              {busy ? '解析中...' : '解析して見積を作成'}
+              {busy ? (phase || '解析中...') : '解析して見積を作成'}
             </button>
           </div>
         </>) : (<>
           <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-3 text-sm">
             <p className="font-bold text-green-800">{result.quotation_no} を作成しました（draft）</p>
             <p className="text-green-700 mt-1">機器・ダクト概算 合計 ¥{Number(result.subtotal).toLocaleString()}（税抜）</p>
+            {result.scan && (
+              <p className="text-[11px] text-green-600 mt-1">
+                解析: {(result.scan.bytes / 1024 / 1024).toFixed(1)}MB / ブロック{result.scan.blocks}件 / 文字{result.scan.texts}件（{result.scan.ms}ms）
+              </p>
+            )}
           </div>
 
           <div className="text-xs text-gray-600 mb-3">
