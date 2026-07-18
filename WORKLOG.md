@@ -15,6 +15,19 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-07-19 — Claude(Cowork) — /procurement 検証（異常なし）
+**触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
+**検証結果**: 静的解析で退行なし。前回検証(07-18)以降 origin/main の新規コミットは `0632525`(メモリ上限/estimate_quotations.py)・`8851302`(projects.py 工番/単番必須)・`eb7b2f4`(見積合計半角)・`e1b7b68`/`1be0b4b`/`2a3cddf`(検印承認者=機能権限化 users/roles) 等。**うち procurement 関連ファイルの実質変更は無し**。
+- models.py の差分は `users.function_roles`(JSON列)追加のみ＝MaterialMaster/BomItem/MaterialOrder/Supplier 各定義は不変。api/index.ts の差分は function-roles/approvers 系の追加のみ＝procurementApi 17系統に変更なし。
+- エンドポイント整合: ProcurementPage.tsx の procurementApi 参照17系統すべて api/index.ts 定義および materials.py 実ルートに一致（MISSING なし）。
+- P-03/P-05 0値表示: `_mo_dict`(L439-440) order_qty/unit_price、発注書HTML(L799-800) qty/price ともに `is not None` 維持。amount は `or 0` で¥0正常。
+- 新規発注バリデーション: `!newLine.material_id`(L264) alert / 受入数量 `qty<=0`(L289) alert 健在。
+- 構文: materials.py・models.py py_compile OK、ProcurementPage.tsx・api/index.ts esbuild OK。
+**ライブAPI/UI確認**: 無人実行のため web_fetch は対象ドメイン provenance外 → 静的解析で対応。
+**運用メモ**: P-02（既存DBに material_orders.order_no/project_unit_id 列が無い場合 GET /material-orders が500）は `/setup-bom-master-tables` 実行済み前提で本番影響なし。
+**バグ検出**: なし（異常なし）。push はWORKLOG更新のみ。
+
+
 ### 2026-07-18（続5） — Claude(Opus) — 検印承認者を機能権限化（e1b7b68）
 **変更**: 検印者のハードコード（`APPROVERS = [...]`）を廃止し、ユーザーマスタの
 **機能権限**で管理する方式へ。1ユーザーが複数の役割を担える設計。
