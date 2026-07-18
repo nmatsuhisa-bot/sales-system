@@ -11,8 +11,9 @@ const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-600', adopted: 'bg-blue-100 text-blue-700', received: 'bg-green-100 text-green-700'
 };
 
-// 社内の管理金額は税抜（機器・工事 + 社内工数）で統一。工番/単番の判定も税抜。
-export const KOBAN_THRESHOLD = 3000000;
+// 社内の管理金額は税抜（機器・工事 + 社内工数）で統一。
+// 工番/単番は案件子IDで登録された区分（2026-07-18〜。金額による自動判定は廃止）
+const TICKET_TYPE_LABELS: Record<string, string> = { koban: '工番', tanban: '単番' };
 // 税抜合計（機器・工事＋社内工数−出精値引）。APIのnet_amountを優先し、無ければ計算
 export const netAmount = (q: any) =>
   q?.net_amount ?? ((q?.subtotal || 0) + (q?.labor_total || 0) - (q?.discount_amount || 0));
@@ -71,10 +72,13 @@ export default function EstimateListPage() {
     window.open(`${API_BASE}/estimate-quotations/${id}/control-panel-pdf`, '_blank');
   };
 
-  const handleIssueTicket = async (id: string, total: number) => {
-    const type = total >= KOBAN_THRESHOLD ? '工番（税抜300万円以上）' : '単番（税抜300万円未満）';
-    const confirmMsg = `受注票を発行します。\n種別: ${type}\nよろしいですか？`;
-      if (!confirm(confirmMsg)) return;
+  const handleIssueTicket = async (id: string, ticketType?: string) => {
+    if (!ticketType) {
+      alert('案件子IDに工番/単番が設定されていません。\n案件管理で区分を設定してから発行してください。');
+      return;
+    }
+    const confirmMsg = `受注票を発行します。\n種別: ${TICKET_TYPE_LABELS[ticketType]}（案件で登録された区分）\nよろしいですか？`;
+    if (!confirm(confirmMsg)) return;
     try {
       const r = await estimateApi.issueOrderTicket(id);
       const { ticket_no, id: ticketId } = r.data;
@@ -142,9 +146,13 @@ export default function EstimateListPage() {
                 <td className="px-4 py-3 text-gray-500">{q.issue_date || '—'}</td>
                 <td className="px-4 py-3 text-right font-bold text-gray-800">
                   ¥{netAmount(q).toLocaleString()}
-                  <span className={`ml-2 text-xs ${netAmount(q) >= KOBAN_THRESHOLD ? 'text-purple-600' : 'text-orange-600'}`}>
-                    {netAmount(q) >= KOBAN_THRESHOLD ? '工番' : '単番'}
-                  </span>
+                  {q.ticket_type ? (
+                    <span className={`ml-2 text-xs ${q.ticket_type === 'koban' ? 'text-purple-600' : 'text-orange-600'}`}>
+                      {TICKET_TYPE_LABELS[q.ticket_type]}
+                    </span>
+                  ) : (
+                    <span className="ml-2 text-xs text-red-500" title="案件子IDに工番/単番が未設定です">区分未設定</span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-center">
                   <div className="flex flex-col gap-1 items-center">
@@ -167,7 +175,7 @@ export default function EstimateListPage() {
                         className="text-xs text-green-600 hover:text-green-800 flex items-center gap-1">
                         <Printer size={12} /> 見積PDF
                       </button>
-                      <button onClick={() => handleIssueTicket(q.id, netAmount(q))}
+                      <button onClick={() => handleIssueTicket(q.id, q.ticket_type)}
                         className="text-xs bg-purple-600 text-white px-2 py-0.5 rounded hover:bg-purple-700">
                         受注票
                       </button>

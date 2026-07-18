@@ -5,6 +5,11 @@ import { Plus, ChevronDown, ChevronRight, Edit2, Trash2, FileText, Copy } from '
 import ArrangementModal from '../components/ArrangementModal';
 
 const STATUS_OPTIONS = ['営業中', '確度高', '内示', '受注', '検収済', '請求済', '入金済', '失注'];
+// 工番/単番は登録時の必須選択（2026-07-18〜。金額による自動判定は廃止）
+const TICKET_TYPE_LABELS: Record<string, string> = { koban: '工番', tanban: '単番' };
+const TICKET_TYPE_COLORS: Record<string, string> = {
+  koban: 'bg-purple-100 text-purple-700', tanban: 'bg-orange-100 text-orange-700',
+};
 const DIST_OPTIONS = ['直接', '代理店'];
 const STATUS_COLORS: Record<string, string> = {
   '営業中': 'bg-blue-100 text-blue-700',
@@ -148,6 +153,7 @@ export default function ProjectsPage() {
       expected_order_date: project.expected_order_date,
       expected_shipment_date: project.expected_shipment_date,
       budget_amount: project.budget_amount,
+      ticket_type: '',   // 必須。既定値を入れず必ず選択させる
     });
     setOrderModal({ project, order: null });
   };
@@ -158,6 +164,8 @@ export default function ProjectsPage() {
   };
 
   const handleSaveProject = async () => {
+    // 新規登録時は子IDが自動作成されるため、工番/単番の選択が必須
+    if (projectModal?.isNew && !form.ticket_type) { alert('工番/単番の区分を選択してください'); return; }
     try {
       const payload = { ...form };
       Object.keys(payload).forEach(k => { if (payload[k] === '') payload[k] = null; });
@@ -178,6 +186,7 @@ export default function ProjectsPage() {
   };
 
   const handleSaveOrder = async () => {
+    if (!orderForm.ticket_type) { alert('工番/単番の区分を選択してください'); return; }
     try {
       const payload = { ...orderForm };
       Object.keys(payload).forEach(k => { if (payload[k] === '') payload[k] = null; });
@@ -274,10 +283,11 @@ export default function ProjectsPage() {
               {expanded && (
                 <div className="bg-gray-50">
                   <div className="grid text-xs text-gray-400 px-10 py-1.5 border-b border-gray-100 font-medium"
-                    style={{ gridTemplateColumns: '140px 1fr 150px 90px 100px 100px 100px 110px 170px 130px' }}>
+                    style={{ gridTemplateColumns: '140px 1fr 150px 56px 90px 100px 100px 100px 110px 170px 130px' }}>
                     <span>子ID</span>
                     <span>案件名</span>
                     <span>納入先</span>
+                    <span>区分</span>
                     <span>担当者</span>
                     <span>受注予定日</span>
                     <span>出荷予定日</span>
@@ -290,10 +300,19 @@ export default function ProjectsPage() {
                   {(p.orders || []).map((o: any) => (
                     <div key={o.id}
                       className="grid items-center px-10 py-2 text-sm border-b border-gray-100 hover:bg-blue-50"
-                      style={{ gridTemplateColumns: '140px 1fr 150px 90px 100px 100px 100px 110px 170px 130px' }}>
+                      style={{ gridTemplateColumns: '140px 1fr 150px 56px 90px 100px 100px 100px 110px 170px 130px' }}>
                       <span className="font-mono text-xs text-blue-600 font-bold">{o.child_no}</span>
                       <span className="truncate text-gray-700 text-xs">{o.project_name || p.project_name || '—'}</span>
                       <span className="truncate text-gray-500 text-xs">{o.customer_name || o.agency_name || '—'}</span>
+                      <span>
+                        {o.ticket_type ? (
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${TICKET_TYPE_COLORS[o.ticket_type]}`}>
+                            {TICKET_TYPE_LABELS[o.ticket_type]}
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-600" title="工番/単番が未設定です。編集して設定してください">未設定</span>
+                        )}
+                      </span>
                       <span className="text-gray-500 text-xs">{o.sales_person_name || '—'}</span>
                       <span className="text-gray-400 text-xs">{o.expected_order_date || '—'}</span>
                       <span className="text-gray-400 text-xs">{o.expected_shipment_date || '—'}</span>
@@ -376,6 +395,22 @@ export default function ProjectsPage() {
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-gray-50 font-mono font-bold text-blue-700" />
                 </div>
                 <SelectField label="案件ステータス" name="status" options={STATUS_OPTIONS} form={form} setForm={setForm} />
+                {projectModal.isNew && (
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      工番 / 単番<span className="text-red-500 ml-0.5">*</span>
+                      <span className="text-gray-400 ml-1">（必須・受注票の種別になります）</span>
+                    </label>
+                    <select value={form.ticket_type || ''}
+                      onChange={e => setForm((f: any) => ({ ...f, ticket_type: e.target.value }))}
+                      className={`w-full border rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none ${
+                        form.ticket_type ? 'border-gray-200' : 'border-red-300 bg-red-50'}`}>
+                      <option value="">選択してください</option>
+                      <option value="koban">工番</option>
+                      <option value="tanban">単番</option>
+                    </select>
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">確度（見込み管理・売上計画の見込み数字用）</label>
                   <select value={form.probability || ''}
@@ -503,6 +538,20 @@ export default function ProjectsPage() {
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-gray-50 font-mono font-bold text-green-700" />
                 </div>
                 <SelectField label="ステータス" name="status" options={STATUS_OPTIONS} form={orderForm} setForm={setOrderForm} />
+                <div className="md:col-span-2">
+                  <label className="block text-xs text-gray-500 mb-1">
+                    工番 / 単番<span className="text-red-500 ml-0.5">*</span>
+                    <span className="text-gray-400 ml-1">（必須・受注票の種別になります）</span>
+                  </label>
+                  <select value={orderForm.ticket_type || ''}
+                    onChange={e => setOrderForm((f: any) => ({ ...f, ticket_type: e.target.value }))}
+                    className={`w-full border rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none ${
+                      orderForm.ticket_type ? 'border-gray-200' : 'border-red-300 bg-red-50'}`}>
+                    <option value="">選択してください</option>
+                    <option value="koban">工番</option>
+                    <option value="tanban">単番</option>
+                  </select>
+                </div>
                 <TextField label="案件名" value={orderForm.project_name} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, project_name: v }))} cols={2} />
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">納入先</label>

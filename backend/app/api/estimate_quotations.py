@@ -20,8 +20,8 @@ from app.db.models import (
 
 router = APIRouter()
 
-# 工番/単番の判定しきい値（税抜）
-KOBAN_THRESHOLD = 3000000
+# 工番/単番は案件子ID(ProjectOrder.ticket_type)で登録時に選択する（2026-07-18〜）。
+# 税抜300万円による自動判定は廃止したため、しきい値は使用しない。
 
 # CAD図面(DXF)を直接アップロードする場合の上限。
 # 実運用の図面(13〜101MB)はブラウザ側で走査して /from-cad-extract へ送るため、
@@ -521,6 +521,8 @@ def _q_to_dict(q: QuotationHeader) -> dict:
         "labor_total": int(q.labor_total or 0), "status": q.status,
         "notes": q.notes, "internal_notes": q.internal_notes,
         "is_adopted": q.status == "adopted",
+        # 工番/単番は案件子IDで登録された区分（金額による自動判定は廃止）
+        "ticket_type": q.project_order.ticket_type if getattr(q, "project_order", None) else None,
         "created_at": q.created_at.isoformat() if q.created_at else None,
         "updated_at": q.updated_at.isoformat() if q.updated_at else None,
         "line_items": sorted([{
@@ -749,6 +751,11 @@ def update_order_ticket(ticket_id: str, data: dict, db: Session = Depends(get_db
         raise HTTPException(404, "受注票が見つかりません")
     if data.get("ticket_type") in ("koban", "tanban"):
         t.ticket_type = data["ticket_type"]
+        # 区分の正は案件子ID側。受注票だけ変えると次回発行で元に戻るため両方を更新する
+        if t.project_order_id:
+            po = db.query(ProjectOrder).filter(ProjectOrder.id == t.project_order_id).first()
+            if po:
+                po.ticket_type = data["ticket_type"]
     if "has_order_sheet" in data:
         t.has_order_sheet = data["has_order_sheet"]
     if "has_drawing" in data:
@@ -1265,9 +1272,19 @@ def issue_order_ticket(quotation_id: str, db: Session = Depends(get_db)):
     q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
     if not q: raise HTTPException(404)
 
-    # 工番/単番の判定・受注票の金額はいずれも税抜
+    # 受注票の金額は税抜
     total = net_amount(q)
-    ticket_type = "koban" if total >= KOBAN_THRESHOLD else "tanban"
+
+    # 工番/単番は案件子IDで登録された区分を引き継ぐ（2026-07-18〜。金額による自動判定は廃止）
+    po = None
+    if q.project_order_id:
+        po = db.query(ProjectOrder).filter(ProjectOrder.id == q.project_order_id).first()
+    ticket_type = po.ticket_type if po and po.ticket_type else None
+    if ticket_type not in ("koban", "tanban"):
+        raise HTTPException(
+            400,
+            "案件子IDに工番/単番が設定されていません。案件管理で区分を設定してから受注票を発行してください",
+        )
 
     # 子IDに既存のアクティブな受注票があるか確認
     existing_tickets = []

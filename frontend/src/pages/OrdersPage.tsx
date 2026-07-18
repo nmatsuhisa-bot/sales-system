@@ -269,12 +269,12 @@ function OrderTicketEditModal({ ticket, onClose, onSaved }: { ticket: any; onClo
         <div className="space-y-3">
           <div>
             <label className="block text-sm text-gray-600 mb-1">種別（工番/単番）
-              <span className="text-[10px] text-gray-400 ml-1">発行時に税抜300万円で自動判定・手動変更可</span>
+              <span className="text-[10px] text-gray-400 ml-1">案件登録時に選択した区分。ここで変更すると案件側にも反映されます</span>
             </label>
             <select value={ticketType} onChange={e => setTicketType(e.target.value)}
               className="w-full border rounded px-3 py-2 text-sm">
-              <option value="koban">工番（税抜300万円以上）</option>
-              <option value="tanban">単番（税抜300万円未満）</option>
+              <option value="koban">工番</option>
+              <option value="tanban">単番</option>
             </select>
           </div>
           <div>

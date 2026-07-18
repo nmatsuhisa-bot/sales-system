@@ -29,6 +29,7 @@ class ProjectOrderCreate(BaseModel):
     agency_name: Optional[str] = None
     sales_person_name: Optional[str] = None
     sales_person_code: Optional[str] = None
+    ticket_type: Optional[str] = None       # koban / tanban（登録時の必須選択）
     status: Optional[str] = None
     quotation_amount: Optional[int] = None
     budget_amount: Optional[int] = None
@@ -58,6 +59,7 @@ class ProjectCreate(BaseModel):
     sales_person_name: Optional[str] = None
     sales_person_code: Optional[str] = None
     status: str = "営業中"
+    ticket_type: Optional[str] = None           # 工番/単番。自動作成される子IDへ引き継ぐ
     probability: Optional[str] = None           # 確度（高/中/低）会議2026-07-17
     distribution_type: Optional[str] = None
     budget_amount: Optional[int] = None
@@ -103,6 +105,14 @@ class ProjectUpdate(BaseModel):
     notes: Optional[str] = None
     expected_updated_at: Optional[str] = None   # 楽観ロック用（読込時の更新日時）
 
+TICKET_TYPES = ("koban", "tanban")
+
+def _require_ticket_type(v):
+    """工番/単番は登録時の必須項目（2026-07-18〜）。金額による自動判定は行わない。"""
+    if v not in TICKET_TYPES:
+        raise HTTPException(400, "工番/単番の区分を選択してください")
+    return v
+
 def _check_version(current_dt, expected: Optional[str]):
     """楽観ロック: 読込時の更新日時(expected)と現在値が異なれば409。"""
     if expected and current_dt and current_dt.isoformat() != expected:
@@ -119,6 +129,7 @@ def order_to_dict(o: ProjectOrder) -> dict:
         "customer_code": o.customer_code, "customer_name": o.customer_name,
         "agency_code": o.agency_code, "agency_name": o.agency_name,
         "sales_person_name": o.sales_person_name, "sales_person_code": o.sales_person_code,
+        "ticket_type": o.ticket_type,
         "status": o.status,
         "quotation_amount": _i(o.quotation_amount), "budget_amount": _i(o.budget_amount),
         "sales_date": _d(o.sales_date), "customer_delivery_date": _d(o.customer_delivery_date),
@@ -213,6 +224,7 @@ def generate_child_no(project_no: str, db: Session) -> str:
     return f"{project_no}_{_num_to_letters(max_idx + 1)}"
 
 def _make_order(data: ProjectOrderCreate, project_id, project_no: str, db: Session) -> ProjectOrder:
+    _require_ticket_type(data.ticket_type)
     # 子IDは未指定または重複時にサーバ側で採番（重複防止）
     child_no = (data.child_no or "").strip()
     if not child_no or db.query(ProjectOrder).filter(ProjectOrder.child_no == child_no).first():
@@ -267,7 +279,8 @@ def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
     pno = nfkc((data.project_no or "").strip())
     if not pno or db.query(Project).filter(Project.project_no == pno).first():
         pno = generate_project_no(db)
-    fields = nfkc_fields(data.dict(exclude={"orders"}))
+    # ticket_type(工番/単番)は子ID側の項目のため、親のフィールドからは除外する
+    fields = nfkc_fields(data.dict(exclude={"orders", "ticket_type"}))
     fields["project_no"] = pno
     p = Project(**fields)
     db.add(p)
@@ -285,6 +298,7 @@ def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
             sales_person_name=data.sales_person_name,
             sales_person_code=data.sales_person_code,
             status=data.status,
+            ticket_type=data.ticket_type,
             budget_amount=data.budget_amount,
             sales_date=data.sales_date,
             inquiry_date=data.inquiry_date,
@@ -399,7 +413,7 @@ def duplicate_project_order(order_id: str, db: Session = Depends(get_db)):
     copy_fields = [
         "project_name", "project_summary", "customer_code", "customer_name",
         "agency_code", "agency_name", "sales_person_name", "sales_person_code",
-        "status", "budget_amount", "quotation_amount",
+        "status", "ticket_type", "budget_amount", "quotation_amount",
         "sales_date", "inquiry_date", "order_date", "expected_order_date",
         "shipment_date", "expected_shipment_date", "notes",
     ]

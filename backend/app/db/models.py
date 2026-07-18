@@ -372,6 +372,10 @@ class ProjectOrder(Base):
     sales_person_name = Column(String(100))                         # 自社営業担当
     sales_person_code = Column(String(50))                          # 自社営業担当ID
 
+    # 工番/単番の区分（koban/tanban）。2026-07-18より登録時の必須選択とし、金額による
+    # 自動判定は廃止。受注票発行時はこの値を引き継ぐ
+    ticket_type = Column(String(20))
+
     status = Column(String(50))                                     # ステータス（親参照）
 
     quotation_amount = Column(Numeric(15, 0))                       # 見積金額（見積書引用）
@@ -662,6 +666,8 @@ class QuotationHeader(Base):
 
     line_items = relationship("QuotationLineItem", back_populates="quotation", cascade="all, delete-orphan")
     labor_details = relationship("QuotationLaborDetail", back_populates="quotation", cascade="all, delete-orphan")
+    # 工番/単番の区分を引くために参照（区分の正は案件子ID側）
+    project_order = relationship("ProjectOrder", foreign_keys=[project_order_id])
 
 
 class QuotationLineItem(Base):

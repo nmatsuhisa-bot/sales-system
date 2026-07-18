@@ -411,6 +411,44 @@ def setup_approval_workflow():
     return {"status": "ok", "message": "承認ワークフロー・出精値引・金額表示制御・確度・受注票ファイル 追加完了"}
 
 
+@app.get("/setup-project-ticket-type")
+def setup_project_ticket_type():
+    """案件子IDに工番/単番の区分を追加し、既存データへ現在の判定結果を引き継ぐ。
+
+    2026-07-18: 工番/単番は案件登録時の必須選択とし、税抜300万円による自動判定は廃止。
+    既存データは ①受注票が発行済みならその区分 ②未発行なら見積の税抜金額で判定
+    ③見積も無ければ単番 の順で埋める。冪等（既に値が入っている行は触らない）。"""
+    from app.db.models import engine
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            conn.execute(text(
+                "ALTER TABLE project_orders ADD COLUMN IF NOT EXISTS ticket_type VARCHAR(20)"))
+            # ① 受注票が発行済みの子IDは、その受注票の区分を引き継ぐ（最新の有効な票を優先）
+            r1 = conn.execute(text("""
+                UPDATE project_orders po SET ticket_type = t.ticket_type
+                FROM (
+                    SELECT DISTINCT ON (project_order_id) project_order_id, ticket_type
+                    FROM order_tickets
+                    WHERE project_order_id IS NOT NULL AND ticket_type IS NOT NULL
+                    ORDER BY project_order_id, is_active DESC, created_at DESC
+                ) t
+                WHERE po.id = t.project_order_id AND po.ticket_type IS NULL
+            """))
+            # ② 受注票が無い子IDは、見積の税抜金額（値引後）で判定
+            r2 = conn.execute(text("""
+                UPDATE project_orders po
+                SET ticket_type = CASE WHEN COALESCE(po.quotation_total, 0) >= 3000000
+                                       THEN 'koban' ELSE 'tanban' END
+                WHERE po.ticket_type IS NULL
+            """))
+            conn.commit()
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    return {"status": "ok", "message": "案件子IDに工番/単番を追加",
+            "受注票から引継ぎ": r1.rowcount, "金額から判定": r2.rowcount}
+
+
 @app.get("/setup-bfq-patterns")
 def setup_bfq_patterns():
     """BFQ見積パターン（系列/本体/排風型式/オプション）テーブル作成＋マスタ投入。
