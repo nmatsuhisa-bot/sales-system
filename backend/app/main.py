@@ -382,6 +382,35 @@ def setup_quotation_cover_fields():
     return {"status": "ok", "message": "見積書 頭紙項目カラム追加完了"}
 
 
+@app.get("/setup-approval-workflow")
+def setup_approval_workflow():
+    """会議2026-07-17対応のカラム/テーブル追加。
+    - 見積: 承認ワークフロー（approval_status等）・出精値引（discount_amount）
+    - 見積明細: 一式品の金額表示制御（hide_amount / amount_text）
+    - 案件: 確度（probability）
+    - 受注票: 関連書類テーブル（order_ticket_files, PDFをDB保管）"""
+    from app.db.models import engine, Base, OrderTicketFile
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            for sql in [
+                "ALTER TABLE quotation_headers ADD COLUMN IF NOT EXISTS approval_status VARCHAR(20) DEFAULT 'none'",
+                "ALTER TABLE quotation_headers ADD COLUMN IF NOT EXISTS approval_requested_at TIMESTAMP",
+                "ALTER TABLE quotation_headers ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP",
+                "ALTER TABLE quotation_headers ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(15,0) DEFAULT 0",
+                "ALTER TABLE quotation_line_items ADD COLUMN IF NOT EXISTS hide_amount BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE quotation_line_items ADD COLUMN IF NOT EXISTS amount_text VARCHAR(50)",
+                "ALTER TABLE projects ADD COLUMN IF NOT EXISTS probability VARCHAR(20)",
+            ]:
+                conn.execute(text(sql))
+            conn.commit()
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    # 受注票 関連書類テーブル（存在しなければ作成）
+    OrderTicketFile.__table__.create(bind=engine, checkfirst=True)
+    return {"status": "ok", "message": "承認ワークフロー・出精値引・金額表示制御・確度・受注票ファイル 追加完了"}
+
+
 @app.get("/setup-bfq-patterns")
 def setup_bfq_patterns():
     """BFQ見積パターン（系列/本体/排風型式/オプション）テーブル作成＋マスタ投入。

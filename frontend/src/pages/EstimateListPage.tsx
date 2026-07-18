@@ -12,7 +12,9 @@ const STATUS_COLORS: Record<string, string> = {
 
 // 社内の管理金額は税抜（機器・工事 + 社内工数）で統一。工番/単番の判定も税抜。
 export const KOBAN_THRESHOLD = 3000000;
-export const netAmount = (q: any) => (q?.subtotal || 0) + (q?.labor_total || 0);
+// 税抜合計（機器・工事＋社内工数−出精値引）。APIのnet_amountを優先し、無ければ計算
+export const netAmount = (q: any) =>
+  q?.net_amount ?? ((q?.subtotal || 0) + (q?.labor_total || 0) - (q?.discount_amount || 0));
 
 export default function EstimateListPage() {
   const [searchParams] = useSearchParams();
@@ -99,7 +101,7 @@ export default function EstimateListPage() {
 
       <div className="bg-white rounded-xl shadow-sm p-3 mb-4 flex items-center gap-2 border border-gray-100">
         <Search size={16} className="text-gray-400" />
-        <input placeholder="見積番号・顧客名・件名・子IDで検索" value={search}
+        <input placeholder="見積番号・注文主・件名・子IDで検索" value={search}
           onChange={e => setSearch(e.target.value)} className="flex-1 outline-none text-sm" />
         {search && <button onClick={() => setSearch('')} className="text-gray-400 hover:text-gray-600"><X size={15} /></button>}
       </div>
@@ -110,7 +112,7 @@ export default function EstimateListPage() {
             <tr>
               <th className="px-4 py-3 text-left font-medium text-gray-600">見積番号</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">受注番号(COID)</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-600">顧客名</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-600">注文主</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">件名</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">見積日</th>
               <th className="px-4 py-3 text-right font-medium text-gray-600">合計金額（税抜）</th>
@@ -137,9 +139,18 @@ export default function EstimateListPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-center">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[q.status] || 'bg-gray-100'}`}>
-                    {STATUS_LABELS[q.status] || q.status}
-                  </span>
+                  <div className="flex flex-col gap-1 items-center">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[q.status] || 'bg-gray-100'}`}>
+                      {STATUS_LABELS[q.status] || q.status}
+                    </span>
+                    {q.approval_status === 'approved' ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700">承認済</span>
+                    ) : q.approval_status === 'pending' ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">承認待ち</span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-500">ドラフト</span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-3 text-center">
                   <div className="flex flex-col gap-1 items-center">

@@ -169,6 +169,17 @@ export const estimateApi = {
   updateOrderTicket: (ticketId: string, data: any) => api.put(`/estimate-quotations/order-ticket/${ticketId}`, data),
   adoptQuotation: (quotationId: string) => api.post(`/estimate-quotations/${quotationId}/adopt`),
   unadoptQuotation: (quotationId: string) => api.delete(`/estimate-quotations/${quotationId}/adopt`),
+  // 承認ワークフロー（会議2026-07-17）
+  getApprovers: () => api.get('/estimate-quotations/approvers'),
+  requestApproval: (quotationId: string, approver_name: string) =>
+    api.post(`/estimate-quotations/${quotationId}/request-approval`, { approver_name }),
+  approveQuotation: (quotationId: string) => api.post(`/estimate-quotations/${quotationId}/approve`),
+  rejectApproval: (quotationId: string) => api.post(`/estimate-quotations/${quotationId}/reject-approval`),
+  // 受注票 関連書類（注文書・契約書等のPDF）
+  listTicketFiles: (ticketId: string) => api.get(`/estimate-quotations/order-ticket/${ticketId}/files`),
+  uploadTicketFile: (ticketId: string, data: { file_kind: string; filename: string; content_type: string; content_base64: string }) =>
+    api.post(`/estimate-quotations/order-ticket/${ticketId}/files`, data),
+  deleteTicketFile: (fileId: string) => api.delete(`/estimate-quotations/order-ticket-file/${fileId}`),
   duplicate: (quotationId: string, project_order_id: string) => api.post(`/estimate-quotations/${quotationId}/duplicate`, { project_order_id }),
   cranePdf: (orderId: string) => `${API_BASE}/arrangements/crane/${orderId}/pdf`,
   shippingPdf: (orderId: string) => `${API_BASE}/arrangements/shipping/${orderId}/pdf`,

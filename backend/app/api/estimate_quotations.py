@@ -12,7 +12,7 @@ import io, uuid
 from app.normalize import nfkc
 from app.db.models import (
     get_db, pk_or_code, QuotationHeader, QuotationLineItem, QuotationLaborDetail,
-    OrderTicket, ProjectOrder, Project,
+    OrderTicket, OrderTicketFile, ProjectOrder, Project,
     EstimateBfrBody, EstimateBfrFan, EstimateBfrRv,
     EstimateBfqSeries, EstimateBfqBody, EstimateBfqFan, EstimateBfqOption,
     EstimateScaBody, EstimatePlFan, EstimateCyclone, EstimateLaborItem
@@ -23,11 +23,14 @@ router = APIRouter()
 # 工番/単番の判定しきい値（税抜）
 KOBAN_THRESHOLD = 3000000
 
+# 承認権限者（会議2026-07-17で決定した5名。2026-07-18 氏名確定）
+APPROVERS = ["後藤", "江里口", "柴田", "井上社長", "国立"]
+
 def net_amount(q: "QuotationHeader") -> int:
-    """見積の税抜合計（機器・工事 + 社内工数）。
+    """見積の税抜合計（機器・工事 + 社内工数 − 出精値引）。
     案件金額・受注票・売上計画表など社内の集計金額はすべてこの税抜金額で統一する。
     総額(total_amount)は税込のまま保持し、見積書の印字にのみ使う。"""
-    return int((q.subtotal or 0) + (q.labor_total or 0))
+    return int((q.subtotal or 0) + (q.labor_total or 0) - (q.discount_amount or 0))
 
 def _sync_project_final_amount(project_order: "ProjectOrder", db: Session):
     """受注票発行・見積採用時に親案件の最終受注金額を子ID合計で自動更新する"""
@@ -43,6 +46,12 @@ def _sync_project_final_amount(project_order: "ProjectOrder", db: Session):
 # =============================================
 # 見積パターンマスタ取得
 # =============================================
+@router.get("/approvers")
+def list_approvers():
+    """承認権限者の候補5名（会議2026-07-17決定・2026-07-18氏名確定）。
+    ※ /{quotation_id} より先に定義すること（ルート衝突防止）"""
+    return {"approvers": APPROVERS}
+
 @router.get("/patterns/bfr-bodies")
 def get_bfr_bodies(db: Session = Depends(get_db)):
     items = db.query(EstimateBfrBody).filter(EstimateBfrBody.is_active == True).order_by(EstimateBfrBody.model_code).all()
@@ -162,6 +171,8 @@ class LineItemIn(BaseModel):
     quantity: float = 1
     unit: str = '式'
     unit_price: int = 0
+    hide_amount: bool = False          # True=見積書で金額欄を空欄（一式内訳の構成部品）
+    amount_text: Optional[str] = None  # 「含まず」等の文字列表示（単価0で運用）
     product_type: Optional[str] = None
     spec_json: Optional[dict] = None
 
@@ -183,6 +194,7 @@ class QuotationHeaderCreate(BaseModel):
     sales_person_name: Optional[str] = None
     created_by_name: Optional[str] = None
     approver_name: Optional[str] = None
+    discount_amount: int = 0                    # 出精値引（正の値）
     notes: Optional[str] = None
     internal_notes: Optional[str] = None
     expected_updated_at: Optional[str] = None   # 楽観ロック用（読込時の更新日時）
@@ -202,10 +214,10 @@ def _gen_quotation_no(db: Session) -> str:
     seq = int(rows[0].split("-")[-1]) + 1 if rows else 1
     return f"{prefix}{seq:04d}"
 
-def _calc_totals(line_items, labor_details):
+def _calc_totals(line_items, labor_details, discount=0):
     subtotal = sum(int(i.unit_price * i.quantity) for i in line_items)
     labor_total = sum(int(l.unit_price * l.quantity) for l in labor_details)
-    total_before_tax = subtotal + labor_total
+    total_before_tax = subtotal + labor_total - int(discount or 0)
     tax = int(total_before_tax * 0.1)
     return subtotal, labor_total, tax, total_before_tax + tax
 
@@ -224,7 +236,13 @@ def _q_to_dict(q: QuotationHeader) -> dict:
         "issue_date": q.issue_date.isoformat() if q.issue_date else None,
         "sales_person_name": q.sales_person_name,
         "created_by_name": q.created_by_name, "approver_name": q.approver_name,
-        "subtotal": int(q.subtotal or 0), "tax_rate": float(q.tax_rate or 10),
+        "approval_status": q.approval_status or "none",
+        "approval_requested_at": q.approval_requested_at.isoformat() if q.approval_requested_at else None,
+        "approved_at": q.approved_at.isoformat() if q.approved_at else None,
+        "subtotal": int(q.subtotal or 0),
+        "discount_amount": int(q.discount_amount or 0),
+        "net_amount": net_amount(q),
+        "tax_rate": float(q.tax_rate or 10),
         "tax_amount": int(q.tax_amount or 0), "total_amount": int(q.total_amount or 0),
         "labor_total": int(q.labor_total or 0), "status": q.status,
         "notes": q.notes, "internal_notes": q.internal_notes,
@@ -236,7 +254,9 @@ def _q_to_dict(q: QuotationHeader) -> dict:
             "sub_section": i.sub_section, "item_name": i.item_name,
             "spec_detail": i.spec_detail, "quantity": float(i.quantity or 1),
             "unit": i.unit, "unit_price": int(i.unit_price or 0),
-            "amount": int(i.amount or 0), "product_type": i.product_type,
+            "amount": int(i.amount or 0),
+            "hide_amount": bool(i.hide_amount), "amount_text": i.amount_text,
+            "product_type": i.product_type,
             "spec_json": i.spec_json
         } for i in q.line_items], key=lambda x: x["line_no"]),
         "labor_details": sorted([{
@@ -270,7 +290,7 @@ def list_quotations(
 
 @router.post("/", status_code=201)
 def create_quotation(data: QuotationHeaderCreate, db: Session = Depends(get_db)):
-    subtotal, labor_total, tax, total = _calc_totals(data.line_items, data.labor_details)
+    subtotal, labor_total, tax, total = _calc_totals(data.line_items, data.labor_details, data.discount_amount)
 
     # 子IDから案件情報を自動参照
     customer_name = data.customer_name
@@ -299,7 +319,8 @@ def create_quotation(data: QuotationHeaderCreate, db: Session = Depends(get_db))
         issue_date=data.issue_date or date.today(),
         sales_person_name=nfkc(sales_person_name),
         created_by_name=nfkc(data.created_by_name), approver_name=nfkc(data.approver_name),
-        subtotal=subtotal, tax_amount=tax, total_amount=total, labor_total=labor_total,
+        subtotal=subtotal, discount_amount=data.discount_amount,
+        tax_amount=tax, total_amount=total, labor_total=labor_total,
         notes=nfkc(data.notes), internal_notes=nfkc(data.internal_notes),
     )
     db.add(q)
@@ -311,6 +332,7 @@ def create_quotation(data: QuotationHeaderCreate, db: Session = Depends(get_db))
             sub_section=nfkc(item.sub_section), item_name=nfkc(item.item_name),
             spec_detail=nfkc(item.spec_detail), quantity=item.quantity, unit=item.unit,
             unit_price=item.unit_price, amount=int(item.unit_price * item.quantity),
+            hide_amount=item.hide_amount, amount_text=nfkc(item.amount_text),
             product_type=item.product_type, spec_json=item.spec_json
         ))
 
@@ -357,10 +379,11 @@ def duplicate_quotation(quotation_id: str, data: dict, db: Session = Depends(get
         issue_date=date.today(),
         sales_person_name=sales_person_name,
         created_by_name=src.created_by_name, approver_name=src.approver_name,
-        subtotal=src.subtotal, tax_rate=src.tax_rate, tax_amount=src.tax_amount,
+        subtotal=src.subtotal, discount_amount=src.discount_amount,
+        tax_rate=src.tax_rate, tax_amount=src.tax_amount,
         total_amount=src.total_amount, labor_total=src.labor_total,
         notes=src.notes, internal_notes=src.internal_notes,
-        status="draft",
+        status="draft",  # 複製は未承認から開始（approval_statusはデフォルトnone）
     )
     db.add(new_q); db.flush()
     for it in src.line_items:
@@ -368,6 +391,7 @@ def duplicate_quotation(quotation_id: str, data: dict, db: Session = Depends(get
             quotation_id=new_q.id, line_no=it.line_no, section=it.section,
             sub_section=it.sub_section, item_name=it.item_name, spec_detail=it.spec_detail,
             quantity=it.quantity, unit=it.unit, unit_price=it.unit_price, amount=it.amount,
+            hide_amount=it.hide_amount, amount_text=it.amount_text,
             product_type=it.product_type, spec_json=it.spec_json,
         ))
     for l in src.labor_details:
@@ -429,6 +453,8 @@ def list_order_tickets(
                 "expected_shipment_date": str(t.project_order.expected_shipment_date) if t.project_order and t.project_order.expected_shipment_date else None,
                 "customer_delivery_date": str(t.project_order.customer_delivery_date) if t.project_order and t.project_order.customer_delivery_date else None,
                 "sales_date": str(t.project_order.sales_date) if t.project_order and t.project_order.sales_date else None,
+                "quotation_id": str(t.quotation_id) if t.quotation_id else None,
+                "quotation_no": t.quotation.quotation_no if t.quotation else None,
                 "is_active": t.is_active,
             }
             for t in items
@@ -506,10 +532,15 @@ def update_quotation(quotation_id: str, data: QuotationHeaderCreate, db: Session
     # 楽観ロック: 読込時の更新日時と現在値が異なれば409
     if data.expected_updated_at and q.updated_at and q.updated_at.isoformat() != data.expected_updated_at:
         raise HTTPException(409, "他のユーザーが更新しました。最新の内容を再読込してから保存してください。")
-    subtotal, labor_total, tax, total = _calc_totals(data.line_items, data.labor_details)
+    subtotal, labor_total, tax, total = _calc_totals(data.line_items, data.labor_details, data.discount_amount)
     for k, v in data.dict(exclude={"line_items", "labor_details", "expected_updated_at"}, exclude_none=True).items():
         setattr(q, k, nfkc(v))
     q.subtotal = subtotal; q.labor_total = labor_total; q.tax_amount = tax; q.total_amount = total
+    # 内容が変わるため、承認済み/承認待ちは未依頼に戻す（承認後の無断変更を防ぐ）
+    if (q.approval_status or "none") != "none":
+        q.approval_status = "none"
+        q.approval_requested_at = None
+        q.approved_at = None
     for i in q.line_items: db.delete(i)
     for l in q.labor_details: db.delete(l)
     db.flush()
@@ -519,6 +550,7 @@ def update_quotation(quotation_id: str, data: QuotationHeaderCreate, db: Session
             sub_section=nfkc(item.sub_section), item_name=nfkc(item.item_name),
             spec_detail=nfkc(item.spec_detail), quantity=item.quantity, unit=item.unit,
             unit_price=item.unit_price, amount=int(item.unit_price * item.quantity),
+            hide_amount=item.hide_amount, amount_text=nfkc(item.amount_text),
             product_type=item.product_type, spec_json=item.spec_json
         ))
     for labor in data.labor_details:
@@ -580,6 +612,48 @@ def unadopt_quotation(quotation_id: str, db: Session = Depends(get_db)):
     return {"message": "採用を解除しました"}
 
 # =============================================
+# 承認ワークフロー（会議2026-07-17）
+# 作成者が承認者を選択して依頼 → 承認前の印刷は「ドラフト」透かし → 承認で正式発行
+# =============================================
+@router.post("/{quotation_id}/request-approval")
+def request_approval(quotation_id: str, data: dict, db: Session = Depends(get_db)):
+    """承認依頼: 検印者（承認者）を指定して承認待ちにする"""
+    q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
+    if not q: raise HTTPException(404, "見積が見つかりません")
+    approver = (data or {}).get("approver_name") or q.approver_name
+    if not approver:
+        raise HTTPException(400, "検印者（承認者）を選択してください")
+    q.approver_name = nfkc(approver)
+    q.approval_status = "pending"
+    q.approval_requested_at = datetime.now()
+    q.approved_at = None
+    db.commit()
+    return {"message": f"{q.approver_name} に承認依頼しました", "approval_status": q.approval_status}
+
+@router.post("/{quotation_id}/approve")
+def approve_quotation(quotation_id: str, db: Session = Depends(get_db)):
+    """承認: ドラフト透かしが外れ、正式発行が可能になる"""
+    q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
+    if not q: raise HTTPException(404, "見積が見つかりません")
+    if not q.approver_name:
+        raise HTTPException(400, "検印者（承認者）が設定されていません")
+    q.approval_status = "approved"
+    q.approved_at = datetime.now()
+    db.commit()
+    return {"message": "承認しました", "approval_status": q.approval_status}
+
+@router.post("/{quotation_id}/reject-approval")
+def reject_approval(quotation_id: str, db: Session = Depends(get_db)):
+    """差戻し/承認取消: 未依頼状態に戻す（透かしが復活する）"""
+    q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
+    if not q: raise HTTPException(404, "見積が見つかりません")
+    q.approval_status = "none"
+    q.approval_requested_at = None
+    q.approved_at = None
+    db.commit()
+    return {"message": "差し戻しました", "approval_status": q.approval_status}
+
+# =============================================
 # PDF出力(ケイテック形式)
 # =============================================
 @router.get("/{quotation_id}/pdf")
@@ -589,15 +663,50 @@ def export_pdf(quotation_id: str, db: Session = Depends(get_db)):
     ).filter(QuotationHeader.id == quotation_id).first()
     if not q: raise HTTPException(404)
 
-    html = _build_quotation_html(q, is_draft=(q.status == 'draft'))
+    # ドラフト透かし: 承認完了までは印刷可だが「ドラフト」表示（会議2026-07-17）
+    html = _build_quotation_html(q, is_draft=((q.approval_status or 'none') != 'approved'))
     return StreamingResponse(
         io.BytesIO(html.encode("utf-8")),
         media_type="text/html",
         headers={"Content-Disposition": f"inline; filename={q.quotation_no}.html"}
     )
 
+def _zenkaku_amount(n: int) -> str:
+    """原本様式の全角金額表記（例: ９１,５００,０００-）。会議1.2「数字は一旦全角に統一」"""
+    return f"{n:,}".translate(str.maketrans("0123456789", "０１２３４５６７８９")) + "-"
+
 def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
-    draft_watermark = ""
+    # 「ドラフト」透かし（position:fixedで印刷全ページに出る。承認後は消える）
+    draft_watermark = ('''
+<div style="position:fixed;top:38%;left:8%;right:8%;text-align:center;z-index:999;pointer-events:none;
+    font-size:110px;font-weight:bold;color:rgba(200,30,30,0.16);transform:rotate(-18deg);letter-spacing:30px">ドラフト</div>
+''' if is_draft else '')
+
+    def _amt_cell(item) -> str:
+        """金額欄の表示: 文字列指定 > 金額非表示 > 通常"""
+        if item.amount_text:
+            return item.amount_text
+        if item.hide_amount:
+            return " "
+        return f"¥{int(item.amount or 0):,}"
+
+    def _uprice_cell(item) -> str:
+        if item.amount_text or item.hide_amount or not item.unit_price:
+            return " "
+        return f"¥{int(item.unit_price):,}"
+
+    def _item_row(no: str, item, indent: int = 0) -> str:
+        pad = "padding:4px 8px" + (f" 4px {8 + indent * 14}px" if indent else "")
+        return f"""
+            <tr>
+                <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{no}</td>
+                <td style="border:1px solid #ccc;{pad}">{item.item_name}</td>
+                <td style="border:1px solid #ccc;padding:4px 8px;font-size:11px;white-space:pre-wrap">{item.spec_detail or ''}</td>
+                <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{int(item.quantity or 1)}</td>
+                <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{item.unit or '式'}</td>
+                <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">{_uprice_cell(item)}</td>
+                <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">{_amt_cell(item)}</td>
+            </tr>"""
 
     items_html = ""
     sections = {}
@@ -615,19 +724,32 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
                 <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{sec_no}</td>
                 <td colspan="6" style="border:1px solid #ccc;padding:4px 8px">{sec or '（未分類）'}</td>
             </tr>"""
-        item_no = 1  # 大分類ごとに 1〜 で付番
+        # 3階層番号（1-1-1形式・会議2026-07-17決定）:
+        # 中分類(sub_section)が連続する複数行 → 見出し行 i-j（金額なし）＋ 子行 i-j-k
+        # 単独行 → 従来どおり i-j
+        groups = []  # [ [sub_sectionまたはNone, [items...]] ] 連続する同一中分類でまとめる
         for item in items:
-            items_html += f"""
-            <tr>
+            key = item.sub_section or None
+            if groups and groups[-1][0] == key and key is not None:
+                groups[-1][1].append(item)
+            else:
+                groups.append([key, [item]])
+        item_no = 1  # 大分類ごとに 1〜 で付番
+        for key, gitems in groups:
+            if key is not None and len(gitems) > 1:
+                # 中分類の見出し行（金額なし）
+                items_html += f"""
+            <tr style="background:#f3f6fa;font-weight:bold">
                 <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{sec_no}-{item_no}</td>
-                <td style="border:1px solid #ccc;padding:4px 8px">{item.item_name}</td>
-                <td style="border:1px solid #ccc;padding:4px 8px;font-size:11px;white-space:pre-wrap">{item.spec_detail or ''}</td>
-                <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{int(item.quantity or 1)}</td>
-                <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{item.unit or '式'}</td>
-                <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">{" " if not item.unit_price else f"¥{int(item.unit_price):,}"}</td>
-                <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">¥{int(item.amount or 0):,}</td>
+                <td colspan="6" style="border:1px solid #ccc;padding:4px 8px">{key}</td>
             </tr>"""
-            item_no += 1
+                for sub_no, item in enumerate(gitems, 1):
+                    items_html += _item_row(f"{sec_no}-{item_no}-{sub_no}", item, indent=1)
+                item_no += 1
+            else:
+                for item in gitems:
+                    items_html += _item_row(f"{sec_no}-{item_no}", item)
+                    item_no += 1
         items_html += f"""
             <tr style="background:#f5f5f5;font-weight:bold">
                 <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:4px 8px">【{sec_no}】{sec or '（未分類）'} 小計金額</td>
@@ -654,11 +776,18 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
 
     # ===== 税抜/税込 表示 =====
     _tax_excluded = (q.tax_display or "included") == "excluded"
-    _subtotal_all = int((q.subtotal or 0) + (q.labor_total or 0))
-    grand_total = _subtotal_all if _tax_excluded else int(q.total_amount or 0)
+    _discount = int(q.discount_amount or 0)
+    _subtotal_all = int((q.subtotal or 0) + (q.labor_total or 0))   # 値引前小計
+    _net_total = _subtotal_all - _discount                          # 値引後（税抜）
+    grand_total = _net_total if _tax_excluded else int(q.total_amount or 0)
     tax_label = "(税抜)" if _tax_excluded else "(消費税込み)"
     tax_note = ('<div style="margin-top:8px;font-size:11px">※上記金額には消費税は含まれておりません。</div>'
                 if _tax_excluded else '')
+    # 出精値引行（原本様式: 小計金額 → 出精値引 → 合計金額）
+    discount_row = f'''
+    <tr>
+      <td colspan="2" style="border:1px solid #ccc;padding:6px 12px;text-align:right">出精値引</td>
+      <td style="border:1px solid #ccc;padding:6px 12px;text-align:right;color:#c0392b">-¥{_discount:,}</td></tr>''' if _discount else ''
     # 税抜表示のときは消費税行を出さない（合計＝税抜金額）。頭紙と明細でcolspanが異なる
     tax_row = '' if _tax_excluded else f'''
     <tr>
@@ -670,11 +799,30 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
     <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">その他</td>
     <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.labor_total or 0):,}</td>
   </tr>''' if q.labor_total else ''
+    discount_row_detail = f'''
+  <tr style="font-weight:bold">
+    <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">出精値引</td>
+    <td style="text-align:right;border:1px solid #ccc;padding:5px 8px;color:#c0392b">-¥{_discount:,}</td>
+  </tr>''' if _discount else ''
     tax_row_detail = '' if _tax_excluded else f'''
   <tr style="font-weight:bold">
     <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">消費税({int(q.tax_rate or 10)}%)</td>
     <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.tax_amount or 0):,}</td>
   </tr>'''
+    # 検印・担当・作成の3枠（原本様式。頭紙右上）
+    stamp_box = f'''
+  <table style="border-collapse:collapse;font-size:11px;margin-left:auto;margin-bottom:6px;text-align:center">
+    <tr>
+      <td style="border:1px solid #999;padding:2px 14px;background:#f5f5f5">検 印</td>
+      <td style="border:1px solid #999;padding:2px 14px;background:#f5f5f5">担 当</td>
+      <td style="border:1px solid #999;padding:2px 14px;background:#f5f5f5">作 成</td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #999;padding:6px 8px;min-width:64px">{(q.approver_name or ' ') if (q.approval_status or 'none') == 'approved' else ' '}</td>
+      <td style="border:1px solid #999;padding:6px 8px;min-width:64px">{q.sales_person_name or ' '}</td>
+      <td style="border:1px solid #999;padding:6px 8px;min-width:64px">{q.created_by_name or ' '}</td>
+    </tr>
+  </table>'''
 
     # ===== 御見積除外事項（1行1項目）=====
     _exc = [l.strip() for l in (q.exclusions or "").splitlines() if l.strip()]
@@ -697,10 +845,11 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
   <div style="text-align:right;font-size:12px">No. {q.quotation_no}</div>
   <div style="text-align:right;font-size:12px;margin-bottom:4px">日付 {q.issue_date or '    '}</div>
   <h1 style="text-align:center;font-size:24px;margin:6px 0 14px;letter-spacing:8px">御 見 積 書</h1>
+  {stamp_box}
   <div style="font-size:18px;font-weight:bold;border-bottom:2px solid #000;padding-bottom:4px">{addressee} &nbsp; 殿</div>
   <div style="margin:8px 0 18px;font-size:12px">件名: {q.title or ' '}　／　納入先: {q.delivery_name or ' '}　／　担当: {q.sales_person_name or ' '}</div>
   <table style="width:100%;margin-bottom:18px"><tr>
-    <td style="font-size:16px;font-weight:bold">合計金額　￥<span style="font-size:22px">{grand_total:,}</span>　<span style="font-size:11px;color:#888">{tax_label}</span></td>
+    <td style="font-size:16px;font-weight:bold">合計金額　<span style="font-size:24px;border-bottom:3px double #000;padding:0 6px">{_zenkaku_amount(grand_total)}</span>　<span style="font-size:11px;color:#888">{tax_label}</span></td>
   </tr></table>
   <h3 style="font-size:14px;margin:10px 0 6px">■ 大分類別 内訳（総括）</h3>
   <table style="width:68%;border-collapse:collapse;font-size:13px">
@@ -711,8 +860,9 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
     </tr>
     {section_rows}
     <tr style="font-weight:bold;background:#f5f5f5">
-      <td colspan="2" style="border:1px solid #ccc;padding:6px 12px;text-align:right">小計</td>
+      <td colspan="2" style="border:1px solid #ccc;padding:6px 12px;text-align:right">小計金額</td>
       <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{_subtotal_all:,}</td></tr>
+    {discount_row}
     {tax_row}
     <tr style="font-weight:bold;background:#fff9c4;font-size:15px">
       <td colspan="2" style="border:2px solid #000;padding:8px 12px;text-align:right">合計金額{tax_label}</td>
@@ -804,10 +954,11 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
 </tbody>
 <tfoot>
   <tr style="font-weight:bold">
-    <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">小計</td>
+    <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">小計金額</td>
     <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.subtotal or 0):,}</td>
   </tr>
   {labor_row_detail}
+  {discount_row_detail}
   {tax_row_detail}
   <tr style="font-weight:bold;background:#fff9c4;font-size:14px">
     <td colspan="6" style="text-align:right;border:2px solid #000;padding:6px 8px">合計金額{tax_label}</td>
@@ -904,7 +1055,7 @@ def issue_order_ticket(quotation_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/order-ticket/{ticket_id}/pdf")
-def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
+def order_ticket_pdf(ticket_id: str, with_quotation: int = 0, db: Session = Depends(get_db)):
     t = db.query(OrderTicket).options(
         joinedload(OrderTicket.quotation).joinedload(QuotationHeader.line_items),
         joinedload(OrderTicket.project_order),
@@ -1119,10 +1270,83 @@ def order_ticket_pdf(ticket_id: str, db: Session = Depends(get_db)):
 </div>
 </body></html>"""
 
+    # 見積書も同時印刷（会議2026-07-17: 二度手間を省く）。?with_quotation=1 で受注票の後ろに見積書を連結
+    if with_quotation and q:
+        q_html = _build_quotation_html(q, is_draft=((q.approval_status or 'none') != 'approved'))
+        # 見積書HTMLのbody部分を抜き出して改ページ付きで連結
+        _qs = q_html.find("<body>")
+        _qe = q_html.rfind("</body>")
+        if _qs != -1 and _qe != -1:
+            q_body = q_html[_qs + len("<body>"):_qe]
+            html = html.replace("</body></html>",
+                                f'<div style="page-break-before:always"></div>{q_body}</body></html>')
+
     return StreamingResponse(
         io.BytesIO(html.encode("utf-8")), media_type="text/html",
         headers={"Content-Disposition": f"inline; filename={t.ticket_no}.html"}
     )
+
+
+# =============================================
+# 受注票 関連書類（注文書・契約書等のPDFをDBに保管）
+# =============================================
+MAX_TICKET_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+
+@router.get("/order-ticket/{ticket_id}/files")
+def list_order_ticket_files(ticket_id: str, db: Session = Depends(get_db)):
+    t = db.query(OrderTicket).filter(_ot_filter(ticket_id)).first()
+    if not t: raise HTTPException(404, "受注票が見つかりません")
+    files = db.query(OrderTicketFile).filter(
+        OrderTicketFile.order_ticket_id == t.id
+    ).order_by(OrderTicketFile.uploaded_at).all()
+    return [{
+        "id": str(f.id), "file_kind": f.file_kind, "filename": f.filename,
+        "content_type": f.content_type, "file_size": f.file_size,
+        "uploaded_at": f.uploaded_at.isoformat() if f.uploaded_at else None,
+    } for f in files]
+
+@router.post("/order-ticket/{ticket_id}/files", status_code=201)
+def upload_order_ticket_file(ticket_id: str, data: dict, db: Session = Depends(get_db)):
+    """関連書類のアップロード。{file_kind, filename, content_base64} のJSONで受ける。
+    RenderのディスクはデプロイでリセットされるためDBに保管する（1件10MBまで）。"""
+    import base64
+    t = db.query(OrderTicket).filter(_ot_filter(ticket_id)).first()
+    if not t: raise HTTPException(404, "受注票が見つかりません")
+    filename = (data or {}).get("filename")
+    b64 = (data or {}).get("content_base64")
+    if not filename or not b64:
+        raise HTTPException(400, "filename と content_base64 は必須です")
+    try:
+        blob = base64.b64decode(b64)
+    except Exception:
+        raise HTTPException(400, "content_base64 をデコードできません")
+    if len(blob) > MAX_TICKET_FILE_SIZE:
+        raise HTTPException(400, "ファイルサイズは10MBまでです")
+    f = OrderTicketFile(
+        order_ticket_id=t.id,
+        file_kind=nfkc((data or {}).get("file_kind")) or "その他",
+        filename=nfkc(filename),
+        content_type=(data or {}).get("content_type") or "application/pdf",
+        file_size=len(blob), data=blob,
+    )
+    db.add(f); db.commit(); db.refresh(f)
+    return {"id": str(f.id), "filename": f.filename, "file_size": f.file_size}
+
+@router.get("/order-ticket-file/{file_id}")
+def download_order_ticket_file(file_id: str, db: Session = Depends(get_db)):
+    f = db.query(OrderTicketFile).filter(OrderTicketFile.id == file_id).first()
+    if not f: raise HTTPException(404, "ファイルが見つかりません")
+    from urllib.parse import quote
+    return StreamingResponse(
+        io.BytesIO(f.data), media_type=f.content_type or "application/pdf",
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(f.filename)}"}
+    )
+
+@router.delete("/order-ticket-file/{file_id}", status_code=204)
+def delete_order_ticket_file(file_id: str, db: Session = Depends(get_db)):
+    f = db.query(OrderTicketFile).filter(OrderTicketFile.id == file_id).first()
+    if not f: raise HTTPException(404, "ファイルが見つかりません")
+    db.delete(f); db.commit()
 
 
 # =============================================

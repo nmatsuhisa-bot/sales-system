@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, String, Boolean, DateTime, Date, Numeric, Integer, Text, ForeignKey, JSON, UniqueConstraint, or_
+from sqlalchemy import create_engine, Column, String, Boolean, DateTime, Date, Numeric, Integer, Text, ForeignKey, JSON, UniqueConstraint, or_, LargeBinary
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
@@ -325,6 +325,7 @@ class Project(Base):
     sales_person_code = Column(String(50))                          # 自社営業担当者ID
 
     status = Column(String(50), default="営業中")                  # 案件ステータス
+    probability = Column(String(20))                                # 確度（高/中/低。見込み数字を入れる案件の管理用）
     distribution_type = Column(String(50))                          # 商流判定: 直接/代理店
 
     budget_amount = Column(Numeric(15, 0))                          # 予算金額
@@ -642,7 +643,12 @@ class QuotationHeader(Base):
     sales_person_name = Column(String(100))
     created_by_name = Column(String(100))      # 作成者（帳票の「作成」欄）
     approver_name = Column(String(100))        # 検印者（帳票の「検印」欄）
+    # 承認ワークフロー（会議2026-07-17: 承認前は「ドラフト」透かし・承認後に正式発行）
+    approval_status = Column(String(20), default='none')  # none=未依頼 / pending=承認待ち / approved=承認済
+    approval_requested_at = Column(DateTime)
+    approved_at = Column(DateTime)
     subtotal = Column(Numeric(15, 0), default=0)
+    discount_amount = Column(Numeric(15, 0), default=0)   # 出精値引（正の値で保持し、印字はマイナス表記）
     tax_rate = Column(Numeric(5, 2), default=10)
     tax_amount = Column(Numeric(15, 0), default=0)
     total_amount = Column(Numeric(15, 0), default=0)
@@ -671,6 +677,9 @@ class QuotationLineItem(Base):
     unit = Column(String(50), default='式')
     unit_price = Column(Numeric(15, 0), default=0)
     amount = Column(Numeric(15, 0), default=0)
+    # 一式品の金額表示制御（会議2026-07-17: 構成部品は項目名のみ・金額非表示）
+    hide_amount = Column(Boolean, default=False)   # True=金額欄を空欄で印字（合計には算入）
+    amount_text = Column(String(50))               # 「含まず」等の文字列表示（設定時は単価0で運用）
     product_type = Column(String(50))
     spec_json = Column(JSON)
     created_at = Column(DateTime, server_default=func.now())
@@ -729,6 +738,20 @@ class OrderTicket(Base):
 
     quotation = relationship("QuotationHeader", foreign_keys=[quotation_id])
     project_order = relationship("ProjectOrder", foreign_keys=[project_order_id])
+
+
+class OrderTicketFile(Base):
+    """受注票の関連書類（注文書・契約書等のPDF）。
+    Renderのディスクは再デプロイで消えるため、DBに直接保管する（1件10MBまで）。"""
+    __tablename__ = "order_ticket_files"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    order_ticket_id = Column(UUID(as_uuid=True), ForeignKey("order_tickets.id", ondelete="CASCADE"), nullable=False)
+    file_kind = Column(String(30))             # 注文書 / 契約書 / 図面 / その他
+    filename = Column(String(300), nullable=False)
+    content_type = Column(String(100), default="application/pdf")
+    file_size = Column(Integer, default=0)
+    data = Column(LargeBinary, nullable=False)
+    uploaded_at = Column(DateTime, server_default=func.now())
 
 
 # =============================================

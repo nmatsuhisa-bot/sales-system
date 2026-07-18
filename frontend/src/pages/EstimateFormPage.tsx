@@ -28,9 +28,20 @@ interface LineItem {
   quantity: number;
   unit: string;
   unit_price: number;
+  hide_amount?: boolean;      // 一式内訳: 金額欄を空欄で印字（合計には算入）
+  amount_text?: string | null; // 「含まず」等の文字列表示（単価0で運用）
   product_type: string;
   spec_json?: any;
 }
+
+// 支払条件のパターン（会議2026-07-17。原本見積の実例より）
+const PAYMENT_TERM_PRESETS = [
+  '御協議',
+  '契約時1/3, 納入開始時1/3, 検収時1/3 現金',
+  '納入時、現金',
+  '検収時、現金',
+  '納品後30日以内',
+];
 
 interface LaborDetail {
   labor_item_id?: string;
@@ -68,6 +79,7 @@ export default function EstimateFormPage() {
     valid_until: '', valid_until_text: '', tax_display: 'included', exclusions: '',
     issue_date: new Date().toISOString().split('T')[0],
     sales_person_name: '', created_by_name: '', approver_name: '',
+    discount_amount: 0,
     notes: '', internal_notes: '',
   });
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
@@ -75,6 +87,11 @@ export default function EstimateFormPage() {
   const [activeTab, setActiveTab] = useState<'items' | 'labor'>('items');
   const [loading, setLoading] = useState(false);
   const [loadedUpdatedAt, setLoadedUpdatedAt] = useState<string | null>(null);
+  // 承認ワークフロー（会議2026-07-17: 承認前はドラフト透かし）
+  const [approvers, setApprovers] = useState<string[]>([]);
+  const [approval, setApproval] = useState<{ status: string; requested_at: string | null; approved_at: string | null }>({
+    status: 'none', requested_at: null, approved_at: null,
+  });
 
   // パターン選択用
   const [showBfrPattern, setShowBfrPattern] = useState(false);
@@ -90,10 +107,11 @@ export default function EstimateFormPage() {
     dustOpt: '', panelAdds: [] as string[],
   });
 
-  // 合計計算
+  // 合計計算（出精値引は税抜小計から差し引き、値引後に課税）
   const itemsTotal = lineItems.reduce((s, i) => s + i.unit_price * i.quantity, 0);
   const laborTotal = laborDetails.reduce((s, l) => s + l.unit_price * l.quantity, 0);
-  const subtotal = itemsTotal + laborTotal;
+  const discount = Number(header.discount_amount) || 0;
+  const subtotal = itemsTotal + laborTotal - discount;
   const tax = Math.floor(subtotal * 0.1);
   const total = subtotal + tax;
 
@@ -104,6 +122,7 @@ export default function EstimateFormPage() {
     estimateApi.getPlFans().then(r => setPlFans(r.data));
     estimateApi.getCyclones().then(r => setCyclones(r.data));
     estimateApi.getLaborItems().then(r => setLaborMaster(r.data));
+    estimateApi.getApprovers().then(r => setApprovers(r.data.approvers || [])).catch(() => {});
     mastersApi.listEmployees().then(r => setEmployees(r.data));
 
     // 新規作成時、案件の子受注情報から顧客名（売上先）・納入先を自動補完
@@ -142,12 +161,18 @@ export default function EstimateFormPage() {
           sales_person_name: q.sales_person_name || '',
           created_by_name: q.created_by_name || '',
           approver_name: q.approver_name || '',
+          discount_amount: q.discount_amount || 0,
           notes: q.notes || '',
           internal_notes: q.internal_notes || '',
         });
         setLineItems(q.line_items || []);
         setLaborDetails(q.labor_details || []);
         setLoadedUpdatedAt(q.updated_at || null);
+        setApproval({
+          status: q.approval_status || 'none',
+          requested_at: q.approval_requested_at || null,
+          approved_at: q.approved_at || null,
+        });
       });
     }
   }, []);
@@ -382,6 +407,44 @@ export default function EstimateFormPage() {
     window.open(url, '_blank');
   };
 
+  // 承認ワークフロー操作。保存内容が変わると承認は自動で未依頼に戻る（バックエンド側で制御）
+  const reloadApproval = () => {
+    if (!id) return;
+    estimateApi.get(id).then(r => {
+      const q = r.data;
+      setApproval({ status: q.approval_status || 'none', requested_at: q.approval_requested_at || null, approved_at: q.approved_at || null });
+      setHeader(h => ({ ...h, approver_name: q.approver_name || h.approver_name }));
+      setLoadedUpdatedAt(q.updated_at || null);
+    }).catch(() => {});
+  };
+  const handleRequestApproval = async () => {
+    if (!id) { alert('先に保存してください'); return; }
+    if (!header.approver_name) { alert('検印者（承認者）を選択してください'); return; }
+    try {
+      const r = await estimateApi.requestApproval(id, header.approver_name);
+      alert(r.data.message);
+      reloadApproval();
+    } catch (e: any) { alert(e.response?.data?.detail || '承認依頼に失敗しました'); }
+  };
+  const handleApprove = async () => {
+    if (!id) return;
+    if (!confirm(`検印者「${header.approver_name}」として承認します。よろしいですか？\n承認するとPDFの「ドラフト」透かしが外れ、正式発行できます。`)) return;
+    try {
+      const r = await estimateApi.approveQuotation(id);
+      alert(r.data.message);
+      reloadApproval();
+    } catch (e: any) { alert(e.response?.data?.detail || '承認に失敗しました'); }
+  };
+  const handleRejectApproval = async () => {
+    if (!id) return;
+    if (!confirm('差し戻します（承認は取り消され、ドラフト透かしが復活します）。よろしいですか？')) return;
+    try {
+      const r = await estimateApi.rejectApproval(id);
+      alert(r.data.message);
+      reloadApproval();
+    } catch (e: any) { alert(e.response?.data?.detail || '差戻しに失敗しました'); }
+  };
+
   return (
     <div className="p-4 max-w-6xl mx-auto">
       <div className="flex items-center gap-3 mb-4">
@@ -470,9 +533,28 @@ export default function EstimateFormPage() {
           <HeaderField header={header} setHeader={setHeader} label="有効期限（日付）" name="valid_until" type="date" />
           <HeaderField header={header} setHeader={setHeader} label="有効期限（文言・優先／例: 3ヶ月）" name="valid_until_text" />
           <HeaderField header={header} setHeader={setHeader} label="納入期限（例: 御協議）" name="delivery_terms" />
-          <HeaderField header={header} setHeader={setHeader} label="支払条件" name="payment_terms" cols={2} />
+          <div className="md:col-span-2">
+            <label className="block text-xs text-gray-500 mb-1">支払条件（候補から選択・自由入力可）</label>
+            <input list="payment-term-presets" value={header.payment_terms}
+              onChange={e => setHeader(h => ({ ...h, payment_terms: e.target.value }))}
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+            <datalist id="payment-term-presets">
+              {PAYMENT_TERM_PRESETS.map(p => <option key={p} value={p} />)}
+            </datalist>
+          </div>
           <HeaderField header={header} setHeader={setHeader} label="作成" name="created_by_name" />
-          <HeaderField header={header} setHeader={setHeader} label="検印" name="approver_name" />
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">検印（承認者・5名から選択）</label>
+            <select value={header.approver_name}
+              onChange={e => setHeader(h => ({ ...h, approver_name: e.target.value }))}
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
+              <option value="">選択</option>
+              {approvers.map(a => <option key={a} value={a}>{a}</option>)}
+              {header.approver_name && !approvers.includes(header.approver_name) && (
+                <option value={header.approver_name}>{header.approver_name}</option>
+              )}
+            </select>
+          </div>
           <div className="md:col-span-3">
             <label className="block text-xs text-gray-500 mb-1">
               御見積除外事項（1行1項目・見積書に印字）
@@ -486,6 +568,52 @@ export default function EstimateFormPage() {
           <HeaderField header={header} setHeader={setHeader} label="社内メモ" name="internal_notes" />
         </div>
       </div>
+
+      {/* 承認ワークフロー（会議2026-07-17: 単独で正式発行できない仕組み。承認までPDFに「ドラフト」透かし） */}
+      {isEdit && (
+        <div className={`rounded-xl p-4 mb-4 border ${
+          approval.status === 'approved' ? 'bg-green-50 border-green-200' :
+          approval.status === 'pending' ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'}`}>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-sm font-semibold text-gray-700">承認状態:</span>
+            {approval.status === 'approved' ? (
+              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-green-600 text-white">✓ 承認済（正式発行可）</span>
+            ) : approval.status === 'pending' ? (
+              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500 text-white">承認待ち: {header.approver_name}</span>
+            ) : (
+              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-gray-400 text-white">未依頼（PDFはドラフト透かし）</span>
+            )}
+            <div className="ml-auto flex gap-2">
+              {approval.status === 'none' && (
+                <button onClick={handleRequestApproval}
+                  className="bg-amber-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-amber-600">
+                  承認依頼を送る
+                </button>
+              )}
+              {approval.status === 'pending' && (<>
+                <button onClick={handleApprove}
+                  className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-green-700">
+                  承認する（検印: {header.approver_name}）
+                </button>
+                <button onClick={handleRejectApproval}
+                  className="bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-gray-300">
+                  差戻し
+                </button>
+              </>)}
+              {approval.status === 'approved' && (
+                <button onClick={handleRejectApproval}
+                  className="bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-gray-300">
+                  承認取消
+                </button>
+              )}
+            </div>
+          </div>
+          <p className="text-[11px] text-gray-500 mt-2">
+            承認前でも印刷できますが「ドラフト」透かしが入ります。承認後に内容を保存し直すと承認は解除され、再依頼が必要になります。
+            {approval.approved_at && approval.status === 'approved' && ` 承認日時: ${new Date(approval.approved_at).toLocaleString('ja-JP')}`}
+          </p>
+        </div>
+      )}
 
       {/* タブ */}
       <div className="flex gap-2 mb-3">
@@ -531,13 +659,13 @@ export default function EstimateFormPage() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-2 py-2 text-left font-medium text-gray-500 w-8">#</th>
-                  <th className="px-2 py-2 text-left font-medium text-gray-500">大分類</th>
+                  <th className="px-2 py-2 text-left font-medium text-gray-500">大分類 / 中分類</th>
                   <th className="px-2 py-2 text-left font-medium text-gray-500 w-44">品名・仕様</th>
                   <th className="px-2 py-2 text-left font-medium text-gray-500">仕様詳細</th>
                   <th className="px-2 py-2 text-right font-medium text-gray-500 w-16">数量</th>
                   <th className="px-2 py-2 text-center font-medium text-gray-500 w-12">単位</th>
                   <th className="px-2 py-2 text-right font-medium text-gray-500 w-28">単価</th>
-                  <th className="px-2 py-2 text-right font-medium text-gray-500 w-28">金額</th>
+                  <th className="px-2 py-2 text-right font-medium text-gray-500 w-32">金額 / 表示</th>
                   <th className="px-2 py-2 w-6"></th>
                 </tr>
               </thead>
@@ -548,6 +676,8 @@ export default function EstimateFormPage() {
                     <td className="px-2 py-1.5">
                       <input value={item.section} onChange={e => setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, section: e.target.value } : i))}
                         className="w-full border-0 outline-none text-xs bg-transparent" placeholder="大分類" />
+                      <input value={item.sub_section || ''} onChange={e => setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, sub_section: e.target.value } : i))}
+                        className="w-full border-0 outline-none text-[11px] bg-transparent text-gray-500" placeholder="中分類（同名が連続すると 1-1-1 で階層化）" />
                     </td>
                     <td className="px-2 py-1.5">
                       <input value={item.item_name} onChange={e => setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, item_name: e.target.value } : i))}
@@ -570,7 +700,25 @@ export default function EstimateFormPage() {
                         className="w-full border border-gray-200 rounded px-1 py-1 text-xs text-right" />
                     </td>
                     <td className="px-2 py-1.5 text-right font-medium text-gray-700">
-                      ¥{(item.unit_price * item.quantity).toLocaleString()}
+                      {item.amount_text ? <span className="text-gray-500">{item.amount_text}</span>
+                        : item.hide_amount ? <span className="text-gray-400">（非表示）</span>
+                        : <>¥{(item.unit_price * item.quantity).toLocaleString()}</>}
+                      <select
+                        value={item.amount_text === '含まず' ? 'not_included' : item.hide_amount ? 'hidden' : 'normal'}
+                        onChange={e => {
+                          const v = e.target.value;
+                          setLineItems(prev => prev.map((i, j) => j === idx ? {
+                            ...i,
+                            hide_amount: v === 'hidden',
+                            amount_text: v === 'not_included' ? '含まず' : null,
+                            ...(v === 'not_included' ? { unit_price: 0 } : {}),
+                          } : i));
+                        }}
+                        className="w-full border border-gray-200 rounded px-1 py-0.5 text-[10px] text-gray-500 mt-0.5">
+                        <option value="normal">金額表示</option>
+                        <option value="hidden">非表示（一式内訳）</option>
+                        <option value="not_included">「含まず」</option>
+                      </select>
                     </td>
                     <td className="px-2 py-1.5">
                       <button onClick={() => setLineItems(prev => prev.filter((_, j) => j !== idx))} className="text-red-300 hover:text-red-500">
@@ -650,6 +798,14 @@ export default function EstimateFormPage() {
           <div className="w-80 space-y-1.5 text-sm">
             <div className="flex justify-between text-gray-600"><span>機器・工事小計</span><span>¥{itemsTotal.toLocaleString()}</span></div>
             <div className="flex justify-between text-gray-600"><span>社内工数小計</span><span>¥{laborTotal.toLocaleString()}</span></div>
+            <div className="flex justify-between items-center text-gray-600">
+              <span>出精値引</span>
+              <span className="flex items-center gap-1 text-red-600">−¥
+                <input type="number" min={0} value={header.discount_amount || 0}
+                  onChange={e => setHeader(h => ({ ...h, discount_amount: Math.max(0, Number(e.target.value) || 0) }))}
+                  className="w-28 border border-gray-200 rounded px-2 py-0.5 text-sm text-right" />
+              </span>
+            </div>
             <div className="flex justify-between text-gray-600"><span>消費税（10%）</span><span>¥{tax.toLocaleString()}</span></div>
             <div className="flex justify-between text-lg font-bold text-gray-800 border-t pt-2">
               <span>合計金額{header.tax_display === 'excluded' ? '（税抜）' : '（税込）'}</span>
