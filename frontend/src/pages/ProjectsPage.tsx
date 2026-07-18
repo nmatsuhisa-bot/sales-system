@@ -253,6 +253,13 @@ export default function ProjectsPage() {
                 <span className="text-xs text-gray-500 w-40 truncate hidden md:block">{p.customer_name_2 || p.customer_name_1 || '—'}</span>
                 <span className="text-xs text-gray-500 w-20 hidden lg:block">{p.sales_person_name || '—'}</span>
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium shrink-0 ${STATUS_COLORS[p.status] || 'bg-gray-100'}`}>{p.status}</span>
+                {p.probability && (
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium shrink-0 ${
+                    p.probability === '高' ? 'bg-red-100 text-red-700' :
+                    p.probability === '中' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-500'}`}>
+                    確度{p.probability}
+                  </span>
+                )}
                 <span className="text-xs text-gray-400 w-16 text-center shrink-0">{p.distribution_type || '直接'}</span>
                 <span className="text-sm font-bold text-gray-700 w-32 text-right shrink-0">
                   {p.final_order_amount != null ? `¥${Number(p.final_order_amount).toLocaleString()}` : '—'}
@@ -369,6 +376,17 @@ export default function ProjectsPage() {
                     className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-gray-50 font-mono font-bold text-blue-700" />
                 </div>
                 <SelectField label="案件ステータス" name="status" options={STATUS_OPTIONS} form={form} setForm={setForm} />
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">確度（見込み管理・売上計画の見込み数字用）</label>
+                  <select value={form.probability || ''}
+                    onChange={e => setForm((f: any) => ({ ...f, probability: e.target.value || null }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    <option value="">未設定</option>
+                    <option value="高">高（受注濃厚）</option>
+                    <option value="中">中</option>
+                    <option value="低">低（情報段階）</option>
+                  </select>
+                </div>
                 <TextField label="案件名" value={form.project_name} onChange={(v: string) => setForm((f: any) => ({ ...f, project_name: v }))} cols={2} />
                 <TextField label="案件概要" value={form.project_summary} onChange={(v: string) => setForm((f: any) => ({ ...f, project_summary: v }))} cols={2} />
                 <SelectField label="商流判定" name="distribution_type" options={DIST_OPTIONS} form={form} setForm={setForm} />

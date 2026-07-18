@@ -58,6 +58,7 @@ class ProjectCreate(BaseModel):
     sales_person_name: Optional[str] = None
     sales_person_code: Optional[str] = None
     status: str = "営業中"
+    probability: Optional[str] = None           # 確度（高/中/低）会議2026-07-17
     distribution_type: Optional[str] = None
     budget_amount: Optional[int] = None
     estimated_sales_total: Optional[int] = None
@@ -85,6 +86,7 @@ class ProjectUpdate(BaseModel):
     sales_person_name: Optional[str] = None
     sales_person_code: Optional[str] = None
     status: Optional[str] = None
+    probability: Optional[str] = None           # 確度（高/中/低）
     distribution_type: Optional[str] = None
     budget_amount: Optional[int] = None
     estimated_sales_total: Optional[int] = None
@@ -144,7 +146,7 @@ def project_to_dict(p: Project, include_orders: bool = True) -> dict:
         "customer_code_1": p.customer_code_1, "customer_name_1": p.customer_name_1,
         "customer_code_2": p.customer_code_2, "customer_name_2": p.customer_name_2,
         "sales_person_name": p.sales_person_name, "sales_person_code": p.sales_person_code,
-        "status": p.status, "distribution_type": p.distribution_type,
+        "status": p.status, "probability": p.probability, "distribution_type": p.distribution_type,
         "budget_amount": _i(p.budget_amount), "estimated_sales_total": _i(p.estimated_sales_total),
         "final_order_amount": _i(p.final_order_amount), "cost_price": _i(p.cost_price),
         "profit_amount": _i(p.profit_amount),
