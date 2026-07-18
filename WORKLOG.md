@@ -15,6 +15,21 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-07-18 — Claude(Opus) — 2026-07-17会議対応の一括実装（d5bb0d0〜b3b7b74）
+**触ったファイル**: models.py / main.py / estimate_quotations.py / projects.py / api/index.ts / EstimateFormPage.tsx / EstimateListPage.tsx / OrdersPage.tsx / ProjectsPage.tsx / docs / tools
+**実装内容**（会議サマリーPDF＋見積原本6社との突合に基づく）:
+- **承認ワークフロー**: 検印者5名（後藤・江里口・柴田・井上社長・国立）= `APPROVERS` 定数。
+  依頼→承認待ち→承認。承認まで見積PDFに「ドラフト」透かし（position:fixed）。
+  **PUT更新すると承認は自動で none に戻る**（承認後の無断変更防止）。/approvers は /{quotation_id} より先に定義（ルート衝突注意）
+- **3階層番号（1-1-1形式で決定）**: sub_section が連続する複数行→ `i-j` 見出し（金額なし）＋ `i-j-k` 子行。単独行は従来どおり `i-j`。スキーマ変更なし（既存sub_section列を利用）
+- **金額表示制御**: quotation_line_items に hide_amount / amount_text 追加。「含まず」は単価0で運用
+- **出精値引**: quotation_headers.discount_amount。**net_amount() が値引を差し引くよう変更**（工番/単番判定・案件金額・売上計画すべてに影響）。課税も値引後
+- **受注票 関連書類**: order_ticket_files テーブル（PDFをDB保管・base64 JSON渡し・10MB上限）。Renderディスクは揮発のためDB保管
+- **受注票+見積書 同時印刷**: /order-ticket/{id}/pdf?with_quotation=1 でHTML連結
+- **案件の確度**: projects.probability（高/中/低）
+- **マイグレーション**: `GET /setup-approval-workflow`（冪等）を本番で1回実行すること
+**注意**: 見積書頭紙の合計金額は原本様式の全角表記（_zenkaku_amount）。会議1.2「一旦全角」対応。半角へ戻す場合はこの関数を外す
+
 ### 2026-07-18 — Claude(Cowork) — /procurement 検証（異常なし）
 **触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
 **検証結果**: 静的解析で退行なし。前回(07-17朝 `f1f412a`)以降 origin/main に新規コミット `eb7fddc`（業務コード指定で500になる不具合の修正／UUID列cast失敗）ほか 32ad8f5/300008d/9c966a6 等あり。**いずれも procurement 非該当**（変更対象: arrangements.py, estimate_quotations.py, masters.py, projects.py, models.py, その他 estimate/amount 系）。materials.py・ProcurementPage.tsx・api/index.ts への変更なし＝退行なし。
