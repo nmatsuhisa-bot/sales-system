@@ -23,8 +23,10 @@ router = APIRouter()
 # 工番/単番の判定しきい値（税抜）
 KOBAN_THRESHOLD = 3000000
 
-# CAD図面(DXF)アップロードの上限
-MAX_CAD_FILE_SIZE = 80 * 1024 * 1024
+# CAD図面(DXF)を直接アップロードする場合の上限。
+# 実運用の図面(13〜101MB)はブラウザ側で走査して /from-cad-extract へ送るため、
+# ここは小さい図面の直叩き用。サーバのメモリを守るため小さく抑えている。
+MAX_CAD_FILE_SIZE = 8 * 1024 * 1024
 
 # 承認権限者（会議2026-07-17で決定した5名。2026-07-18 氏名確定）
 APPROVERS = ["後藤", "江里口", "柴田", "井上社長", "国立"]
@@ -56,11 +58,16 @@ async def create_quotation_from_cad(
     title: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
-    """CAD図面(DXF)ファイルを直接アップロードして見積を自動生成する。
+    """CAD図面(DXF)ファイルを直接アップロードして見積を自動生成する（小さい図面用）。
 
-    ※ 実運用の図面は数十MBあり、アップロードがサーバ側の上限に掛かるため、
-    画面からは /from-cad-extract（ブラウザで走査した結果だけを送る）を使う。
-    こちらは小さい図面・API直叩き用に残している。
+    ※ 実運用の図面は13〜101MBあり、このエンドポイントでは扱えない。
+    画面からは /from-cad-extract（ブラウザで走査した結果だけを送る）を使うこと。
+
+    【メモリ事故の再発防止】2026-07-18、59MBの図面をここへ直接アップロードした結果
+    Renderのメモリ上限を超えてインスタンスが自動再起動した。原因は
+    「file.read() で全体をメモリに載せてから」サイズ検査していたこと。
+    現在は 1MB ずつ temp ファイルへ書き出し、上限超過を検知した時点で中断する。
+    上限も実運用サイズより十分小さく設定してある（下記 MAX_CAD_FILE_SIZE）。
     """
     import tempfile, os as _os
     from app.cad_extract import extract_from_dxf
@@ -68,19 +75,33 @@ async def create_quotation_from_cad(
     fname = file.filename or ""
     if not fname.lower().endswith(".dxf"):
         raise HTTPException(400, "DXFファイルを指定してください（DWGはAutoCADのDXFOUTで変換）")
-    blob = await file.read()
-    if len(blob) > MAX_CAD_FILE_SIZE:
-        raise HTTPException(400, f"ファイルサイズは{MAX_CAD_FILE_SIZE // 1024 // 1024}MBまでです")
 
+    limit_mb = MAX_CAD_FILE_SIZE // 1024 // 1024
     tmp_path = None
     try:
+        # メモリに全体を載せないよう、チャンクで temp ファイルへ流す
+        size = 0
         with tempfile.NamedTemporaryFile(suffix=".dxf", delete=False) as tf:
-            tf.write(blob)
             tmp_path = tf.name
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > MAX_CAD_FILE_SIZE:
+                    raise HTTPException(
+                        413,
+                        f"ファイルが大きすぎます（上限{limit_mb}MB）。"
+                        "実運用サイズの図面は画面の「CADから見積作成」をお使いください"
+                        "（ブラウザ側で解析するためサイズ制限がありません）",
+                    )
+                tf.write(chunk)
         try:
             info = extract_from_dxf(tmp_path)
         except ValueError as e:
             raise HTTPException(400, str(e))
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(400, f"DXFの解析に失敗しました: {e}")
     finally:
@@ -112,6 +133,10 @@ def create_quotation_from_cad_extract(data: CadExtractIn, db: Session = Depends(
     from app.cad_extract import analyze
     if not data.block_names and not data.texts:
         raise HTTPException(400, "図面から情報を抽出できませんでした")
+    # 想定は数KB（実測: 59MBの図面でブロック920件・文字92件＝14.8KB）。
+    # 桁違いの入力でメモリを消費しないよう上限を設ける
+    if len(data.block_names) > 200000 or len(data.texts) > 50000:
+        raise HTTPException(413, "抽出結果が大きすぎます。図面を分割してください")
     info = analyze(data.block_names, data.texts, data.insunits, data.acadver)
     return _build_quotation_from_cad_info(
         info, data.filename, data.project_order_id, data.title, db
@@ -1565,12 +1590,16 @@ def upload_order_ticket_file(ticket_id: str, data: dict, db: Session = Depends(g
     b64 = (data or {}).get("content_base64")
     if not filename or not b64:
         raise HTTPException(400, "filename と content_base64 は必須です")
+    # デコード前に長さで弾く（デコード後に検査すると、その一瞬だけ上限を超えた
+    # データがメモリに載る。base64は元データの約4/3の長さになる）
+    if len(b64) > MAX_TICKET_FILE_SIZE // 3 * 4 + 1024:
+        raise HTTPException(413, "ファイルサイズは10MBまでです")
     try:
         blob = base64.b64decode(b64)
     except Exception:
         raise HTTPException(400, "content_base64 をデコードできません")
     if len(blob) > MAX_TICKET_FILE_SIZE:
-        raise HTTPException(400, "ファイルサイズは10MBまでです")
+        raise HTTPException(413, "ファイルサイズは10MBまでです")
     f = OrderTicketFile(
         order_ticket_id=t.id,
         file_kind=nfkc((data or {}).get("file_kind")) or "その他",
