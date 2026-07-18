@@ -434,10 +434,11 @@ def setup_function_roles():
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    # 会議2026-07-17で決定した検印承認者のうち、ユーザーマスタに実在する人の正式氏名。
-    # 「井上社長」「柴田」「江里口」はユーザー未登録のため画面で手動設定が必要。
+    # 会議2026-07-17で決定した検印承認者5名の正式氏名（完全一致で照合）。
     # ※「国立」は従業員マスタ上は旧字の「國立 信和」
-    TARGETS_EXACT = ["後藤 宗人", "國立 信和"]
+    # ※「井上社長」は井上 嗣夫（同姓の社員が複数いるため部分一致は使わない）
+    # 柴田・江里口・井上嗣夫は /setup-approver-users で登録する
+    TARGETS_EXACT = ["後藤 宗人", "國立 信和", "柴田 忠春", "江里口 一博", "井上 嗣夫"]
     granted, revoked, unmatched = [], [], []
     db = SessionLocal()
     try:
@@ -465,6 +466,47 @@ def setup_function_roles():
     return {"status": "ok", "message": "検印承認者を洗い替えしました",
             "付与": granted, "解除（洗い替え前）": revoked,
             "ユーザー未登録（要手動設定）": unmatched + ["井上社長", "柴田", "江里口"]}
+
+
+@app.get("/setup-approver-users")
+def setup_approver_users():
+    """検印承認者3名（柴田・江里口・井上社長）をテスト用に登録する。
+
+    メールは一意制約があるため、Gmailのエイリアス（+付き）で分けている。
+    いずれも matsuhisa27@gmail.com に配信される。
+    既に同じメールのユーザーがいれば作らず、権限の付与だけ行う（冪等）。"""
+    import bcrypt
+    from app.db.models import SessionLocal, User
+    from app.roles import has_role
+    TARGETS = [
+        {"email": "matsuhisa27+shibata@gmail.com", "full_name": "柴田 忠春"},
+        {"email": "matsuhisa27+eriguchi@gmail.com", "full_name": "江里口 一博"},
+        {"email": "matsuhisa27+inoue@gmail.com", "full_name": "井上 嗣夫"},
+    ]
+    created, granted, skipped = [], [], []
+    db = SessionLocal()
+    try:
+        hashed = bcrypt.hashpw("user1234".encode(), bcrypt.gensalt()).decode()
+        for t in TARGETS:
+            u = db.query(User).filter(User.email == t["email"]).first()
+            if not u:
+                u = User(email=t["email"], full_name=t["full_name"], hashed_password=hashed,
+                         role="user", function_roles=["approver"])
+                db.add(u)
+                created.append(f'{t["full_name"]} <{t["email"]}>')
+                continue
+            skipped.append(t["full_name"])
+            if not has_role(u, "approver"):
+                u.function_roles = (u.function_roles or []) + ["approver"]
+                granted.append(t["full_name"])
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        return {"status": "error", "message": str(e)}
+    finally:
+        db.close()
+    return {"status": "ok", "message": "検印承認者のテストユーザーを登録（パスワード: user1234）",
+            "新規作成": created, "既存に権限付与": granted, "既に存在": skipped}
 
 
 @app.get("/setup-project-ticket-type")
