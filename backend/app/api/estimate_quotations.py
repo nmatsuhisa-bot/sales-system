@@ -945,10 +945,6 @@ def export_pdf(quotation_id: str, db: Session = Depends(get_db)):
         headers={"Content-Disposition": f"inline; filename={q.quotation_no}.html"}
     )
 
-def _zenkaku_amount(n: int) -> str:
-    """原本様式の全角金額表記（例: ９１,５００,０００-）。会議1.2「数字は一旦全角に統一」"""
-    return f"{n:,}".translate(str.maketrans("0123456789", "０１２３４５６７８９")) + "-"
-
 def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
     # 「draft」透かし（position:fixedで印刷全ページに出る。承認後は消える）
     draft_watermark = ('''
@@ -1123,7 +1119,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
   <div style="font-size:18px;font-weight:bold;border-bottom:2px solid #000;padding-bottom:4px">{addressee} &nbsp; 殿</div>
   <div style="margin:8px 0 18px;font-size:12px">件名: {q.title or ' '}　／　納入先: {q.delivery_name or ' '}　／　担当: {q.sales_person_name or ' '}</div>
   <table style="width:100%;margin-bottom:18px"><tr>
-    <td style="font-size:16px;font-weight:bold">合計金額　<span style="font-size:24px;border-bottom:3px double #000;padding:0 6px">{_zenkaku_amount(grand_total)}</span>　<span style="font-size:11px;color:#888">{tax_label}</span></td>
+    <td style="font-size:16px;font-weight:bold">合計金額　￥<span style="font-size:24px;border-bottom:3px double #000;padding:0 6px">{grand_total:,}-</span>　<span style="font-size:11px;color:#888">{tax_label}</span></td>
   </tr></table>
   <h3 style="font-size:14px;margin:10px 0 6px">■ 大分類別 内訳（総括）</h3>
   <table style="width:68%;border-collapse:collapse;font-size:13px">
