@@ -1075,7 +1075,7 @@ def _send_approval_mail(q: QuotationHeader, approver: str, token: str, db: Sessi
 """
     # 添付（PDFを作れない環境ではHTMLで代替する）
     attachments = []
-    q_html = _build_quotation_html(q, is_draft=True)
+    q_html = _build_quotation_html(q, is_draft=True, for_pdf=True)
     l_html = _build_labor_html(q, db)
     for name, html in ((f"{q.quotation_no}_見積書", q_html), (f"{q.quotation_no}_社内工数試算", l_html)):
         blob = html_to_pdf(html)
@@ -1125,26 +1125,37 @@ def export_pdf(quotation_id: str, format: str = "html", db: Session = Depends(ge
     if not q: raise HTTPException(404)
 
     # draft透かし: 承認完了までは印刷可だが「draft」表示（会議2026-07-17）
-    html = _build_quotation_html(q, is_draft=((q.approval_status or 'none') != 'approved'))
+    _is_draft = (q.approval_status or 'none') != 'approved'
     if format == "pdf":
         from app.pdf import html_to_pdf
-        blob = html_to_pdf(html)
+        blob = html_to_pdf(_build_quotation_html(q, is_draft=_is_draft, for_pdf=True))
         if blob:
             return StreamingResponse(
                 io.BytesIO(blob), media_type="application/pdf",
                 headers={"Content-Disposition": f"inline; filename={q.quotation_no}.pdf"})
+    html = _build_quotation_html(q, is_draft=_is_draft)
     return StreamingResponse(
         io.BytesIO(html.encode("utf-8")),
         media_type="text/html",
         headers={"Content-Disposition": f"inline; filename={q.quotation_no}.html"}
     )
 
-def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
+def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: bool = False) -> str:
     # 「draft」透かし（position:fixedで印刷全ページに出る。承認後は消える）
-    draft_watermark = ('''
+    # 画面(HTML)は斜めの透かし。PDF変換では position:fixed / transform が効かず
+    # 巨大な文字が本文を押し下げてしまうため、上部の帯に切り替える。
+    if not is_draft:
+        draft_watermark = ""
+    elif for_pdf:
+        draft_watermark = ('''
+<div style="border:2px solid #c0392b;color:#c0392b;font-weight:bold;text-align:center;
+    padding:4px;margin-bottom:10px;font-size:16px;letter-spacing:8px">draft（未承認）</div>
+''')
+    else:
+        draft_watermark = ('''
 <div style="position:fixed;top:38%;left:8%;right:8%;text-align:center;z-index:999;pointer-events:none;
     font-size:110px;font-weight:bold;color:rgba(200,30,30,0.16);transform:rotate(-18deg);letter-spacing:30px">draft</div>
-''' if is_draft else '')
+''')
 
     def _amt_cell(item) -> str:
         """金額欄の表示: 文字列指定 > 金額非表示 > 通常"""
@@ -1298,11 +1309,15 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
     _exc = [l.strip() for l in (q.exclusions or "").splitlines() if l.strip()]
     exclusions_html = ''
     if _exc:
-        _rows = "".join(f'<div style="padding:1px 0">{l}</div>' for l in _exc)
+        # 1項目1行。divを重ねるとPDF変換時に行ごとに枠が付いてしまうためテーブルにする
+        _rows = "".join(
+            f'<tr><td style="padding:1px 10px;border:none">{l}</td></tr>' for l in _exc)
         exclusions_html = f'''
   <div style="margin-top:16px;font-size:11px">
     <div style="font-weight:bold;margin-bottom:4px">※ 御見積除外事項</div>
-    <div style="border:1px solid #ccc;padding:6px 10px;line-height:1.5">{_rows}</div>
+    <table style="width:100%;border:1px solid #ccc;border-collapse:collapse;font-size:11px">
+      {_rows}
+    </table>
   </div>'''
 
     # 宛名（注文主＋御担当者）・受渡場所・見積有効期限
@@ -1319,7 +1334,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
   <div style="font-size:18px;font-weight:bold;border-bottom:2px solid #000;padding-bottom:4px">{addressee} &nbsp; 殿</div>
   <div style="margin:8px 0 18px;font-size:12px">件名: {q.title or ' '}　／　納入先: {q.delivery_name or ' '}　／　担当: {q.sales_person_name or ' '}</div>
   <table style="width:100%;margin-bottom:18px"><tr>
-    <td style="font-size:16px;font-weight:bold">合計金額　￥<span style="font-size:24px;border-bottom:3px double #000;padding:0 6px">{grand_total:,}-</span>　<span style="font-size:11px;color:#888">{tax_label}</span></td>
+    <td style="font-size:16px;font-weight:bold;white-space:nowrap">合計金額　￥<span style="font-size:22px;border-bottom:3px double #000;padding:0 6px">{grand_total:,}-</span>　<span style="font-size:11px;color:#888">{tax_label}</span></td>
   </tr></table>
   <h3 style="font-size:14px;margin:10px 0 6px">■ 大分類別 内訳（総括）</h3>
   <table style="width:68%;border-collapse:collapse;font-size:13px">
@@ -1408,15 +1423,21 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
 
 <!-- 金額サマリ(1枚目) -->
 <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px">
+<!-- 列幅はcolgroupで明示する。PDF変換(xhtml2pdf)はthのwidthを無視するため、
+     これが無いと列が重なって文字が潰れる -->
+<colgroup>
+  <col width="6%"><col width="30%"><col width="27%"><col width="7%">
+  <col width="6%"><col width="12%"><col width="12%">
+</colgroup>
 <thead>
   <tr style="background:#2c3e50;color:#fff">
-    <th style="border:1px solid #ccc;padding:5px 8px;text-align:center;width:40px">番号</th>
+    <th style="border:1px solid #ccc;padding:5px 8px;text-align:center">番号</th>
     <th style="border:1px solid #ccc;padding:5px 8px;text-align:left">品名.仕様</th>
-    <th style="border:1px solid #ccc;padding:5px 8px;text-align:left;width:200px">詳細</th>
-    <th style="border:1px solid #ccc;padding:5px 8px;text-align:center;width:50px">数量</th>
-    <th style="border:1px solid #ccc;padding:5px 8px;text-align:center;width:40px">単位</th>
-    <th style="border:1px solid #ccc;padding:5px 8px;text-align:right;width:110px">単価</th>
-    <th style="border:1px solid #ccc;padding:5px 8px;text-align:right;width:120px">金額</th>
+    <th style="border:1px solid #ccc;padding:5px 8px;text-align:left">詳細</th>
+    <th style="border:1px solid #ccc;padding:5px 8px;text-align:center">数量</th>
+    <th style="border:1px solid #ccc;padding:5px 8px;text-align:center">単位</th>
+    <th style="border:1px solid #ccc;padding:5px 8px;text-align:right">単価</th>
+    <th style="border:1px solid #ccc;padding:5px 8px;text-align:right">金額</th>
   </tr>
 </thead>
 <tbody>
@@ -1440,19 +1461,21 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
 {exclusions_html}
 
 <!-- 会社情報フッター -->
-<div style="margin-top:30px;border:2px solid #000;padding:10px;display:flex;align-items:center">
-  <div style="font-size:22px;font-weight:bold;margin-right:20px">井上電設株式会社</div>
-  <div style="font-size:11px;color:#333">
-    〒460-0022 名古屋市中区金山四丁目3番17号<br>
-    TEL (052) 322-5271 FAX (052) 332-5273<br>
-    E-mail: tech@inoue-d.co.jp
-  </div>
-  <div style="margin-left:auto;font-size:11px">
-    担当: {q.sales_person_name or '　　　'}<br>
-    作成: {q.created_by_name or '　　　'}<br>
-    検印: {q.approver_name or '　　　'}
-  </div>
-</div>
+<table style="margin-top:30px;border:2px solid #000;width:100%;border-collapse:collapse">
+  <tr>
+    <td style="font-size:20px;font-weight:bold;padding:10px;width:32%">井上電設株式会社</td>
+    <td style="font-size:11px;color:#333;padding:10px;width:44%">
+      〒460-0022 名古屋市中区金山四丁目3番17号<br>
+      TEL (052) 322-5271 FAX (052) 332-5273<br>
+      E-mail: tech@inoue-d.co.jp
+    </td>
+    <td style="font-size:11px;padding:10px;width:24%">
+      担当: {q.sales_person_name or '　　　'}<br>
+      作成: {q.created_by_name or '　　　'}<br>
+      検印: {q.approver_name or '　　　'}
+    </td>
+  </tr>
+</table>
 </body></html>"""
 
 
