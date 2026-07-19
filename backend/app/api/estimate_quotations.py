@@ -1351,9 +1351,9 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
       <td width="21mm" style="border:1px solid #999;padding:1px 2px;background:#f5f5f5">作 成</td>
     </tr>
     <tr>
-      <td style="border:1px solid #999;padding:10px 2px 12px">{_stamp_cell('STMPAPV')}</td>
-      <td style="border:1px solid #999;padding:10px 2px 12px">{_stamp_cell('STMPSLS')}</td>
-      <td style="border:1px solid #999;padding:10px 2px 12px">{_stamp_cell('STMPCRT')}</td>
+      <td style="border:1px solid #999;padding:3px 2px 36px;text-align:left">{_stamp_cell('STMPAPV')}</td>
+      <td style="border:1px solid #999;padding:3px 2px 36px;text-align:left">{_stamp_cell('STMPSLS')}</td>
+      <td style="border:1px solid #999;padding:3px 2px 36px;text-align:left">{_stamp_cell('STMPCRT')}</td>
     </tr>
   </table>'''
 
@@ -1381,13 +1381,14 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     exclusions_html = ''
     if _exc:
         # 1項目1行。divを重ねるとPDF変換時に行ごとに枠が付いてしまうためテーブルにする
-        _rows = "".join(
-            f'<tr><td style="padding:0 10px;border:none">{l}</td></tr>' for l in _exc)
+        # 1項目ごとに罫線を引くと行が詰まって文字が切れるため、
+        # 枠は外周だけにして中は改行で並べる
+        _rows = "<br>".join(_exc)
         exclusions_html = f'''
   <div style="margin-top:10px;font-size:10px">
     <div style="font-weight:bold;margin-bottom:3px">※ 御見積除外事項</div>
-    <table style="width:100%;border:1px solid #ccc;border-collapse:collapse;font-size:9.5px">
-      {_rows}
+    <table style="width:100%;border:1px solid #999;border-collapse:collapse">
+      <tr><td style="padding:7px 10px;font-size:9.5px;line-height:1.9">{_rows}</td></tr>
     </table>
   </div>'''
 
@@ -1429,24 +1430,10 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
         <div style="font-size:16px;font-weight:bold;border-bottom:2px solid #000;padding-bottom:3px">
           {addressee}　　殿
         </div>
-        <div style="margin-top:8px;font-size:15px;font-weight:bold">
+        <div style="margin-top:8px;margin-bottom:8px;font-size:15px;font-weight:bold">
           合計金額 ￥<span style="font-size:19px;border-bottom:2px double #000;padding:0 4px">{grand_total:,}-</span>
           <span style="font-size:10px;color:#666">{tax_label}</span>
         </div>
-      </td>
-      <td width="76mm" style="border:none;vertical-align:top;font-size:9.5px;line-height:1.45;text-align:right">
-        <div style="font-weight:bold;font-size:13px">井上電設株式会社</div>
-        〒460-0022 名古屋市中区金山四丁目3番17号<br>
-        TEL (052) 322-5271　FAX (052) 332-5273<br>
-        E-mail tech@inoue-d.co.jp
-        {stamp_box}
-      </td>
-    </tr>
-  </table>
-
-  <table style="width:100%;border-collapse:collapse;margin-bottom:6px">
-    <tr>
-      <td width="110mm" style="border:none;vertical-align:top">
         <table style="border-collapse:collapse;font-size:10px;width:100%">
           <tr><td width="26mm" style="border:1px solid #999;padding:3px 6px;background:#f5f5f5">納入期限</td>
               <td style="border:1px solid #999;padding:3px 8px">{q.delivery_terms or ' '}</td></tr>
@@ -1458,9 +1445,16 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
               <td style="border:1px solid #999;padding:3px 8px">{q.payment_terms or ' '}</td></tr>
         </table>
       </td>
-      <td width="76mm" style="border:none"></td>
+      <td width="76mm" style="border:none;vertical-align:top;font-size:9.5px;line-height:1.45;text-align:right">
+        <div style="font-weight:bold;font-size:13px">井上電設株式会社</div>
+        〒460-0022 名古屋市中区金山四丁目3番17号<br>
+        TEL (052) 322-5271　FAX (052) 332-5273<br>
+        E-mail tech@inoue-d.co.jp
+        {stamp_box}
+      </td>
     </tr>
   </table>
+
   <div style="font-size:10px;margin-bottom:8px">件名: {q.title or ' '}　／　納入先: {q.delivery_name or ' '}　／　担当: {q.sales_person_name or ' '}</div>
 
   <table style="width:100%;border-collapse:collapse;font-size:11px">

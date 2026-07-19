@@ -178,6 +178,10 @@ def merge_pdfs(blobs) -> Optional[bytes]:
 # 位置決め用の見えない目印（ASCII）だけを置き、生成後のPDFに reportlab で
 # 朱色の丸と苗字を描く。目印は白文字なので印刷にも出ない。
 STAMP_MARKER_PREFIX = "STMP"
+# 押印セルの幅(21mm)。目印はセル左端にあるため、この幅の半分だけ右へ寄せて中央に置く
+STAMP_CELL_WIDTH = 59.5
+# 押印セルの高さ(約33pt)。目印はセル上端にあるため半分下げて中央に置く
+STAMP_CELL_HEIGHT = 33.0
 
 
 def _draw_stamps(pdf_bytes: bytes, stamps: dict) -> Optional[bytes]:
@@ -222,8 +226,13 @@ def _draw_stamps(pdf_bytes: bytes, stamps: dict) -> Optional[bytes]:
             c = canvas.Canvas(buf, pagesize=(w, h))
             for key, (x, y) in targets.items():
                 name = stamps[key].strip()
-                r = 15                      # 丸の半径
-                cx, cy = x + r, y + 2       # 目印の少し右・やや上を中心にする
+                r = 13                              # 丸の半径
+                # 目印はセル左上にある。セル幅(21mm)の中央へ寄せ、
+                # 縦はセル高(約33pt)の中程へ下ろす。
+                # 目印はセル左上（padding 2px）に左寄せで置いてある。
+                # そこからセルの中心へ寄せる。
+                cx = x + STAMP_CELL_WIDTH / 2 - 3.0
+                cy = y + 7.2 - STAMP_CELL_HEIGHT / 2
                 c.setStrokeColorRGB(0.80, 0.10, 0.10)
                 c.setLineWidth(1.2)
                 c.circle(cx, cy, r, stroke=1, fill=0)
