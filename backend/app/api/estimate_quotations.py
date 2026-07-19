@@ -978,7 +978,8 @@ def reject_approval(quotation_id: str, db: Session = Depends(get_db)):
 # PDF出力(ケイテック形式)
 # =============================================
 @router.get("/{quotation_id}/pdf")
-def export_pdf(quotation_id: str, db: Session = Depends(get_db)):
+def export_pdf(quotation_id: str, format: str = "html", db: Session = Depends(get_db)):
+    """見積書。既定はHTML（ブラウザで印刷）。?format=pdf でPDFの実体を返す（メール添付用）"""
     q = db.query(QuotationHeader).options(
         joinedload(QuotationHeader.line_items), joinedload(QuotationHeader.labor_details)
     ).filter(QuotationHeader.id == quotation_id).first()
@@ -986,6 +987,13 @@ def export_pdf(quotation_id: str, db: Session = Depends(get_db)):
 
     # draft透かし: 承認完了までは印刷可だが「draft」表示（会議2026-07-17）
     html = _build_quotation_html(q, is_draft=((q.approval_status or 'none') != 'approved'))
+    if format == "pdf":
+        from app.pdf import html_to_pdf
+        blob = html_to_pdf(html)
+        if blob:
+            return StreamingResponse(
+                io.BytesIO(blob), media_type="application/pdf",
+                headers={"Content-Disposition": f"inline; filename={q.quotation_no}.pdf"})
     return StreamingResponse(
         io.BytesIO(html.encode("utf-8")),
         media_type="text/html",
@@ -1307,6 +1315,171 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
   </div>
 </div>
 </body></html>"""
+
+
+# =============================================
+# 社内工数試算（社内用。顧客向け見積書には出さない金額の内訳）
+# =============================================
+# 工数マスタのカテゴリ → 原本（ケイテック様 社内シート）の区分へのまとめ方
+LABOR_GROUPS = [
+    ("運送交通費", ("運送",)),
+    ("取付工事", ("工事作業", "重機", "宿泊")),
+    ("試運転調整", ("試運転",)),
+    ("その他", ("消耗品", "諸経費")),
+]
+
+
+def _labor_category_map(q: QuotationHeader, db: Session) -> dict:
+    """労務明細ID → 工数マスタのカテゴリ"""
+    ids = [l.labor_item_id for l in q.labor_details if l.labor_item_id]
+    if not ids:
+        return {}
+    rows = db.query(EstimateLaborItem).filter(EstimateLaborItem.id.in_(ids)).all()
+    return {str(r.id): r.category for r in rows}
+
+
+def _build_labor_html(q: QuotationHeader, db: Session) -> str:
+    """社内工数試算のHTML。原本の社内シート（運送交通費／取付工事／試運転調整）様式。"""
+    cat_of = _labor_category_map(q, db)
+
+    def _cat(l):
+        return cat_of.get(str(l.labor_item_id), "") if l.labor_item_id else ""
+
+    rows_html = ""
+    grand = 0
+    used = set()
+    for group_name, cats in LABOR_GROUPS:
+        items = [l for l in sorted(q.labor_details, key=lambda x: x.sort_order or 0)
+                 if _cat(l) in cats]
+        if not items:
+            continue
+        used.update(id(l) for l in items)
+        sub = sum(int(l.amount or 0) for l in items)
+        grand += sub
+        rows_html += f'''
+        <tr style="background:#e8eef5;font-weight:bold">
+          <td colspan="6" style="border:1px solid #999;padding:5px 8px">○ {group_name}</td>
+        </tr>'''
+        for l in items:
+            rows_html += f'''
+        <tr>
+          <td style="border:1px solid #ccc;padding:4px 8px">{l.item_name}</td>
+          <td style="border:1px solid #ccc;padding:4px 8px;font-size:11px">{l.crane_type or ''}</td>
+          <td style="border:1px solid #ccc;padding:4px 8px;text-align:right">{float(l.quantity or 0):g}</td>
+          <td style="border:1px solid #ccc;padding:4px 8px;text-align:center">{l.unit or ''}</td>
+          <td style="border:1px solid #ccc;padding:4px 8px;text-align:right">¥{int(l.unit_price or 0):,}</td>
+          <td style="border:1px solid #ccc;padding:4px 8px;text-align:right">¥{int(l.amount or 0):,}</td>
+        </tr>'''
+        rows_html += f'''
+        <tr style="background:#f5f5f5;font-weight:bold">
+          <td colspan="5" style="border:1px solid #ccc;padding:4px 8px;text-align:right">{group_name} 小計金額</td>
+          <td style="border:1px solid #ccc;padding:4px 8px;text-align:right">¥{sub:,}</td>
+        </tr>'''
+
+    # どの区分にも入らなかった明細（工数マスタを使わず手入力した行）
+    rest = [l for l in sorted(q.labor_details, key=lambda x: x.sort_order or 0) if id(l) not in used]
+    if rest:
+        sub = sum(int(l.amount or 0) for l in rest)
+        grand += sub
+        rows_html += '''
+        <tr style="background:#e8eef5;font-weight:bold">
+          <td colspan="6" style="border:1px solid #999;padding:5px 8px">○ 区分なし</td>
+        </tr>'''
+        for l in rest:
+            rows_html += f'''
+        <tr>
+          <td style="border:1px solid #ccc;padding:4px 8px">{l.item_name}</td>
+          <td style="border:1px solid #ccc;padding:4px 8px;font-size:11px">{l.crane_type or ''}</td>
+          <td style="border:1px solid #ccc;padding:4px 8px;text-align:right">{float(l.quantity or 0):g}</td>
+          <td style="border:1px solid #ccc;padding:4px 8px;text-align:center">{l.unit or ''}</td>
+          <td style="border:1px solid #ccc;padding:4px 8px;text-align:right">¥{int(l.unit_price or 0):,}</td>
+          <td style="border:1px solid #ccc;padding:4px 8px;text-align:right">¥{int(l.amount or 0):,}</td>
+        </tr>'''
+        rows_html += f'''
+        <tr style="background:#f5f5f5;font-weight:bold">
+          <td colspan="5" style="border:1px solid #ccc;padding:4px 8px;text-align:right">区分なし 小計金額</td>
+          <td style="border:1px solid #ccc;padding:4px 8px;text-align:right">¥{sub:,}</td>
+        </tr>'''
+
+    if not rows_html:
+        rows_html = '''
+        <tr><td colspan="6" style="border:1px solid #ccc;padding:20px;text-align:center;color:#888">
+          社内工数が登録されていません（見積の「社内工数」タブから入力してください）
+        </td></tr>'''
+
+    return f"""<!DOCTYPE html>
+<html lang="ja"><head><meta charset="UTF-8">
+<title>{q.quotation_no} 社内工数試算</title>
+<style>
+  body {{ font-family:'Hiragino Sans','Yu Gothic',sans-serif; margin:20px; font-size:12px; }}
+  @media print {{ .no-print{{display:none}} body{{margin:10mm}} }}
+</style>
+</head><body>
+<div class="no-print" style="background:#fff4e5;padding:10px;margin-bottom:15px;border-radius:6px">
+  <button onclick="window.print()" style="background:#d97706;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px">🖨️ 印刷</button>
+  <span style="margin-left:15px;font-size:12px;color:#555">印刷ダイアログで"PDFに保存"を選択してください</span>
+</div>
+
+<div style="border:2px solid #c0392b;color:#c0392b;font-weight:bold;padding:6px 10px;margin-bottom:12px;display:inline-block">
+  社内資料（顧客提出不可）
+</div>
+<h1 style="font-size:20px;margin:6px 0 12px">社内工数試算</h1>
+<table style="width:100%;font-size:12px;margin-bottom:12px">
+  <tr>
+    <td>見積No. <b>{q.quotation_no}</b></td>
+    <td>件名: {q.title or ' '}</td>
+    <td>注文主: {q.customer_name or ' '}</td>
+    <td style="text-align:right">日付: {q.issue_date or ' '}</td>
+  </tr>
+</table>
+
+<table style="width:100%;border-collapse:collapse;font-size:12px">
+<thead>
+  <tr style="background:#2c3e50;color:#fff">
+    <th style="border:1px solid #ccc;padding:5px 8px;text-align:left">作業項目</th>
+    <th style="border:1px solid #ccc;padding:5px 8px;text-align:left;width:110px">種別・備考</th>
+    <th style="border:1px solid #ccc;padding:5px 8px;text-align:right;width:60px">数量</th>
+    <th style="border:1px solid #ccc;padding:5px 8px;text-align:center;width:50px">単位</th>
+    <th style="border:1px solid #ccc;padding:5px 8px;text-align:right;width:100px">単価</th>
+    <th style="border:1px solid #ccc;padding:5px 8px;text-align:right;width:120px">金額</th>
+  </tr>
+</thead>
+<tbody>{rows_html}</tbody>
+<tfoot>
+  <tr style="font-weight:bold;background:#fff9c4;font-size:14px">
+    <td colspan="5" style="border:2px solid #000;padding:6px 8px;text-align:right">合計金額（税抜）</td>
+    <td style="border:2px solid #000;padding:6px 8px;text-align:right">¥{grand:,}</td>
+  </tr>
+</tfoot>
+</table>
+
+<div style="margin-top:14px;font-size:11px;color:#666">
+  ※ この金額は社内の原価試算です。顧客向け見積書には内訳を印字していません。<br>
+  ※ 人工単価・宿泊費・重機費は案件ごとに変動するため、見積の「社内工数」タブで都度調整してください。
+</div>
+<div style="margin-top:20px;font-size:11px">井上電設株式会社</div>
+</body></html>"""
+
+
+@router.get("/{quotation_id}/labor-sheet")
+def labor_sheet(quotation_id: str, format: str = "html", db: Session = Depends(get_db)):
+    """社内工数試算（社内用）。?format=pdf でPDFを返す（生成できない環境ではHTML）。"""
+    q = db.query(QuotationHeader).options(
+        joinedload(QuotationHeader.labor_details)
+    ).filter(pk_or_code(QuotationHeader.id, QuotationHeader.quotation_no, quotation_id)).first()
+    if not q:
+        raise HTTPException(404)
+    html = _build_labor_html(q, db)
+    if format == "pdf":
+        from app.pdf import html_to_pdf
+        blob = html_to_pdf(html)
+        if blob:
+            return StreamingResponse(
+                io.BytesIO(blob), media_type="application/pdf",
+                headers={"Content-Disposition": f"inline; filename={q.quotation_no}_工数試算.pdf"})
+    return StreamingResponse(
+        io.BytesIO(html.encode("utf-8")), media_type="text/html",
+        headers={"Content-Disposition": f"inline; filename={q.quotation_no}_labor.html"})
 
 
 # =============================================
