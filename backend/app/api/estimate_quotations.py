@@ -1061,6 +1061,7 @@ def _send_approval_mail(q: QuotationHeader, approver: str, token: str, db: Sessi
 
 見積の承認をお願いします。
 
+  案件ID   : {q.child_no or '—'}
   見積番号 : {q.quotation_no}
   件名     : {q.title or '—'}
   注文主   : {q.customer_name or '—'}
@@ -1094,7 +1095,10 @@ def _send_approval_mail(q: QuotationHeader, approver: str, token: str, db: Sessi
         attachments.append((f"{q.quotation_no}_見積書.html", q_html.encode("utf-8"), "html"))
         attachments.append((f"{q.quotation_no}_社内工数試算.html", l_html.encode("utf-8"), "html"))
 
-    r = send_mail(user.email, f"【承認依頼】{q.quotation_no} {q.title or ''}（¥{amount:,}）", body, attachments)
+    _subj_child = f"[{q.child_no}] " if q.child_no else ""
+    r = send_mail(user.email,
+                  f"【承認依頼】{_subj_child}{q.quotation_no} {q.title or ''}（¥{amount:,}）",
+                  body, attachments)
     r["to"] = user.email
     r["attachments"] = [a[0] for a in attachments]
     return r
@@ -1399,6 +1403,11 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
 
     # 明細ページのヘッダー。宛名・条件表は頭紙にあるため繰り返さない
     _child = f'案件ID: {q.child_no}　' if q.child_no else ''
+    # 頭紙は縦並び（No./日付の上に案件子IDを出す）
+    _child_line = f'案件ID: {q.child_no}<br>' if q.child_no else ''
+    _hdr_title = q.title or ' '
+    _hdr_meta = (f"{_child}No. {q.quotation_no}　"
+                 f"日付 {q.issue_date or '    '}　担当: {q.sales_person_name or ' '}")
     _detail_header = f'''
 <table style="width:100%;border-collapse:collapse;margin-bottom:6px">
   <tr>
@@ -1418,7 +1427,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     <tr>
       <td width="110mm" style="border:none"></td>
       <td width="76mm" style="border:none;text-align:right;font-size:11px">
-        No. {q.quotation_no}<br>日付 {q.issue_date or '    '}
+        {_child_line}No. {q.quotation_no}<br>日付 {q.issue_date or '    '}
       </td>
     </tr>
   </table>
@@ -1500,13 +1509,20 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
 <!-- 頭紙: 大分類別 内訳サマリー -->
 {cover_html}
 
-<!-- 内訳明細ページ: ヘッダーは最小限（原本も2枚目以降はNo.と日付のみ） -->
-{_detail_header}
+<!-- 内訳明細ページのヘッダーは明細表の thead に入れてある（ページ跨ぎで繰り返すため） -->
 
 
 <!-- 金額サマリ(1枚目) -->
-<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px">
+<table repeat="2" style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px">
 <thead>
+  <tr><td colspan="{_ncols}" style="border:none;padding:0 0 4px;font-size:10px">
+    <table style="width:100%;border-collapse:collapse">
+      <tr>
+        <td width="80mm" style="border:none;font-size:11px;font-weight:bold">{_hdr_title}</td>
+        <td width="106mm" style="border:none;text-align:right;font-size:9.5px">{_hdr_meta}</td>
+      </tr>
+    </table>
+  </td></tr>
   <tr style="background:#2c3e50;color:#fff">{_thead_cells}</tr>
 </thead>
 <tbody>
@@ -1656,7 +1672,7 @@ def _build_labor_html(q: QuotationHeader, db: Session) -> str:
 <h1 style="font-size:20px;margin:6px 0 12px">社内工数試算</h1>
 <table style="width:100%;font-size:12px;margin-bottom:12px">
   <tr>
-    <td>見積No. <b>{q.quotation_no}</b></td>
+    <td>案件ID: <b>{q.child_no or '—'}</b>　／　見積No. <b>{q.quotation_no}</b></td>
     <td>件名: {q.title or ' '}</td>
     <td>注文主: {q.customer_name or ' '}</td>
     <td style="text-align:right">日付: {q.issue_date or ' '}</td>
