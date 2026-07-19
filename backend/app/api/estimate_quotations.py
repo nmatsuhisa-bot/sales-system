@@ -1021,7 +1021,14 @@ def request_approval(quotation_id: str, data: dict, db: Session = Depends(get_db
         msg += f"（{mail.get('to')} にメール送信）"
     else:
         msg += f"（メールは送信していません: {mail.get('reason')}）"
-    return {"message": msg, "approval_status": q.approval_status, "mail": mail}
+    result = {"message": msg, "approval_status": q.approval_status, "mail": mail}
+    # メールが送れないときは、承認リンクを画面から伝えられるよう返す
+    # （送信できた場合はメール本文にのみ載せ、レスポンスには含めない）
+    if not mail.get("sent"):
+        from app.mailer import app_base_url
+        api = app_base_url().replace("sales-frontend", "sales-backend") + "/api"
+        result["approve_url"] = f"{api}/estimate-quotations/approve-by-link?token={tok.token}"
+    return result
 
 
 def _send_approval_mail(q: QuotationHeader, approver: str, token: str, db: Session) -> dict:
