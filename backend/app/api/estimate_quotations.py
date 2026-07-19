@@ -1319,11 +1319,11 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     # 検印・担当・作成の3枠（原本様式。頭紙右上）
     # 検印・担当・作成（原本は右上に小さく配置）
     stamp_box = f'''
-  <table style="border-collapse:collapse;font-size:8.5px;text-align:center;margin-top:6px">
+  <table align="right" style="border-collapse:collapse;font-size:8.5px;text-align:center;margin-top:4px">
     <tr>
-      <td width="19mm" style="border:1px solid #999;padding:1px 2px;background:#f5f5f5">検 印</td>
-      <td width="19mm" style="border:1px solid #999;padding:1px 2px;background:#f5f5f5">担 当</td>
-      <td width="19mm" style="border:1px solid #999;padding:1px 2px;background:#f5f5f5">作 成</td>
+      <td width="21mm" style="border:1px solid #999;padding:1px 2px;background:#f5f5f5">検 印</td>
+      <td width="21mm" style="border:1px solid #999;padding:1px 2px;background:#f5f5f5">担 当</td>
+      <td width="21mm" style="border:1px solid #999;padding:1px 2px;background:#f5f5f5">作 成</td>
     </tr>
     <tr>
       <td style="border:1px solid #999;padding:5px 2px;height:14px">{(q.approver_name or ' ') if (q.approval_status or 'none') == 'approved' else ' '}</td>
@@ -1398,19 +1398,19 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
   </table>
   <h1 style="text-align:center;font-size:22px;margin:2px 0 10px;letter-spacing:8px">御 見 積 書</h1>
 
-  <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
+  <table style="width:100%;border-collapse:collapse;margin-bottom:2px">
     <tr>
       <td width="110mm" style="border:none;vertical-align:top">
         <div style="font-size:16px;font-weight:bold;border-bottom:2px solid #000;padding-bottom:3px">
           {addressee} &nbsp;&nbsp; 殿
         </div>
-        <div style="margin-top:10px;font-size:15px;font-weight:bold">
+        <div style="margin-top:8px;font-size:15px;font-weight:bold">
           合計金額 ￥<span style="font-size:19px;border-bottom:2px double #000;padding:0 4px">{grand_total:,}-</span>
           <span style="font-size:10px;color:#666">{tax_label}</span>
         </div>
       </td>
-      <td width="76mm" style="border:none;vertical-align:top;font-size:9.5px;line-height:1.5">
-        <div style="font-weight:bold;font-size:12px">井上電設株式会社</div>
+      <td width="76mm" style="border:none;vertical-align:top;font-size:9.5px;line-height:1.45;text-align:right">
+        <div style="font-weight:bold;font-size:13px">井上電設株式会社</div>
         〒460-0022 名古屋市中区金山四丁目3番17号<br>
         TEL (052) 322-5271　FAX (052) 332-5273<br>
         E-mail tech@inoue-d.co.jp
@@ -1419,7 +1419,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     </tr>
   </table>
 
-  <table style="width:100%;border-collapse:collapse;margin-bottom:8px">
+  <table style="width:100%;border-collapse:collapse;margin-bottom:6px">
     <tr>
       <td width="110mm" style="border:none;vertical-align:top">
         <table style="border-collapse:collapse;font-size:10px;width:100%">
@@ -1508,7 +1508,6 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
 </tfoot>
 </table>
 {tax_note}
-{exclusions_html}
 
 <!-- 会社情報フッター -->
 <table style="margin-top:30px;border:2px solid #000;width:100%;border-collapse:collapse">
