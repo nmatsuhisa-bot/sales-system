@@ -1082,9 +1082,11 @@ def _send_approval_mail(q: QuotationHeader, approver: str, token: str, db: Sessi
     # 添付（PDFを作れない環境ではHTMLで代替する）
     attachments = []
     q_html = _build_quotation_html(q, is_draft=True, for_pdf=True)
+    _q_watermark = "draft"
     l_html = _build_labor_html(q, db)
-    for name, html in ((f"{q.quotation_no}_見積書", q_html), (f"{q.quotation_no}_社内工数試算", l_html)):
-        blob = html_to_pdf(html)
+    for name, html, wm in ((f"{q.quotation_no}_見積書", q_html, _q_watermark),
+                           (f"{q.quotation_no}_社内工数試算", l_html, None)):
+        blob = html_to_pdf(html, watermark=wm)
         if blob:
             attachments.append((f"{name}.pdf", blob, "pdf"))
         else:
@@ -1134,7 +1136,8 @@ def export_pdf(quotation_id: str, format: str = "html", db: Session = Depends(ge
     _is_draft = (q.approval_status or 'none') != 'approved'
     if format == "pdf":
         from app.pdf import html_to_pdf
-        blob = html_to_pdf(_build_quotation_html(q, is_draft=_is_draft, for_pdf=True))
+        blob = html_to_pdf(_build_quotation_html(q, is_draft=_is_draft, for_pdf=True),
+                           watermark="draft" if _is_draft else None)
         if blob:
             return StreamingResponse(
                 io.BytesIO(blob), media_type="application/pdf",
@@ -1153,10 +1156,8 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     if not is_draft:
         draft_watermark = ""
     elif for_pdf:
-        draft_watermark = ('''
-<div style="border:2px solid #c0392b;color:#c0392b;font-weight:bold;text-align:center;
-    padding:4px;margin-bottom:10px;font-size:16px;letter-spacing:8px">draft（未承認）</div>
-''')
+        # PDFは生成後に斜めの透かしを全ページへ重ねる（html_to_pdfのwatermark引数）
+        draft_watermark = ""
     else:
         draft_watermark = ('''
 <div style="position:fixed;top:38%;left:8%;right:8%;text-align:center;z-index:999;pointer-events:none;
@@ -1181,7 +1182,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     _spec_wrap = "" if for_pdf else "white-space:pre-wrap"
     # PDFは「品名・仕様」を1列にまとめる（原本のケイテック様見積と同じ様式）。
     # 7列のままだと詳細列が潰れて文字が重なるため。画面(HTML)は従来どおり7列。
-    _ncols = 6 if for_pdf else 7
+    _ncols = 5 if for_pdf else 7
     _span = _ncols - 1
 
     def _spec(item) -> str:
@@ -1199,12 +1200,18 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
             name_cell = (f'<td style="border:1px solid #ccc;{pad}">{item.item_name}</td>'
                          f'<td style="border:1px solid #ccc;padding:4px 8px;font-size:11px;'
                          f'{_spec_wrap}">{_spec(item)}</td>')
+        if for_pdf:
+            # 原本と同じ「1式」表記。数量と単位を1列にまとめる
+            qty_cells = (f'<td style="text-align:center;border:1px solid #ccc;padding:4px 4px">'
+                         f'{int(item.quantity or 1)}{item.unit or "式"}</td>')
+        else:
+            qty_cells = (f'<td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{int(item.quantity or 1)}</td>'
+                         f'<td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{item.unit or "式"}</td>')
         return f"""
             <tr>
                 <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{no}</td>
                 {name_cell}
-                <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{int(item.quantity or 1)}</td>
-                <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{item.unit or '式'}</td>
+                {qty_cells}
                 <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">{_uprice_cell(item)}</td>
                 <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">{_amt_cell(item)}</td>
             </tr>"""
@@ -1271,9 +1278,10 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
         label = sec or "（未分類）"
         sec_total = sum(int(i.amount or 0) for i in items)
         section_rows += f'''<tr>
-            <td style="border:1px solid #ccc;padding:6px 12px;text-align:center">{sec_no}</td>
-            <td style="border:1px solid #ccc;padding:6px 12px">{label}</td>
-            <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{sec_total:,}</td></tr>'''
+            <td style="border:1px solid #999;padding:5px 6px;text-align:center">{sec_no}</td>
+            <td style="border:1px solid #999;padding:5px 8px">{label}</td>
+            <td style="border:1px solid #999;padding:5px 4px;text-align:center">1式</td>
+            <td style="border:1px solid #999;padding:5px 8px;text-align:right">¥{sec_total:,}</td></tr>'''
     # 社内工数は顧客向け見積書に出さない（金額にも含めない）。
     # 取付工費などを見積に載せる場合は明細行として入力する。
 
@@ -1289,13 +1297,13 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     # 出精値引行（原本様式: 小計金額 → 出精値引 → 合計金額）
     discount_row = f'''
     <tr>
-      <td colspan="2" style="border:1px solid #ccc;padding:6px 12px;text-align:right">出精値引</td>
-      <td style="border:1px solid #ccc;padding:6px 12px;text-align:right;color:#c0392b">-¥{_discount:,}</td></tr>''' if _discount else ''
+      <td colspan="3" style="border:1px solid #999;padding:5px 8px;text-align:right">出精値引</td>
+      <td style="border:1px solid #999;padding:5px 8px;text-align:right;color:#c0392b">-¥{_discount:,}</td></tr>''' if _discount else ''
     # 税抜表示のときは消費税行を出さない（合計＝税抜金額）。頭紙と明細でcolspanが異なる
     tax_row = '' if _tax_excluded else f'''
     <tr>
-      <td colspan="2" style="border:1px solid #ccc;padding:6px 12px;text-align:right">消費税({int(q.tax_rate or 10)}%)</td>
-      <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{int(q.tax_amount or 0):,}</td></tr>'''
+      <td colspan="3" style="border:1px solid #999;padding:5px 8px;text-align:right">消費税({int(q.tax_rate or 10)}%)</td>
+      <td style="border:1px solid #999;padding:5px 8px;text-align:right">¥{int(q.tax_amount or 0):,}</td></tr>'''
     # 社内工数は見積書に出さない（社内工数試算シートで確認する）
     labor_row_detail = ''
     discount_row_detail = f'''
@@ -1309,17 +1317,18 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.tax_amount or 0):,}</td>
   </tr>'''
     # 検印・担当・作成の3枠（原本様式。頭紙右上）
+    # 検印・担当・作成（原本は右上に小さく配置）
     stamp_box = f'''
-  <table style="border-collapse:collapse;font-size:11px;margin-left:auto;margin-bottom:6px;text-align:center">
+  <table style="border-collapse:collapse;font-size:8.5px;text-align:center;margin-top:6px">
     <tr>
-      <td style="border:1px solid #999;padding:2px 14px;background:#f5f5f5">検 印</td>
-      <td style="border:1px solid #999;padding:2px 14px;background:#f5f5f5">担 当</td>
-      <td style="border:1px solid #999;padding:2px 14px;background:#f5f5f5">作 成</td>
+      <td width="19mm" style="border:1px solid #999;padding:1px 2px;background:#f5f5f5">検 印</td>
+      <td width="19mm" style="border:1px solid #999;padding:1px 2px;background:#f5f5f5">担 当</td>
+      <td width="19mm" style="border:1px solid #999;padding:1px 2px;background:#f5f5f5">作 成</td>
     </tr>
     <tr>
-      <td style="border:1px solid #999;padding:6px 8px;min-width:64px">{(q.approver_name or ' ') if (q.approval_status or 'none') == 'approved' else ' '}</td>
-      <td style="border:1px solid #999;padding:6px 8px;min-width:64px">{q.sales_person_name or ' '}</td>
-      <td style="border:1px solid #999;padding:6px 8px;min-width:64px">{q.created_by_name or ' '}</td>
+      <td style="border:1px solid #999;padding:5px 2px;height:14px">{(q.approver_name or ' ') if (q.approval_status or 'none') == 'approved' else ' '}</td>
+      <td style="border:1px solid #999;padding:5px 2px">{q.sales_person_name or ' '}</td>
+      <td style="border:1px solid #999;padding:5px 2px">{q.created_by_name or ' '}</td>
     </tr>
   </table>'''
 
@@ -1327,12 +1336,11 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     # PDFは品名と詳細を1列にまとめるので6列、画面は7列。
     if for_pdf:
         _thead_cells = (
-            '<th width="13mm" style="border:1px solid #ccc;padding:5px 6px;text-align:center">番号</th>'
-            '<th width="70mm" style="border:1px solid #ccc;padding:5px 6px;text-align:left">品名 ・ 仕様</th>'
-            '<th width="11mm" style="border:1px solid #ccc;padding:5px 4px;text-align:center">数量</th>'
-            '<th width="11mm" style="border:1px solid #ccc;padding:5px 4px;text-align:center">単位</th>'
-            '<th width="28mm" style="border:1px solid #ccc;padding:5px 6px;text-align:right">単価</th>'
-            '<th width="28mm" style="border:1px solid #ccc;padding:5px 6px;text-align:right">金額</th>')
+            '<th width="14mm" style="border:1px solid #999;padding:5px 6px;text-align:center">番 号</th>'
+            '<th width="82mm" style="border:1px solid #999;padding:5px 6px;text-align:center">品 名 ・ 仕 様</th>'
+            '<th width="16mm" style="border:1px solid #999;padding:5px 4px;text-align:center">数 量</th>'
+            '<th width="30mm" style="border:1px solid #999;padding:5px 6px;text-align:center">単 価</th>'
+            '<th width="30mm" style="border:1px solid #999;padding:5px 6px;text-align:center">金 額</th>')
     else:
         _thead_cells = (
             '<th style="border:1px solid #ccc;padding:5px 8px;text-align:center;width:40px">番号</th>'
@@ -1351,8 +1359,8 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
         _rows = "".join(
             f'<tr><td style="padding:1px 10px;border:none">{l}</td></tr>' for l in _exc)
         exclusions_html = f'''
-  <div style="margin-top:16px;font-size:11px">
-    <div style="font-weight:bold;margin-bottom:4px">※ 御見積除外事項</div>
+  <div style="margin-top:10px;font-size:10px">
+    <div style="font-weight:bold;margin-bottom:3px">※ 御見積除外事項</div>
     <table style="width:100%;border:1px solid #ccc;border-collapse:collapse;font-size:11px">
       {_rows}
     </table>
@@ -1363,38 +1371,94 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     delivery_place = q.delivery_place or q.delivery_name or " "
     valid_until_disp = q.valid_until_text or (q.valid_until or " ")
 
+    # 明細ページのヘッダー。宛名・条件表は頭紙にあるため繰り返さない
+    _child = f'案件ID: {q.child_no}　' if q.child_no else ''
+    _detail_header = f'''
+<table style="width:100%;border-collapse:collapse;margin-bottom:6px">
+  <tr>
+    <td width="110mm" style="border:none;font-size:11px;font-weight:bold">{q.title or ' '}</td>
+    <td width="76mm" style="border:none;text-align:right;font-size:10px">
+      {_child}No. {q.quotation_no}　日付 {q.issue_date or '    '}　担当: {q.sales_person_name or ' '}
+    </td>
+  </tr>
+</table>'''
+
+    # 頭紙。原本（ケイテック様 御見積書）の配置に合わせる:
+    #   タイトル中央 → 宛名(左)/No.日付(右) → 合計金額(左)/会社情報・検印(右)
+    #   → 条件表(左) → 大分類別の内訳（横幅いっぱい）
     cover_html = f'''
-<div style="page-break-after:always">
-  <div style="text-align:right;font-size:12px">No. {q.quotation_no}</div>
-  <div style="text-align:right;font-size:12px;margin-bottom:4px">日付 {q.issue_date or '    '}</div>
-  <h1 style="text-align:center;font-size:24px;margin:6px 0 14px;letter-spacing:8px">御 見 積 書</h1>
-  {stamp_box}
-  <div style="font-size:18px;font-weight:bold;border-bottom:2px solid #000;padding-bottom:4px">{addressee} &nbsp; 殿</div>
-  <div style="margin:8px 0 18px;font-size:12px">件名: {q.title or ' '}　／　納入先: {q.delivery_name or ' '}　／　担当: {q.sales_person_name or ' '}</div>
-  <table style="width:100%;margin-bottom:18px"><tr>
-    <td style="font-size:16px;font-weight:bold;white-space:nowrap">合計金額　￥<span style="font-size:22px;border-bottom:3px double #000;padding:0 6px">{grand_total:,}-</span>　<span style="font-size:11px;color:#888">{tax_label}</span></td>
-  </tr></table>
-  <h3 style="font-size:14px;margin:10px 0 6px">■ 大分類別 内訳（総括）</h3>
-  <table style="width:68%;border-collapse:collapse;font-size:13px">
+<div>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:2px">
+    <tr>
+      <td width="110mm" style="border:none"></td>
+      <td width="76mm" style="border:none;text-align:right;font-size:11px">
+        No. {q.quotation_no}<br>日付 {q.issue_date or '    '}
+      </td>
+    </tr>
+  </table>
+  <h1 style="text-align:center;font-size:22px;margin:2px 0 10px;letter-spacing:8px">御 見 積 書</h1>
+
+  <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
+    <tr>
+      <td width="110mm" style="border:none;vertical-align:top">
+        <div style="font-size:16px;font-weight:bold;border-bottom:2px solid #000;padding-bottom:3px">
+          {addressee} &nbsp;&nbsp; 殿
+        </div>
+        <div style="margin-top:10px;font-size:15px;font-weight:bold">
+          合計金額 ￥<span style="font-size:19px;border-bottom:2px double #000;padding:0 4px">{grand_total:,}-</span>
+          <span style="font-size:10px;color:#666">{tax_label}</span>
+        </div>
+      </td>
+      <td width="76mm" style="border:none;vertical-align:top;font-size:9.5px;line-height:1.5">
+        <div style="font-weight:bold;font-size:12px">井上電設株式会社</div>
+        〒460-0022 名古屋市中区金山四丁目3番17号<br>
+        TEL (052) 322-5271　FAX (052) 332-5273<br>
+        E-mail tech@inoue-d.co.jp
+        {stamp_box}
+      </td>
+    </tr>
+  </table>
+
+  <table style="width:100%;border-collapse:collapse;margin-bottom:8px">
+    <tr>
+      <td width="110mm" style="border:none;vertical-align:top">
+        <table style="border-collapse:collapse;font-size:10px;width:100%">
+          <tr><td width="26mm" style="border:1px solid #999;padding:3px 6px;background:#f5f5f5">納入期限</td>
+              <td style="border:1px solid #999;padding:3px 8px">{q.delivery_terms or ' '}</td></tr>
+          <tr><td style="border:1px solid #999;padding:3px 6px;background:#f5f5f5">受渡場所</td>
+              <td style="border:1px solid #999;padding:3px 8px">{delivery_place}</td></tr>
+          <tr><td style="border:1px solid #999;padding:3px 6px;background:#f5f5f5">見積有効期限</td>
+              <td style="border:1px solid #999;padding:3px 8px">{valid_until_disp}</td></tr>
+          <tr><td style="border:1px solid #999;padding:3px 6px;background:#f5f5f5">御支払条件</td>
+              <td style="border:1px solid #999;padding:3px 8px">{q.payment_terms or ' '}</td></tr>
+        </table>
+      </td>
+      <td width="76mm" style="border:none"></td>
+    </tr>
+  </table>
+  <div style="font-size:10px;margin-bottom:8px">件名: {q.title or ' '}　／　納入先: {q.delivery_name or ' '}　／　担当: {q.sales_person_name or ' '}</div>
+
+  <table style="width:100%;border-collapse:collapse;font-size:11px">
     <tr style="background:#2c3e50;color:#fff">
-      <th style="border:1px solid #ccc;padding:6px 12px;text-align:center;width:50px">No.</th>
-      <th style="border:1px solid #ccc;padding:6px 12px;text-align:left">大分類</th>
-      <th style="border:1px solid #ccc;padding:6px 12px;text-align:right;width:170px">金額</th>
+      <th width="14mm" style="border:1px solid #999;padding:5px 6px;text-align:center">番 号</th>
+      <th width="112mm" style="border:1px solid #999;padding:5px 6px;text-align:center">品 名 ・ 仕 様</th>
+      <th width="16mm" style="border:1px solid #999;padding:5px 4px;text-align:center">数 量</th>
+      <th width="44mm" style="border:1px solid #999;padding:5px 6px;text-align:center">金 額</th>
     </tr>
     {section_rows}
     <tr style="font-weight:bold;background:#f5f5f5">
-      <td colspan="2" style="border:1px solid #ccc;padding:6px 12px;text-align:right">小計金額</td>
-      <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{_subtotal_all:,}</td></tr>
+      <td colspan="3" style="border:1px solid #999;padding:5px 8px;text-align:right">小計金額</td>
+      <td style="border:1px solid #999;padding:5px 8px;text-align:right">¥{_subtotal_all:,}</td></tr>
     {discount_row}
     {tax_row}
-    <tr style="font-weight:bold;background:#fff9c4;font-size:15px">
-      <td colspan="2" style="border:2px solid #000;padding:8px 12px;text-align:right">合計金額{tax_label}</td>
-      <td style="border:2px solid #000;padding:8px 12px;text-align:right">¥{grand_total:,}</td></tr>
+    <tr style="font-weight:bold;background:#fff9c4;font-size:13px">
+      <td colspan="3" style="border:2px solid #000;padding:6px 8px;text-align:right">合計金額{tax_label}</td>
+      <td style="border:2px solid #000;padding:6px 8px;text-align:right">¥{grand_total:,}</td></tr>
   </table>
   {tax_note}
   {exclusions_html}
-  <div style="margin-top:14px;font-size:11px;color:#666">※ 内訳明細は次ページ以降をご参照ください。</div>
 </div>
+<div style="page-break-before:always"></div>
 '''
 
     return f"""<!DOCTYPE html>
@@ -1417,47 +1481,9 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
 <!-- 頭紙: 大分類別 内訳サマリー -->
 {cover_html}
 
-<!-- 内訳明細ページ: ヘッダー -->
-<div style="text-align:right;margin-bottom:8px">No. {q.quotation_no}</div>
-<div style="text-align:right;margin-bottom:4px">日付 {q.issue_date or '    '}</div>
+<!-- 内訳明細ページ: ヘッダーは最小限（原本も2枚目以降はNo.と日付のみ） -->
+{_detail_header}
 
-<h1 style="text-align:center;font-size:24px;margin:10px 0;letter-spacing:8px">御 見 積 書</h1>
-
-<table style="width:100%;margin-bottom:15px" cellspacing="0">
-  <tr>
-    <td style="width:55%;vertical-align:bottom">
-      <div style="font-size:18px;font-weight:bold;border-bottom:2px solid #000;padding-bottom:4px">
-        {addressee} &nbsp; 殿
-      </div>
-      <div style="margin-top:6px;font-size:12px">納入先: {q.delivery_name or ' '}</div>
-    </td>
-    <td style="width:45%;vertical-align:top;padding-left:20px">
-      <table cellspacing="0" style="font-size:11px">
-        <tr><td colspan="2" style="font-size:18px;font-weight:bold">合計金額 ￥&nbsp;
-          <span style="font-size:22px">{grand_total:,}</span>
-        </td></tr>
-        <tr><td style="color:#888">{tax_label}</td></tr>
-        <tr><td colspan="2" style="padding-top:8px">
-          <table style="font-size:11px;border-collapse:collapse;width:100%">
-            <tr><td width="24mm" style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">納入期限</td><td width="52mm" style="border:1px solid #ccc;padding:3px 8px">{q.delivery_terms or ' '}</td></tr>
-            <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">受渡場所</td><td style="border:1px solid #ccc;padding:3px 8px">{delivery_place}</td></tr>
-            <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">見積有効期限</td><td style="border:1px solid #ccc;padding:3px 8px">{valid_until_disp}</td></tr>
-            <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">御支払条件</td><td style="border:1px solid #ccc;padding:3px 8px">{q.payment_terms or ' '}</td></tr>
-          </table>
-        </td></tr>
-      </table>
-    </td>
-  </tr>
-</table>
-
-<table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:12px">
-  <tr style="border-bottom:1px solid #000">
-    <td style="width:50%;padding:4px">件名: {q.title or ' '}</td>
-    <td style="width:50%;text-align:right;padding:4px">
-      担当: {q.sales_person_name or ' '}
-    </td>
-  </tr>
-</table>
 
 <!-- 金額サマリ(1枚目) -->
 <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px">
