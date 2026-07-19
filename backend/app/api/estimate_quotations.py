@@ -1079,18 +1079,20 @@ def _send_approval_mail(q: QuotationHeader, approver: str, token: str, db: Sessi
 --
 井上電設 販売管理システム（自動送信）
 """
-    # 添付（PDFを作れない環境ではHTMLで代替する）
+    # 添付は「見積書＋社内工数試算」を1ファイルに結合して送る。
+    # PDFを作れない環境ではHTMLで個別に添付する。
+    from app.pdf import merge_pdfs
     attachments = []
     q_html = _build_quotation_html(q, is_draft=True, for_pdf=True)
-    _q_watermark = "draft"
     l_html = _build_labor_html(q, db)
-    for name, html, wm in ((f"{q.quotation_no}_見積書", q_html, _q_watermark),
-                           (f"{q.quotation_no}_社内工数試算", l_html, None)):
-        blob = html_to_pdf(html, watermark=wm)
-        if blob:
-            attachments.append((f"{name}.pdf", blob, "pdf"))
-        else:
-            attachments.append((f"{name}.html", html.encode("utf-8"), "html"))
+    q_pdf = html_to_pdf(q_html, watermark="draft")
+    l_pdf = html_to_pdf(l_html)
+    merged = merge_pdfs([q_pdf, l_pdf])
+    if merged:
+        attachments.append((f"{q.quotation_no}_見積書(社内工数試算付).pdf", merged, "pdf"))
+    else:
+        attachments.append((f"{q.quotation_no}_見積書.html", q_html.encode("utf-8"), "html"))
+        attachments.append((f"{q.quotation_no}_社内工数試算.html", l_html.encode("utf-8"), "html"))
 
     r = send_mail(user.email, f"【承認依頼】{q.quotation_no} {q.title or ''}（¥{amount:,}）", body, attachments)
     r["to"] = user.email
@@ -1402,7 +1404,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     <tr>
       <td width="110mm" style="border:none;vertical-align:top">
         <div style="font-size:16px;font-weight:bold;border-bottom:2px solid #000;padding-bottom:3px">
-          {addressee} &nbsp;&nbsp; 殿
+          {addressee}　　殿
         </div>
         <div style="margin-top:8px;font-size:15px;font-weight:bold">
           合計金額 ￥<span style="font-size:19px;border-bottom:2px double #000;padding:0 4px">{grand_total:,}-</span>

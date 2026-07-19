@@ -147,3 +147,24 @@ def _overlay_watermark(pdf_bytes: bytes, text: str) -> Optional[bytes]:
     except Exception as e:
         log.warning("透かしの重ね合わせに失敗: %s", e)
         return None
+
+
+def merge_pdfs(blobs) -> Optional[bytes]:
+    """複数のPDFを1つに結合する（見積書＋社内工数試算を1ファイルで送るため）"""
+    blobs = [b for b in blobs if b]
+    if not blobs:
+        return None
+    if len(blobs) == 1:
+        return blobs[0]
+    try:
+        from pypdf import PdfReader, PdfWriter
+        writer = PdfWriter()
+        for b in blobs:
+            for page in PdfReader(io.BytesIO(b)).pages:
+                writer.add_page(page)
+        out = io.BytesIO()
+        writer.write(out)
+        return out.getvalue()
+    except Exception as e:
+        log.warning("PDFの結合に失敗: %s", e)
+        return None
