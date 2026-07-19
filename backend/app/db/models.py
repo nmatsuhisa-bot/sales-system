@@ -750,6 +750,25 @@ class OrderTicket(Base):
     project_order = relationship("ProjectOrder", foreign_keys=[project_order_id])
 
 
+class ApprovalToken(Base):
+    """メールの承認リンク用トークン（有効期限つき・1回限り）
+
+    リンクを開いた人が承認できる仕組みのため、次の制限をかけている:
+      - expires_at を過ぎたら無効
+      - 一度使ったら used_at が入り再利用不可
+      - 見積の内容が変わると承認は解除されるため、古いリンクは実質失効する
+    """
+    __tablename__ = "approval_tokens"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    token = Column(String(64), unique=True, nullable=False, index=True)
+    quotation_id = Column(UUID(as_uuid=True), ForeignKey("quotation_headers.id", ondelete="CASCADE"), nullable=False)
+    approver_name = Column(String(100), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime)
+    used_from_ip = Column(String(64))
+    created_at = Column(DateTime, server_default=func.now())
+
+
 class OrderTicketFile(Base):
     """受注票の関連書類（注文書・契約書等のPDF）。
     Renderのディスクは再デプロイで消えるため、DBに直接保管する（1件10MBまで）。"""

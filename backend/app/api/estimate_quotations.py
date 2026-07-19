@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """見積書 API"""
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, Request
+from fastapi.responses import StreamingResponse, HTMLResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc, or_, func
 from typing import Optional, List
@@ -12,7 +12,7 @@ import io, uuid, collections
 from app.normalize import nfkc
 from app.db.models import (
     get_db, pk_or_code, QuotationHeader, QuotationLineItem, QuotationLaborDetail,
-    OrderTicket, OrderTicketFile, ProjectOrder, Project,
+    OrderTicket, OrderTicketFile, ApprovalToken, ProjectOrder, Project,
     EstimateBfrBody, EstimateBfrFan, EstimateBfrRv,
     EstimateBfqSeries, EstimateBfqBody, EstimateBfqFan, EstimateBfqOption,
     EstimateScaBody, EstimatePlFan, EstimateCyclone, EstimateAutoDamper, EstimateLaborItem
@@ -22,6 +22,9 @@ router = APIRouter()
 
 # 工番/単番は案件子ID(ProjectOrder.ticket_type)で登録時に選択する（2026-07-18〜）。
 # 税抜300万円による自動判定は廃止したため、しきい値は使用しない。
+
+# メールの承認リンクの有効期間（時間）。1回使うと無効になる
+APPROVAL_LINK_HOURS = 72
 
 # CAD図面(DXF)を直接アップロードする場合の上限。
 # 実運用の図面(13〜101MB)はブラウザ側で走査して /from-cad-extract へ送るため、
@@ -948,8 +951,138 @@ def request_approval(quotation_id: str, data: dict, db: Session = Depends(get_db
     q.approval_status = "pending"
     q.approval_requested_at = datetime.now()
     q.approved_at = None
+
+    # 承認リンク用トークン（72時間・1回限り）。古い未使用トークンは無効化する
+    import secrets
+    from datetime import timedelta
+    db.query(ApprovalToken).filter(
+        ApprovalToken.quotation_id == q.id, ApprovalToken.used_at.is_(None)
+    ).update({"expires_at": datetime.now()}, synchronize_session=False)
+    tok = ApprovalToken(
+        token=secrets.token_urlsafe(32), quotation_id=q.id, approver_name=approver,
+        expires_at=datetime.now() + timedelta(hours=APPROVAL_LINK_HOURS),
+    )
+    db.add(tok)
     db.commit()
-    return {"message": f"{q.approver_name} に承認依頼しました", "approval_status": q.approval_status}
+
+    mail = _send_approval_mail(q, approver, tok.token, db)
+    msg = f"{q.approver_name} に承認依頼しました"
+    if mail.get("sent"):
+        msg += f"（{mail.get('to')} にメール送信）"
+    else:
+        msg += f"（メールは送信していません: {mail.get('reason')}）"
+    return {"message": msg, "approval_status": q.approval_status, "mail": mail}
+
+
+def _send_approval_mail(q: QuotationHeader, approver: str, token: str, db: Session) -> dict:
+    """承認依頼メールを送る。見積書と社内工数試算をPDFで添付し、承認リンクを載せる。
+
+    メールが送れなくても承認依頼自体は成立させる（画面の承認待ちバナーで通知される）。
+    """
+    from app.mailer import send_mail, app_base_url, mail_configured
+    from app.pdf import html_to_pdf
+    from app.db.models import User
+
+    if not mail_configured():
+        return {"sent": False, "reason": "メール未設定（Renderの環境変数 MAIL_FROM / MAIL_APP_PASSWORD を登録してください）"}
+
+    user = db.query(User).filter(User.full_name == approver, User.is_active == True).first()
+    if not user or not user.email:
+        return {"sent": False, "reason": f"{approver} のメールアドレスが未登録です"}
+
+    base = app_base_url()
+    api = base.replace("sales-frontend", "sales-backend") + "/api"
+    approve_url = f"{api}/estimate-quotations/approve-by-link?token={token}"
+    detail_url = f"{base}/estimates/{q.id}/edit"
+
+    amount = net_amount(q)
+    body = f"""{approver} 様
+
+見積の承認をお願いします。
+
+  見積番号 : {q.quotation_no}
+  件名     : {q.title or '—'}
+  注文主   : {q.customer_name or '—'}
+  金額     : ¥{amount:,}（税抜）
+  依頼者   : {q.created_by_name or q.sales_person_name or '—'}
+
+▼ このリンクを開くと承認が完了します（有効期限 {APPROVAL_LINK_HOURS} 時間・1回限り）
+{approve_url}
+
+▼ 内容を確認してから承認する場合はこちら（ログインが必要です）
+{detail_url}
+
+添付の見積書をご確認ください。社内工数試算は社内資料のため、取扱いにご注意ください。
+承認されるまで、見積書には「draft」の透かしが入ります。
+
+--
+井上電設 販売管理システム（自動送信）
+"""
+    # 添付（PDFを作れない環境ではHTMLで代替する）
+    attachments = []
+    q_html = _build_quotation_html(q, is_draft=True)
+    l_html = _build_labor_html(q, db)
+    for name, html in ((f"{q.quotation_no}_見積書", q_html), (f"{q.quotation_no}_社内工数試算", l_html)):
+        blob = html_to_pdf(html)
+        if blob:
+            attachments.append((f"{name}.pdf", blob, "pdf"))
+        else:
+            attachments.append((f"{name}.html", html.encode("utf-8"), "html"))
+
+    r = send_mail(user.email, f"【承認依頼】{q.quotation_no} {q.title or ''}（¥{amount:,}）", body, attachments)
+    r["to"] = user.email
+    r["attachments"] = [a[0] for a in attachments]
+    return r
+
+
+@router.get("/approve-by-link")
+def approve_by_link(token: str, request: Request, db: Session = Depends(get_db)):
+    """メールの承認リンク。有効期限内・未使用のトークンでのみ承認する。
+
+    ブラウザで開かれるため、結果はHTMLで返す。
+    """
+    def _page(title: str, msg: str, color: str) -> HTMLResponse:
+        return HTMLResponse(f"""<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
+<title>{title}</title></head>
+<body style="font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:#f3f4f6;padding:40px">
+  <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;padding:28px;box-shadow:0 1px 4px rgba(0,0,0,.1)">
+    <h1 style="font-size:20px;color:{color};margin:0 0 12px">{title}</h1>
+    <p style="font-size:14px;color:#374151;line-height:1.8;white-space:pre-wrap">{msg}</p>
+    <p style="margin-top:20px"><a href="{app_base_url_safe()}" style="color:#2563eb">販売管理システムを開く</a></p>
+  </div>
+</body></html>""")
+
+    t = db.query(ApprovalToken).filter(ApprovalToken.token == token).first()
+    if not t:
+        return _page("リンクが無効です", "承認リンクが見つかりません。メールのURLが途中で切れていないかご確認ください。", "#c0392b")
+    if t.used_at:
+        return _page("このリンクは使用済みです",
+                     f"{t.used_at.strftime('%Y/%m/%d %H:%M')} に承認済みです。\n再度承認する場合は画面から操作してください。", "#c0392b")
+    if t.expires_at and t.expires_at < datetime.now():
+        return _page("リンクの有効期限が切れています",
+                     f"承認リンクは発行から{APPROVAL_LINK_HOURS}時間で失効します。\n依頼者に再送を依頼してください。", "#c0392b")
+
+    q = db.query(QuotationHeader).filter(QuotationHeader.id == t.quotation_id).first()
+    if not q:
+        return _page("見積が見つかりません", "対象の見積が削除された可能性があります。", "#c0392b")
+    if (q.approval_status or "none") != "pending":
+        return _page("承認待ちではありません",
+                     f"現在の状態: {q.approval_status}\n見積の内容が変更されると承認依頼は取り消されます。", "#c0392b")
+
+    q.approval_status = "approved"
+    q.approved_at = datetime.now()
+    q.approver_name = t.approver_name
+    t.used_at = datetime.now()
+    t.used_from_ip = (request.client.host if request.client else None)
+    db.commit()
+    return _page("承認しました",
+                 f"{q.quotation_no}　{q.title or ''}\n検印: {t.approver_name}\n\n"
+                 "見積書の「draft」透かしが外れ、正式に発行できる状態になりました。", "#15803d")
+
+
+def app_base_url_safe() -> str:
+    from app.mailer import app_base_url
+    return app_base_url()
 
 @router.post("/{quotation_id}/approve")
 def approve_quotation(quotation_id: str, db: Session = Depends(get_db)):

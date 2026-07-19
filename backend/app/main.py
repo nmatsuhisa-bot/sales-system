@@ -468,6 +468,14 @@ def setup_function_roles():
             "ユーザー未登録（要手動設定）": unmatched + ["井上社長", "柴田", "江里口"]}
 
 
+@app.get("/setup-approval-tokens")
+def setup_approval_tokens():
+    """メールの承認リンク用トークンのテーブルを作成する（冪等）。"""
+    from app.db.models import engine, ApprovalToken
+    ApprovalToken.__table__.create(bind=engine, checkfirst=True)
+    return {"status": "ok", "message": "承認リンク用トークンのテーブルを作成しました"}
+
+
 @app.get("/setup-approver-users")
 def setup_approver_users():
     """検印承認者3名（柴田・江里口・井上社長）をテスト用に登録する。
