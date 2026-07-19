@@ -1009,6 +1009,12 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False) -> str:
 
     for sec_no, (sec, items) in enumerate(sections.items(), 1):
         sec_total = sum(int(i.amount or 0) for i in items)
+        # 内訳を持たない大項目（明細1行・中分類なし）は、見出し行と小計行を出さず
+        # 大項目番号のまま1行で表示する。原本（ケイテック様 大項目2・5〜10）の様式。
+        # これをしないと「見出し＋子行1つ＋小計」で同じ金額が3行並んでしまう。
+        if len(items) == 1 and not items[0].sub_section:
+            items_html += _item_row(str(sec_no), items[0])
+            continue
         # 大分類の見出し行（番号付き）
         items_html += f"""
             <tr style="background:#e8eef5;font-weight:bold">
