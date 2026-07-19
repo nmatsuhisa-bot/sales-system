@@ -109,10 +109,12 @@ export default function EstimateFormPage() {
   });
 
   // 合計計算（出精値引は税抜小計から差し引き、値引後に課税）
+  // ★社内工数は見積金額に含めない。工数タブは社内原価の試算専用で、
+  //   取付工費などを見積に載せる場合は明細行として入力する
   const itemsTotal = lineItems.reduce((s, i) => s + i.unit_price * i.quantity, 0);
   const laborTotal = laborDetails.reduce((s, l) => s + l.unit_price * l.quantity, 0);
   const discount = Number(header.discount_amount) || 0;
-  const subtotal = itemsTotal + laborTotal - discount;
+  const subtotal = itemsTotal - discount;
   const tax = Math.floor(subtotal * 0.1);
   const total = subtotal + tax;
 
@@ -815,7 +817,9 @@ export default function EstimateFormPage() {
         <div className="flex justify-end">
           <div className="w-80 space-y-1.5 text-sm">
             <div className="flex justify-between text-gray-600"><span>機器・工事小計</span><span>¥{itemsTotal.toLocaleString()}</span></div>
-            <div className="flex justify-between text-gray-600"><span>社内工数小計</span><span>¥{laborTotal.toLocaleString()}</span></div>
+            <div className="flex justify-between text-gray-400">
+              <span>社内工数（見積金額には含みません）</span><span>¥{laborTotal.toLocaleString()}</span>
+            </div>
             <div className="flex justify-between items-center text-gray-600">
               <span>出精値引</span>
               <span className="flex items-center gap-1 text-red-600">−¥

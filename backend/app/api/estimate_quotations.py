@@ -35,10 +35,15 @@ MAX_CAD_FILE_SIZE = 8 * 1024 * 1024
 # 以前はここに氏名をハードコードしていたが、ユーザー管理画面で設定する方式に変更した。
 
 def net_amount(q: "QuotationHeader") -> int:
-    """見積の税抜合計（機器・工事 + 社内工数 − 出精値引）。
+    """見積の税抜合計（機器・工事 − 出精値引）。
+
+    ★社内工数(labor_total)は含めない（2026-07-19〜）。
+      工数タブは社内原価の試算専用で、顧客向けの見積金額には影響しない。
+      取付工費などを見積に載せる場合は明細行として入力する（原本の様式）。
+      これにより「明細に取付工費、工数タブにその根拠」を二重計上せず両立できる。
     案件金額・受注票・売上計画表など社内の集計金額はすべてこの税抜金額で統一する。
     総額(total_amount)は税込のまま保持し、見積書の印字にのみ使う。"""
-    return int((q.subtotal or 0) + (q.labor_total or 0) - (q.discount_amount or 0))
+    return int((q.subtotal or 0) - (q.discount_amount or 0))
 
 def _sync_project_final_amount(project_order: "ProjectOrder", db: Session):
     """受注票発行・見積採用時に親案件の最終受注金額を子ID合計で自動更新する"""
@@ -573,9 +578,10 @@ def _gen_quotation_no(db: Session) -> str:
     return f"{prefix}{seq:04d}"
 
 def _calc_totals(line_items, labor_details, discount=0):
+    """labor_total は社内試算として保持するだけで、見積金額には加算しない"""
     subtotal = sum(int(i.unit_price * i.quantity) for i in line_items)
     labor_total = sum(int(l.unit_price * l.quantity) for l in labor_details)
-    total_before_tax = subtotal + labor_total - int(discount or 0)
+    total_before_tax = subtotal - int(discount or 0)
     tax = int(total_before_tax * 0.1)
     return subtotal, labor_total, tax, total_before_tax + tax
 
@@ -1268,17 +1274,13 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
             <td style="border:1px solid #ccc;padding:6px 12px;text-align:center">{sec_no}</td>
             <td style="border:1px solid #ccc;padding:6px 12px">{label}</td>
             <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{sec_total:,}</td></tr>'''
-    # 工数は大分類の続き番号で「その他」として計上
-    if q.labor_total:
-        section_rows += f'''<tr>
-            <td style="border:1px solid #ccc;padding:6px 12px;text-align:center">{len(sections) + 1}</td>
-            <td style="border:1px solid #ccc;padding:6px 12px">その他</td>
-            <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{int(q.labor_total):,}</td></tr>'''
+    # 社内工数は顧客向け見積書に出さない（金額にも含めない）。
+    # 取付工費などを見積に載せる場合は明細行として入力する。
 
     # ===== 税抜/税込 表示 =====
     _tax_excluded = (q.tax_display or "included") == "excluded"
     _discount = int(q.discount_amount or 0)
-    _subtotal_all = int((q.subtotal or 0) + (q.labor_total or 0))   # 値引前小計
+    _subtotal_all = int(q.subtotal or 0)                            # 値引前小計（工数は含めない）
     _net_total = _subtotal_all - _discount                          # 値引後（税抜）
     grand_total = _net_total if _tax_excluded else int(q.total_amount or 0)
     tax_label = "(税抜)" if _tax_excluded else "(消費税込み)"
@@ -1294,12 +1296,8 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     <tr>
       <td colspan="2" style="border:1px solid #ccc;padding:6px 12px;text-align:right">消費税({int(q.tax_rate or 10)}%)</td>
       <td style="border:1px solid #ccc;padding:6px 12px;text-align:right">¥{int(q.tax_amount or 0):,}</td></tr>'''
-    # 工数が無い見積で「その他 ¥0」を出さない（頭紙の内訳と同じ条件）
-    labor_row_detail = f'''
-  <tr style="font-weight:bold">
-    <td colspan="{_span}" style="text-align:right;border:1px solid #ccc;padding:5px 8px">その他</td>
-    <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.labor_total or 0):,}</td>
-  </tr>''' if q.labor_total else ''
+    # 社内工数は見積書に出さない（社内工数試算シートで確認する）
+    labor_row_detail = ''
     discount_row_detail = f'''
   <tr style="font-weight:bold">
     <td colspan="{_span}" style="text-align:right;border:1px solid #ccc;padding:5px 8px">出精値引</td>
@@ -1329,12 +1327,12 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     # PDFは品名と詳細を1列にまとめるので6列、画面は7列。
     if for_pdf:
         _thead_cells = (
-            '<th width="13mm" style="border:1px solid #ccc;padding:5px 8px;text-align:center">番号</th>'
-            '<th width="82mm" style="border:1px solid #ccc;padding:5px 8px;text-align:left">品名 ・ 仕様</th>'
-            '<th width="10mm" style="border:1px solid #ccc;padding:5px 8px;text-align:center">数量</th>'
-            '<th width="10mm" style="border:1px solid #ccc;padding:5px 8px;text-align:center">単位</th>'
-            '<th width="20mm" style="border:1px solid #ccc;padding:5px 8px;text-align:right">単価</th>'
-            '<th width="20mm" style="border:1px solid #ccc;padding:5px 8px;text-align:right">金額</th>')
+            '<th width="13mm" style="border:1px solid #ccc;padding:5px 6px;text-align:center">番号</th>'
+            '<th width="70mm" style="border:1px solid #ccc;padding:5px 6px;text-align:left">品名 ・ 仕様</th>'
+            '<th width="11mm" style="border:1px solid #ccc;padding:5px 4px;text-align:center">数量</th>'
+            '<th width="11mm" style="border:1px solid #ccc;padding:5px 4px;text-align:center">単位</th>'
+            '<th width="28mm" style="border:1px solid #ccc;padding:5px 6px;text-align:right">単価</th>'
+            '<th width="28mm" style="border:1px solid #ccc;padding:5px 6px;text-align:right">金額</th>')
     else:
         _thead_cells = (
             '<th style="border:1px solid #ccc;padding:5px 8px;text-align:center;width:40px">番号</th>'
@@ -1441,7 +1439,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
         <tr><td style="color:#888">{tax_label}</td></tr>
         <tr><td colspan="2" style="padding-top:8px">
           <table style="font-size:11px;border-collapse:collapse;width:100%">
-            <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">納入期限</td><td style="border:1px solid #ccc;padding:3px 8px">{q.delivery_terms or ' '}</td></tr>
+            <tr><td width="24mm" style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">納入期限</td><td width="52mm" style="border:1px solid #ccc;padding:3px 8px">{q.delivery_terms or ' '}</td></tr>
             <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">受渡場所</td><td style="border:1px solid #ccc;padding:3px 8px">{delivery_place}</td></tr>
             <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">見積有効期限</td><td style="border:1px solid #ccc;padding:3px 8px">{valid_until_disp}</td></tr>
             <tr><td style="border:1px solid #ccc;padding:3px 6px;background:#f5f5f5">御支払条件</td><td style="border:1px solid #ccc;padding:3px 8px">{q.payment_terms or ' '}</td></tr>

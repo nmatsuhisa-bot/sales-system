@@ -468,6 +468,50 @@ def setup_function_roles():
             "ユーザー未登録（要手動設定）": unmatched + ["井上社長", "柴田", "江里口"]}
 
 
+@app.get("/recalc-without-labor")
+def recalc_without_labor():
+    """社内工数を見積金額から除外する方針変更(2026-07-19)に伴う既存データの再計算。
+
+    見積の total_amount / tax_amount を「機器・工事 − 出精値引」で計算し直し、
+    採用済みの見積が紐づく案件子IDの金額・親案件の最終受注金額も揃える。冪等。
+    """
+    from app.db.models import SessionLocal, QuotationHeader, ProjectOrder, Project
+    from sqlalchemy import func
+    db = SessionLocal()
+    changed = []
+    try:
+        for q in db.query(QuotationHeader).filter(QuotationHeader.labor_total > 0).all():
+            before = int((q.subtotal or 0) + (q.labor_total or 0) - (q.discount_amount or 0))
+            after = int((q.subtotal or 0) - (q.discount_amount or 0))
+            q.tax_amount = int(after * 0.1)
+            q.total_amount = after + int(after * 0.1)
+            changed.append({"見積": q.quotation_no, "変更前": before, "変更後": after,
+                            "工数(社内試算として保持)": int(q.labor_total or 0)})
+            # 採用済みなら案件子IDの金額も揃える
+            if q.project_order_id and q.status in ("adopted", "received"):
+                po = db.query(ProjectOrder).filter(ProjectOrder.id == q.project_order_id).first()
+                if po and po.quotation_no == q.quotation_no:
+                    po.quotation_total = after
+                    po.quotation_amount = after
+        db.flush()
+        # 親案件の最終受注金額を子IDの合計で再計算
+        for pid, total in db.query(ProjectOrder.project_id,
+                                   func.sum(ProjectOrder.quotation_total)).filter(
+                                       ProjectOrder.project_id.isnot(None)).group_by(
+                                       ProjectOrder.project_id).all():
+            p = db.query(Project).filter(Project.id == pid).first()
+            if p:
+                p.final_order_amount = int(total or 0)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        return {"status": "error", "message": str(e)}
+    finally:
+        db.close()
+    return {"status": "ok", "message": "社内工数を除いた金額へ再計算しました",
+            "対象": len(changed), "明細": changed}
+
+
 @app.get("/setup-approval-tokens")
 def setup_approval_tokens():
     """メールの承認リンク用トークンのテーブルを作成する（冪等）。"""
