@@ -44,8 +44,11 @@ function PurchaseOrdersTab({ initialOrder }: { initialOrder?: any }) {
   const [importDue, setImportDue] = useState('');
   const [autoMsg, setAutoMsg] = useState('');
   const [importMsg, setImportMsg] = useState('');
+  const [loadError, setLoadError] = useState('');
 
-  const load = () => procurementApi.listPurchaseOrders(statusFilter || undefined).then(r => setPos(r.data)).catch(() => {});
+  const load = () => procurementApi.listPurchaseOrders(statusFilter || undefined)
+    .then(r => { setPos(r.data); setLoadError(''); })
+    .catch(() => setLoadError('発注書の取得に失敗しました。時間をおいて再読込するか、管理者にお問い合わせください。'));
   useEffect(() => { load(); }, [statusFilter]);
 
   // 案件管理からの遷移で自動オープン
@@ -120,6 +123,10 @@ function PurchaseOrdersTab({ initialOrder }: { initialOrder?: any }) {
           <Boxes size={14} />見積内訳から発注書作成
         </button>
       </div>
+
+      {loadError && (
+        <div className="mb-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{loadError}</div>
+      )}
 
       {showImport && (
         <div className="mb-4 p-3 border border-indigo-200 rounded-lg bg-indigo-50">

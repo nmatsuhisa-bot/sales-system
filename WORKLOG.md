@@ -15,6 +15,19 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-07-20 — Claude(Cowork) — /procurement 発注書リストのエラー握り潰しを是正
+**触ったファイル**: `frontend/src/pages/ProcurementPage.tsx`・`WORKLOG.md`
+**内容**: `PurchaseOrdersTab` の発注書一覧 `load()` が `.catch(() => {})` でエラーを握り潰しており、
+GET /purchase-orders が500等で失敗すると画面が無言で「発注書なし」表示になっていた（退行）。
+`loadError` state を追加し、失敗時に赤バナーで通知、成功時にクリアするよう修正（非破壊・フロントのみ）。
+**静的検査**: 全 procurementApi 32系統 = api/index.ts 定義 = materials.py 実ルートに一致（不一致なし）。
+route順序も breakdowns/from-units 等が `{po_id}` より前で安全。P-03/P-05 の0値表示（_mo_dict L439-440、
+発注書HTML L799-801）は `is not None` 維持でOK。total_amount は常に int で NaN 表示リスクなし。
+新規発注バリデーション（部材未選択 alert / 受入数量 <=0 alert）健在。
+**検証**: esbuild で ProcurementPage.tsx 構文チェック成功。
+**ライブAPI/UI**: 無人実行のため web_fetch は対象ドメインが provenance 外で不可 → 静的解析で対応。
+**バグ検出**: P-06(新規) 発注書一覧のエラー握り潰し → 修正push済。他は異常なし。
+
 ### 2026-07-19 — Claude(Cowork) — マニュアル（ヘルプ）を最新機能へ同期
 **触ったファイル**: `frontend/src/pages/HelpPage.tsx`・`WORKLOG.md`
 **基準**: HelpPage 最終更新 `a465227`(07-18) 〜 HEAD。反映した主なユーザー向け変更:
