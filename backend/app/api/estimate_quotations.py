@@ -323,6 +323,56 @@ def _build_quotation_from_cad_info(info: dict, fname: str, project_order_id, tit
     }
 
 
+@router.get("/approve-by-link")
+def approve_by_link(token: str, request: Request, db: Session = Depends(get_db)):
+    """メールの承認リンク。有効期限内・未使用のトークンでのみ承認する。
+
+    ブラウザで開かれるため、結果はHTMLで返す。
+    """
+    def _page(title: str, msg: str, color: str) -> HTMLResponse:
+        return HTMLResponse(f"""<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
+<title>{title}</title></head>
+<body style="font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:#f3f4f6;padding:40px">
+  <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;padding:28px;box-shadow:0 1px 4px rgba(0,0,0,.1)">
+    <h1 style="font-size:20px;color:{color};margin:0 0 12px">{title}</h1>
+    <p style="font-size:14px;color:#374151;line-height:1.8;white-space:pre-wrap">{msg}</p>
+    <p style="margin-top:20px"><a href="{app_base_url_safe()}" style="color:#2563eb">販売管理システムを開く</a></p>
+  </div>
+</body></html>""")
+
+    t = db.query(ApprovalToken).filter(ApprovalToken.token == token).first()
+    if not t:
+        return _page("リンクが無効です", "承認リンクが見つかりません。メールのURLが途中で切れていないかご確認ください。", "#c0392b")
+    if t.used_at:
+        return _page("このリンクは使用済みです",
+                     f"{t.used_at.strftime('%Y/%m/%d %H:%M')} に承認済みです。\n再度承認する場合は画面から操作してください。", "#c0392b")
+    if t.expires_at and t.expires_at < datetime.now():
+        return _page("リンクの有効期限が切れています",
+                     f"承認リンクは発行から{APPROVAL_LINK_HOURS}時間で失効します。\n依頼者に再送を依頼してください。", "#c0392b")
+
+    q = db.query(QuotationHeader).filter(QuotationHeader.id == t.quotation_id).first()
+    if not q:
+        return _page("見積が見つかりません", "対象の見積が削除された可能性があります。", "#c0392b")
+    if (q.approval_status or "none") != "pending":
+        return _page("承認待ちではありません",
+                     f"現在の状態: {q.approval_status}\n見積の内容が変更されると承認依頼は取り消されます。", "#c0392b")
+
+    q.approval_status = "approved"
+    q.approved_at = datetime.now()
+    q.approver_name = t.approver_name
+    t.used_at = datetime.now()
+    t.used_from_ip = (request.client.host if request.client else None)
+    db.commit()
+    return _page("承認しました",
+                 f"{q.quotation_no}　{q.title or ''}\n検印: {t.approver_name}\n\n"
+                 "見積書の「draft」透かしが外れ、正式に発行できる状態になりました。", "#15803d")
+
+
+def app_base_url_safe() -> str:
+    from app.mailer import app_base_url
+    return app_base_url()
+
+
 @router.get("/pending-approvals")
 def list_pending_approvals(approver_name: Optional[str] = None, db: Session = Depends(get_db)):
     """承認待ちの見積一覧。approver_name を指定するとその人宛のものだけ返す。
@@ -1034,55 +1084,6 @@ def _send_approval_mail(q: QuotationHeader, approver: str, token: str, db: Sessi
     r["attachments"] = [a[0] for a in attachments]
     return r
 
-
-@router.get("/approve-by-link")
-def approve_by_link(token: str, request: Request, db: Session = Depends(get_db)):
-    """メールの承認リンク。有効期限内・未使用のトークンでのみ承認する。
-
-    ブラウザで開かれるため、結果はHTMLで返す。
-    """
-    def _page(title: str, msg: str, color: str) -> HTMLResponse:
-        return HTMLResponse(f"""<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
-<title>{title}</title></head>
-<body style="font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:#f3f4f6;padding:40px">
-  <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;padding:28px;box-shadow:0 1px 4px rgba(0,0,0,.1)">
-    <h1 style="font-size:20px;color:{color};margin:0 0 12px">{title}</h1>
-    <p style="font-size:14px;color:#374151;line-height:1.8;white-space:pre-wrap">{msg}</p>
-    <p style="margin-top:20px"><a href="{app_base_url_safe()}" style="color:#2563eb">販売管理システムを開く</a></p>
-  </div>
-</body></html>""")
-
-    t = db.query(ApprovalToken).filter(ApprovalToken.token == token).first()
-    if not t:
-        return _page("リンクが無効です", "承認リンクが見つかりません。メールのURLが途中で切れていないかご確認ください。", "#c0392b")
-    if t.used_at:
-        return _page("このリンクは使用済みです",
-                     f"{t.used_at.strftime('%Y/%m/%d %H:%M')} に承認済みです。\n再度承認する場合は画面から操作してください。", "#c0392b")
-    if t.expires_at and t.expires_at < datetime.now():
-        return _page("リンクの有効期限が切れています",
-                     f"承認リンクは発行から{APPROVAL_LINK_HOURS}時間で失効します。\n依頼者に再送を依頼してください。", "#c0392b")
-
-    q = db.query(QuotationHeader).filter(QuotationHeader.id == t.quotation_id).first()
-    if not q:
-        return _page("見積が見つかりません", "対象の見積が削除された可能性があります。", "#c0392b")
-    if (q.approval_status or "none") != "pending":
-        return _page("承認待ちではありません",
-                     f"現在の状態: {q.approval_status}\n見積の内容が変更されると承認依頼は取り消されます。", "#c0392b")
-
-    q.approval_status = "approved"
-    q.approved_at = datetime.now()
-    q.approver_name = t.approver_name
-    t.used_at = datetime.now()
-    t.used_from_ip = (request.client.host if request.client else None)
-    db.commit()
-    return _page("承認しました",
-                 f"{q.quotation_no}　{q.title or ''}\n検印: {t.approver_name}\n\n"
-                 "見積書の「draft」透かしが外れ、正式に発行できる状態になりました。", "#15803d")
-
-
-def app_base_url_safe() -> str:
-    from app.mailer import app_base_url
-    return app_base_url()
 
 @router.post("/{quotation_id}/approve")
 def approve_quotation(quotation_id: str, db: Session = Depends(get_db)):
