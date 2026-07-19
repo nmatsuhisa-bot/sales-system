@@ -15,6 +15,19 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-07-20 — Claude(Cowork) — マニュアルを最新機能へ同期（見積: 承認待ち通知・承認メール・社内工数の扱い変更）
+**触ったファイル**: `frontend/src/pages/HelpPage.tsx`・`WORKLOG.md`
+**基準**: HelpPage 最終更新 f8e869a〜HEAD のユーザー向けページ変更を反映。
+**反映した主な変更**:
+- 見積管理: ログイン中ユーザー宛の「承認待ち通知」バナー（EstimateListPage）と「確認して承認」導線を追記。
+- 見積管理: 承認依頼のメール通知＋メールからのワンクリック承認を承認フロー手順に反映。
+- 見積フォーム: 社内工数は見積金額に含めない方針変更（社内原価の試算専用）を steps と 社内工数マスタ説明・note に明記。
+- 見積フォーム: 「作成（作成者）」がログインユーザー選択になった点を追記。
+- PDF出力が「見積書＋社内工数試算を1ファイル」出力である点、案件子IDが見積書・工数試算・承認依頼メールに表示される点を note に追記。
+**対象外**: ProcurementPage の発注書一覧エラーバナー（退行修正・使い方に影響なし）、tools/dwg2dxf.sh・backend(mailer/pdf/models/main) は内部/設定のためヘルプ非対象。
+**静的検査**: esbuild で HelpPage.tsx 構文チェック成功。
+**方針**: HelpPage.tsx と WORKLOG.md のみ変更（非破壊）。
+
 ### 2026-07-20 — Claude(Cowork) — /procurement 発注書リストのエラー握り潰しを是正
 **触ったファイル**: `frontend/src/pages/ProcurementPage.tsx`・`WORKLOG.md`
 **内容**: `PurchaseOrdersTab` の発注書一覧 `load()` が `.catch(() => {})` でエラーを握り潰しており、
