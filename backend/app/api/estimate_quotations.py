@@ -1025,9 +1025,8 @@ def request_approval(quotation_id: str, data: dict, db: Session = Depends(get_db
     # メールが送れないときは、承認リンクを画面から伝えられるよう返す
     # （送信できた場合はメール本文にのみ載せ、レスポンスには含めない）
     if not mail.get("sent"):
-        from app.mailer import app_base_url
-        api = app_base_url().replace("sales-frontend", "sales-backend") + "/api"
-        result["approve_url"] = f"{api}/estimate-quotations/approve-by-link?token={tok.token}"
+        from app.mailer import api_base_url
+        result["approve_url"] = f"{api_base_url()}/estimate-quotations/approve-by-link?token={tok.token}"
     return result
 
 
@@ -1036,7 +1035,7 @@ def _send_approval_mail(q: QuotationHeader, approver: str, token: str, db: Sessi
 
     メールが送れなくても承認依頼自体は成立させる（画面の承認待ちバナーで通知される）。
     """
-    from app.mailer import send_mail, app_base_url, mail_configured
+    from app.mailer import send_mail, app_base_url, api_base_url, mail_configured
     from app.pdf import html_to_pdf
     from app.db.models import User
 
@@ -1048,8 +1047,7 @@ def _send_approval_mail(q: QuotationHeader, approver: str, token: str, db: Sessi
         return {"sent": False, "reason": f"{approver} のメールアドレスが未登録です"}
 
     base = app_base_url()
-    api = base.replace("sales-frontend", "sales-backend") + "/api"
-    approve_url = f"{api}/estimate-quotations/approve-by-link?token={token}"
+    approve_url = f"{api_base_url()}/estimate-quotations/approve-by-link?token={token}"
     detail_url = f"{base}/estimates/{q.id}/edit"
 
     amount = net_amount(q)

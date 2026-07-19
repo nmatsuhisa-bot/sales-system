@@ -5,7 +5,8 @@
     MAIL_FROM          送信元アドレス（例: xxx@gmail.com）
     MAIL_APP_PASSWORD  Googleアカウントの「アプリパスワード」16桁
     MAIL_FROM_NAME     差出人の表示名（省略可。既定「井上電設 販売管理システム」）
-    APP_BASE_URL       画面のURL（例: https://sales-frontend-ybzn.onrender.com）
+    APP_BASE_URL       画面のURL（省略可。例: https://sales-frontend-ybzn.onrender.com）
+    API_BASE_URL       APIのURL（省略可。承認リンクに使う）
 
 ■ アプリパスワードの取り方
     Googleアカウント → セキュリティ → 2段階認証を有効化 → アプリパスワード を発行。
@@ -32,7 +33,18 @@ def mail_configured() -> bool:
 
 
 def app_base_url() -> str:
+    """画面（フロントエンド）のURL"""
     return (os.getenv("APP_BASE_URL") or "https://sales-frontend-ybzn.onrender.com").rstrip("/")
+
+
+def api_base_url() -> str:
+    """APIのURL（承認リンクに使う）。
+
+    ★フロントのURLから機械的に置換して求めてはいけない。
+      sales-frontend-ybzn → sales-backend-ybzn となるが、実際の
+      バックエンドは sales-backend-7nzg でホスト名が異なる。
+    """
+    return (os.getenv("API_BASE_URL") or "https://sales-backend-7nzg.onrender.com").rstrip("/") + "/api"
 
 
 def send_mail(to: str, subject: str, body: str, attachments=None) -> dict:
