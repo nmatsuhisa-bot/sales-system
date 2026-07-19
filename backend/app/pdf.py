@@ -33,6 +33,9 @@ _unavailable_reason = None
 _PDF_CSS = f"""
 <style>
   @page {{ size: A4 portrait; margin: 12mm; }}
+  /* 帳票の body{{margin:20px}} を打ち消す。余白が残ると本文幅が縮み、
+     表の列幅指定が収まらず自動再計算されて列が崩れる */
+  body {{ margin: 0; padding: 0; }}
   body, div, p, span, td, th, h1, h2, h3, li, table {{
       font-family: "{_JP_FONT}";
   }}
@@ -77,7 +80,9 @@ def html_to_pdf(html: str) -> Optional[bytes]:
         log.warning("PDF生成が使えません（HTMLで代替します）: %s", _unavailable_reason)
         return None
 
-    if "<head>" in html:
+    if "</head>" in html:
+        html = html.replace("</head>", _PDF_CSS + "</head>", 1)
+    elif "<head>" in html:
         html = html.replace("<head>", "<head>" + _PDF_CSS, 1)
     else:
         html = _PDF_CSS + html

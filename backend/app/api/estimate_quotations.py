@@ -1170,13 +1170,33 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
             return " "
         return f"¥{int(item.unit_price):,}"
 
+    # 仕様詳細の折り返し指定。PDFでは pre-wrap が「折り返さない」と解釈され、
+    # 最長行の幅まで列が広がって他の列を潰すため、改行を<br>にして通常折り返しにする。
+    _spec_wrap = "" if for_pdf else "white-space:pre-wrap"
+    # PDFは「品名・仕様」を1列にまとめる（原本のケイテック様見積と同じ様式）。
+    # 7列のままだと詳細列が潰れて文字が重なるため。画面(HTML)は従来どおり7列。
+    _ncols = 6 if for_pdf else 7
+    _span = _ncols - 1
+
+    def _spec(item) -> str:
+        t = item.spec_detail or ""
+        return t.replace("\n", "<br>") if for_pdf else t
+
     def _item_row(no: str, item, indent: int = 0) -> str:
         pad = "padding:4px 8px" + (f" 4px {8 + indent * 14}px" if indent else "")
+        if for_pdf:
+            _sp = _spec(item)
+            name_cell = (f'<td style="border:1px solid #ccc;{pad}">{item.item_name}'
+                         + (f'<br><span style="font-size:10px;color:#333">{_sp}</span>' if _sp else "")
+                         + '</td>')
+        else:
+            name_cell = (f'<td style="border:1px solid #ccc;{pad}">{item.item_name}</td>'
+                         f'<td style="border:1px solid #ccc;padding:4px 8px;font-size:11px;'
+                         f'{_spec_wrap}">{_spec(item)}</td>')
         return f"""
             <tr>
                 <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{no}</td>
-                <td style="border:1px solid #ccc;{pad}">{item.item_name}</td>
-                <td style="border:1px solid #ccc;padding:4px 8px;font-size:11px;white-space:pre-wrap">{item.spec_detail or ''}</td>
+                {name_cell}
                 <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{int(item.quantity or 1)}</td>
                 <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{item.unit or '式'}</td>
                 <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">{_uprice_cell(item)}</td>
@@ -1203,7 +1223,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
         items_html += f"""
             <tr style="background:#e8eef5;font-weight:bold">
                 <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{sec_no}</td>
-                <td colspan="6" style="border:1px solid #ccc;padding:4px 8px">{sec or '（未分類）'}</td>
+                <td colspan="{_span}" style="border:1px solid #ccc;padding:4px 8px">{sec or '（未分類）'}</td>
             </tr>"""
         # 3階層番号（1-1-1形式・会議2026-07-17決定）:
         # 中分類(sub_section)が連続する複数行 → 見出し行 i-j（金額なし）＋ 子行 i-j-k
@@ -1222,7 +1242,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
                 items_html += f"""
             <tr style="background:#f3f6fa;font-weight:bold">
                 <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{sec_no}-{item_no}</td>
-                <td colspan="6" style="border:1px solid #ccc;padding:4px 8px">{key}</td>
+                <td colspan="{_span}" style="border:1px solid #ccc;padding:4px 8px">{key}</td>
             </tr>"""
                 for sub_no, item in enumerate(gitems, 1):
                     items_html += _item_row(f"{sec_no}-{item_no}-{sub_no}", item, indent=1)
@@ -1233,7 +1253,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
                     item_no += 1
         items_html += f"""
             <tr style="background:#f5f5f5;font-weight:bold">
-                <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:4px 8px">【{sec_no}】{sec or '（未分類）'} 小計金額</td>
+                <td colspan="{_span}" style="text-align:right;border:1px solid #ccc;padding:4px 8px">【{sec_no}】{sec or '（未分類）'} 小計金額</td>
                 <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">¥{sec_total:,}</td>
             </tr>"""
 
@@ -1277,17 +1297,17 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     # 工数が無い見積で「その他 ¥0」を出さない（頭紙の内訳と同じ条件）
     labor_row_detail = f'''
   <tr style="font-weight:bold">
-    <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">その他</td>
+    <td colspan="{_span}" style="text-align:right;border:1px solid #ccc;padding:5px 8px">その他</td>
     <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.labor_total or 0):,}</td>
   </tr>''' if q.labor_total else ''
     discount_row_detail = f'''
   <tr style="font-weight:bold">
-    <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">出精値引</td>
+    <td colspan="{_span}" style="text-align:right;border:1px solid #ccc;padding:5px 8px">出精値引</td>
     <td style="text-align:right;border:1px solid #ccc;padding:5px 8px;color:#c0392b">-¥{_discount:,}</td>
   </tr>''' if _discount else ''
     tax_row_detail = '' if _tax_excluded else f'''
   <tr style="font-weight:bold">
-    <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">消費税({int(q.tax_rate or 10)}%)</td>
+    <td colspan="{_span}" style="text-align:right;border:1px solid #ccc;padding:5px 8px">消費税({int(q.tax_rate or 10)}%)</td>
     <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.tax_amount or 0):,}</td>
   </tr>'''
     # 検印・担当・作成の3枠（原本様式。頭紙右上）
@@ -1304,6 +1324,26 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
       <td style="border:1px solid #999;padding:6px 8px;min-width:64px">{q.created_by_name or ' '}</td>
     </tr>
   </table>'''
+
+    # 見出しセル。列幅は width 属性で指定する（PDF変換はcolgroupを無視するため）。
+    # PDFは品名と詳細を1列にまとめるので6列、画面は7列。
+    if for_pdf:
+        _thead_cells = (
+            '<th width="13mm" style="border:1px solid #ccc;padding:5px 8px;text-align:center">番号</th>'
+            '<th width="82mm" style="border:1px solid #ccc;padding:5px 8px;text-align:left">品名 ・ 仕様</th>'
+            '<th width="10mm" style="border:1px solid #ccc;padding:5px 8px;text-align:center">数量</th>'
+            '<th width="10mm" style="border:1px solid #ccc;padding:5px 8px;text-align:center">単位</th>'
+            '<th width="20mm" style="border:1px solid #ccc;padding:5px 8px;text-align:right">単価</th>'
+            '<th width="20mm" style="border:1px solid #ccc;padding:5px 8px;text-align:right">金額</th>')
+    else:
+        _thead_cells = (
+            '<th style="border:1px solid #ccc;padding:5px 8px;text-align:center;width:40px">番号</th>'
+            '<th style="border:1px solid #ccc;padding:5px 8px;text-align:left">品名.仕様</th>'
+            '<th style="border:1px solid #ccc;padding:5px 8px;text-align:left;width:200px">詳細</th>'
+            '<th style="border:1px solid #ccc;padding:5px 8px;text-align:center;width:50px">数量</th>'
+            '<th style="border:1px solid #ccc;padding:5px 8px;text-align:center;width:40px">単位</th>'
+            '<th style="border:1px solid #ccc;padding:5px 8px;text-align:right;width:110px">単価</th>'
+            '<th style="border:1px solid #ccc;padding:5px 8px;text-align:right;width:120px">金額</th>')
 
     # ===== 御見積除外事項（1行1項目）=====
     _exc = [l.strip() for l in (q.exclusions or "").splitlines() if l.strip()]
@@ -1423,36 +1463,22 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
 
 <!-- 金額サマリ(1枚目) -->
 <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px">
-<!-- 列幅はcolgroupで明示する。PDF変換(xhtml2pdf)はthのwidthを無視するため、
-     これが無いと列が重なって文字が潰れる -->
-<colgroup>
-  <col width="6%"><col width="30%"><col width="27%"><col width="7%">
-  <col width="6%"><col width="12%"><col width="12%">
-</colgroup>
 <thead>
-  <tr style="background:#2c3e50;color:#fff">
-    <th style="border:1px solid #ccc;padding:5px 8px;text-align:center">番号</th>
-    <th style="border:1px solid #ccc;padding:5px 8px;text-align:left">品名.仕様</th>
-    <th style="border:1px solid #ccc;padding:5px 8px;text-align:left">詳細</th>
-    <th style="border:1px solid #ccc;padding:5px 8px;text-align:center">数量</th>
-    <th style="border:1px solid #ccc;padding:5px 8px;text-align:center">単位</th>
-    <th style="border:1px solid #ccc;padding:5px 8px;text-align:right">単価</th>
-    <th style="border:1px solid #ccc;padding:5px 8px;text-align:right">金額</th>
-  </tr>
+  <tr style="background:#2c3e50;color:#fff">{_thead_cells}</tr>
 </thead>
 <tbody>
 {items_html}
 </tbody>
 <tfoot>
   <tr style="font-weight:bold">
-    <td colspan="6" style="text-align:right;border:1px solid #ccc;padding:5px 8px">小計金額</td>
+    <td colspan="{_span}" style="text-align:right;border:1px solid #ccc;padding:5px 8px">小計金額</td>
     <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.subtotal or 0):,}</td>
   </tr>
   {labor_row_detail}
   {discount_row_detail}
   {tax_row_detail}
   <tr style="font-weight:bold;background:#fff9c4;font-size:14px">
-    <td colspan="6" style="text-align:right;border:2px solid #000;padding:6px 8px">合計金額{tax_label}</td>
+    <td colspan="{_span}" style="text-align:right;border:2px solid #000;padding:6px 8px">合計金額{tax_label}</td>
     <td style="text-align:right;border:2px solid #000;padding:6px 8px">¥{grand_total:,}</td>
   </tr>
 </tfoot>
