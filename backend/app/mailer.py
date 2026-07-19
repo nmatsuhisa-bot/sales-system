@@ -24,8 +24,10 @@ from email.utils import formataddr
 
 log = logging.getLogger(__name__)
 
-SMTP_HOST = "smtp.gmail.com"
-SMTP_PORT = 587
+# Google Workspace / Gmail とも smtp.gmail.com:587（STARTTLS）で送信できる。
+# 他のメールサービスに変える場合は環境変数で上書きする。
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 
 
 def mail_configured() -> bool:
