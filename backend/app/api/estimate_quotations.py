@@ -320,6 +320,32 @@ def _build_quotation_from_cad_info(info: dict, fname: str, project_order_id, tit
     }
 
 
+@router.get("/pending-approvals")
+def list_pending_approvals(approver_name: Optional[str] = None, db: Session = Depends(get_db)):
+    """承認待ちの見積一覧。approver_name を指定するとその人宛のものだけ返す。
+
+    承認依頼は「相手のログイン後の画面に承認待ちとして出る」方式で通知している
+    （メール送信は未実装。SMTPの設定が必要なため別途）。
+    ※ /{quotation_id} より先に定義すること（ルート衝突防止）
+    """
+    q = db.query(QuotationHeader).filter(QuotationHeader.approval_status == "pending")
+    if approver_name:
+        q = q.filter(QuotationHeader.approver_name == nfkc(approver_name))
+    rows = q.order_by(desc(QuotationHeader.approval_requested_at)).all()
+    return {
+        "total": len(rows),
+        "items": [{
+            "id": str(r.id), "quotation_no": r.quotation_no, "title": r.title,
+            "customer_name": r.customer_name, "child_no": r.child_no,
+            "approver_name": r.approver_name,
+            "created_by_name": r.created_by_name,
+            "sales_person_name": r.sales_person_name,
+            "net_amount": net_amount(r),
+            "approval_requested_at": r.approval_requested_at.isoformat() if r.approval_requested_at else None,
+        } for r in rows],
+    }
+
+
 @router.get("/approvers")
 def list_approvers(db: Session = Depends(get_db)):
     """承認権限者の候補。ユーザーマスタで機能権限「検印承認者」を付与された人を返す。

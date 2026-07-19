@@ -26,6 +26,9 @@ export default function EstimateListPage() {
   const [search, setSearch] = useState('');
   const [dupFor, setDupFor] = useState<any>(null); // 複製対象の見積
   const [showCad, setShowCad] = useState(false);   // CADから見積作成モーダル
+  // ログイン中のユーザー宛の承認依頼（メール通知は未実装のため画面で知らせる）
+  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+  const [myPending, setMyPending] = useState<any[]>([]);
   const navigate = useNavigate();
 
   const doDuplicate = async (order: any) => {
@@ -42,7 +45,14 @@ export default function EstimateListPage() {
     estimateApi.list({ child_no: childNo || undefined, search: search || undefined, per_page: 50 })
       .then(r => { setItems(r.data.items || []); setTotal(r.data.total || 0); });
   };
+  const loadMyPending = () => {
+    if (!currentUser.full_name) return;
+    estimateApi.getPendingApprovals(currentUser.full_name)
+      .then(r => setMyPending(r.data.items || []))
+      .catch(() => {});
+  };
   useEffect(() => { load(); }, [childNo, search]);
+  useEffect(() => { loadMyPending(); }, []);
 
   const handleAdopt = async (q: any) => {
     if (!q.project_order_id) { alert('この見積は子IDに紐付いていません'); return; }
@@ -110,6 +120,34 @@ export default function EstimateListPage() {
           </Link>
         </div>
       </div>
+
+      {/* 自分宛の承認依頼（メール通知は未実装のため、ログイン後の画面で知らせる） */}
+      {myPending.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 mb-4">
+          <p className="text-sm font-bold text-amber-800 mb-2">
+            🔔 {currentUser.full_name} さん宛の承認依頼が {myPending.length} 件あります
+          </p>
+          <ul className="space-y-1">
+            {myPending.map(p => (
+              <li key={p.id} className="flex items-center gap-2 text-sm bg-white rounded-lg px-3 py-2">
+                <Link to={`/estimates/${p.id}/edit`} className="font-mono text-blue-600 hover:underline">
+                  {p.quotation_no}
+                </Link>
+                <span className="text-gray-700 truncate flex-1">{p.title || '—'}</span>
+                <span className="text-gray-500 text-xs">{p.customer_name || ''}</span>
+                <span className="font-medium text-gray-800">¥{Number(p.net_amount).toLocaleString()}</span>
+                <span className="text-[11px] text-gray-400">
+                  依頼: {p.created_by_name || p.sales_person_name || '—'}
+                </span>
+                <Link to={`/estimates/${p.id}/edit`}
+                  className="bg-amber-500 text-white px-2.5 py-1 rounded text-xs font-medium hover:bg-amber-600">
+                  確認して承認
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl shadow-sm p-3 mb-4 flex items-center gap-2 border border-gray-100">
         <Search size={16} className="text-gray-400" />

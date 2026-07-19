@@ -175,6 +175,9 @@ export const estimateApi = {
     api.post('/estimate-quotations/from-cad-extract', payload, { timeout: 120000 }),
   // 承認ワークフロー（会議2026-07-17）
   getApprovers: () => api.get('/estimate-quotations/approvers'),
+  // 承認待ち一覧（approver_name 指定でその人宛のみ）
+  getPendingApprovals: (approver_name?: string) =>
+    api.get('/estimate-quotations/pending-approvals', { params: { approver_name } }),
   requestApproval: (quotationId: string, approver_name: string) =>
     api.post(`/estimate-quotations/${quotationId}/request-approval`, { approver_name }),
   approveQuotation: (quotationId: string) => api.post(`/estimate-quotations/${quotationId}/approve`),

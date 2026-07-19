@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { estimateApi, projectApi, mastersApi, API_BASE } from '../api';
+import { estimateApi, projectApi, mastersApi, authApi, API_BASE } from '../api';
 import { Plus, Trash2, Save, FileText, ArrowLeft, Calculator } from 'lucide-react';
 import OrderSearchInput from '../components/common/OrderSearchInput';
 
@@ -69,6 +69,7 @@ export default function EstimateFormPage() {
   const [cyclones, setCyclones] = useState<any[]>([]);
   const [laborMaster, setLaborMaster] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
+  const [teamUsers, setTeamUsers] = useState<any[]>([]);   // 作成者の選択肢（ログインユーザー）
 
   // フォーム
   const [header, setHeader] = useState({
@@ -124,6 +125,7 @@ export default function EstimateFormPage() {
     estimateApi.getLaborItems().then(r => setLaborMaster(r.data));
     estimateApi.getApprovers().then(r => setApprovers(r.data.approvers || [])).catch(() => {});
     mastersApi.listEmployees().then(r => setEmployees(r.data));
+    authApi.listTeam().then(r => setTeamUsers(r.data || [])).catch(() => {});
 
     // 新規作成時、案件の子受注情報から顧客名（売上先）・納入先を自動補完
     if (projectOrderId && !isEdit) {
@@ -542,7 +544,18 @@ export default function EstimateFormPage() {
               {PAYMENT_TERM_PRESETS.map(p => <option key={p} value={p} />)}
             </datalist>
           </div>
-          <HeaderField header={header} setHeader={setHeader} label="作成" name="created_by_name" />
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">作成（ユーザーから選択）</label>
+            <select value={header.created_by_name}
+              onChange={e => setHeader(h => ({ ...h, created_by_name: e.target.value }))}
+              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
+              <option value="">選択</option>
+              {teamUsers.map(u => <option key={u.id} value={u.full_name}>{u.full_name}</option>)}
+              {header.created_by_name && !teamUsers.some(u => u.full_name === header.created_by_name) && (
+                <option value={header.created_by_name}>{header.created_by_name}</option>
+              )}
+            </select>
+          </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">検印（承認者）</label>
             <select value={header.approver_name}
