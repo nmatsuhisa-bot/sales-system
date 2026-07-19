@@ -1611,11 +1611,15 @@ def labor_sheet(quotation_id: str, format: str = "html", db: Session = Depends(g
     html = _build_labor_html(q, db)
     if format == "pdf":
         from app.pdf import html_to_pdf
+        from urllib.parse import quote
         blob = html_to_pdf(html)
         if blob:
+            # ファイル名に日本語を使う場合はRFC5987形式にする。
+            # HTTPヘッダーはlatin-1しか扱えず、そのまま入れると500になる。
+            fn = quote(f"{q.quotation_no}_工数試算.pdf")
             return StreamingResponse(
                 io.BytesIO(blob), media_type="application/pdf",
-                headers={"Content-Disposition": f"inline; filename={q.quotation_no}_工数試算.pdf"})
+                headers={"Content-Disposition": f"inline; filename*=UTF-8''{fn}"})
     return StreamingResponse(
         io.BytesIO(html.encode("utf-8")), media_type="text/html",
         headers={"Content-Disposition": f"inline; filename={q.quotation_no}_labor.html"})
