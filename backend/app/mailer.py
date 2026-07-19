@@ -30,6 +30,20 @@ SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 
 
+def smtp_user() -> str:
+    """SMTPのログインID。
+
+    サービスによって「送信元アドレス」とは別の固定IDを使う:
+      Google Workspace / Gmail : 送信元アドレスと同じ（SMTP_USER 不要）
+      SendGrid                 : apikey
+      Resend                   : resend
+      Brevo                    : 登録メールアドレス
+      Amazon SES               : SMTP認証情報のユーザー名
+    未指定なら MAIL_FROM を使う。
+    """
+    return os.getenv("SMTP_USER") or os.getenv("MAIL_FROM") or ""
+
+
 def mail_configured() -> bool:
     return bool(os.getenv("MAIL_FROM") and os.getenv("MAIL_APP_PASSWORD"))
 
@@ -77,7 +91,7 @@ def send_mail(to: str, subject: str, body: str, attachments=None) -> dict:
     try:
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as s:
             s.starttls()
-            s.login(sender, os.getenv("MAIL_APP_PASSWORD"))
+            s.login(smtp_user(), os.getenv("MAIL_APP_PASSWORD"))
             s.send_message(msg)
         return {"sent": True, "reason": ""}
     except Exception as e:
