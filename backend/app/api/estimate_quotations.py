@@ -1085,7 +1085,7 @@ def _send_approval_mail(q: QuotationHeader, approver: str, token: str, db: Sessi
     attachments = []
     q_html = _build_quotation_html(q, is_draft=True, for_pdf=True)
     l_html = _build_labor_html(q, db)
-    q_pdf = html_to_pdf(q_html, watermark="draft")
+    q_pdf = html_to_pdf(q_html, watermark="draft", stamps=_stamp_map(q))
     l_pdf = html_to_pdf(l_html)
     merged = merge_pdfs([q_pdf, l_pdf])
     if merged:
@@ -1139,7 +1139,8 @@ def export_pdf(quotation_id: str, format: str = "html", db: Session = Depends(ge
     if format == "pdf":
         from app.pdf import html_to_pdf
         blob = html_to_pdf(_build_quotation_html(q, is_draft=_is_draft, for_pdf=True),
-                           watermark="draft" if _is_draft else None)
+                           watermark="draft" if _is_draft else None,
+                           stamps=_stamp_map(q))
         if blob:
             return StreamingResponse(
                 io.BytesIO(blob), media_type="application/pdf",
@@ -1150,6 +1151,17 @@ def export_pdf(quotation_id: str, format: str = "html", db: Session = Depends(ge
         media_type="text/html",
         headers={"Content-Disposition": f"inline; filename={q.quotation_no}.html"}
     )
+
+def _stamp_map(q: QuotationHeader) -> dict:
+    """押印（丸印）に入れる苗字。検印は承認済みのときだけ押す。"""
+    def _s(v):
+        return (v or "").strip().split(" ")[0].split("　")[0]
+    return {
+        "STMPAPV": _s(q.approver_name) if (q.approval_status or "none") == "approved" else "",
+        "STMPSLS": _s(q.sales_person_name),
+        "STMPCRT": _s(q.created_by_name),
+    }
+
 
 def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: bool = False) -> str:
     # 「draft」透かし（position:fixedで印刷全ページに出る。承認後は消える）
@@ -1319,6 +1331,17 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.tax_amount or 0):,}</td>
   </tr>'''
     # 検印・担当・作成の3枠（原本様式。頭紙右上）
+    # 押印（丸印）の対象者。PDFでは目印の位置に朱色の丸を描く（app/pdf.py）。
+    # 苗字だけを丸に入れる（「井上 嗣夫」→「井上」）。
+    _stamps = _stamp_map(q)
+
+    def _stamp_cell(key: str) -> str:
+        """PDFは位置決め用の見えない目印のみ。画面(HTML)は氏名をそのまま表示する。"""
+        if for_pdf:
+            return f'<span style="font-family:Helvetica;color:#ffffff;font-size:5px">{key}</span>'
+        name = _stamps.get(key) or ""
+        return name or "&nbsp;"
+
     # 検印・担当・作成（原本は右上に小さく配置）
     stamp_box = f'''
   <table align="right" style="border-collapse:collapse;font-size:8.5px;text-align:center;margin-top:4px">
@@ -1328,9 +1351,9 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
       <td width="21mm" style="border:1px solid #999;padding:1px 2px;background:#f5f5f5">作 成</td>
     </tr>
     <tr>
-      <td style="border:1px solid #999;padding:5px 2px;height:14px">{(q.approver_name or ' ') if (q.approval_status or 'none') == 'approved' else ' '}</td>
-      <td style="border:1px solid #999;padding:5px 2px">{q.sales_person_name or ' '}</td>
-      <td style="border:1px solid #999;padding:5px 2px">{q.created_by_name or ' '}</td>
+      <td style="border:1px solid #999;padding:10px 2px 12px">{_stamp_cell('STMPAPV')}</td>
+      <td style="border:1px solid #999;padding:10px 2px 12px">{_stamp_cell('STMPSLS')}</td>
+      <td style="border:1px solid #999;padding:10px 2px 12px">{_stamp_cell('STMPCRT')}</td>
     </tr>
   </table>'''
 
@@ -1359,11 +1382,11 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     if _exc:
         # 1項目1行。divを重ねるとPDF変換時に行ごとに枠が付いてしまうためテーブルにする
         _rows = "".join(
-            f'<tr><td style="padding:1px 10px;border:none">{l}</td></tr>' for l in _exc)
+            f'<tr><td style="padding:0 10px;border:none">{l}</td></tr>' for l in _exc)
         exclusions_html = f'''
   <div style="margin-top:10px;font-size:10px">
     <div style="font-weight:bold;margin-bottom:3px">※ 御見積除外事項</div>
-    <table style="width:100%;border:1px solid #ccc;border-collapse:collapse;font-size:11px">
+    <table style="width:100%;border:1px solid #ccc;border-collapse:collapse;font-size:9.5px">
       {_rows}
     </table>
   </div>'''

@@ -66,7 +66,8 @@ def pdf_available() -> bool:
     return html_to_pdf("<p>テスト</p>") is not None
 
 
-def html_to_pdf(html: str, watermark: Optional[str] = None) -> Optional[bytes]:
+def html_to_pdf(html: str, watermark: Optional[str] = None,
+                stamps: Optional[dict] = None) -> Optional[bytes]:
     """HTML文字列をPDFのbytesにして返す。生成できない環境では None（HTML添付にフォールバック）。
 
     watermark を指定すると、全ページの中央に斜めの透かしを重ねる
@@ -99,6 +100,8 @@ def html_to_pdf(html: str, watermark: Optional[str] = None) -> Optional[bytes]:
         data = out.getvalue()
         if not data.startswith(b"%PDF"):
             return None
+        if stamps:
+            data = _draw_stamps(data, stamps) or data
         if watermark:
             data = _overlay_watermark(data, watermark) or data
         return data
@@ -167,4 +170,75 @@ def merge_pdfs(blobs) -> Optional[bytes]:
         return out.getvalue()
     except Exception as e:
         log.warning("PDFの結合に失敗: %s", e)
+        return None
+
+
+# 押印（丸印）の描画
+# xhtml2pdf は border-radius を解釈しないため丸が描けない。そこでHTML側には
+# 位置決め用の見えない目印（ASCII）だけを置き、生成後のPDFに reportlab で
+# 朱色の丸と苗字を描く。目印は白文字なので印刷にも出ない。
+STAMP_MARKER_PREFIX = "STMP"
+
+
+def _draw_stamps(pdf_bytes: bytes, stamps: dict) -> Optional[bytes]:
+    """{目印キー: 表示名} を受け取り、目印の位置に朱色の丸印を描く。
+
+    例: {"STMPAPV": "井上", "STMPSLS": "柴田", "STMPCRT": "後藤"}
+    表示名が空のキーは描画しない（未承認の検印欄など）。
+    """
+    try:
+        from reportlab.pdfgen import canvas
+        from reportlab.pdfbase import pdfmetrics
+        from pypdf import PdfReader, PdfWriter
+    except Exception as e:
+        log.warning("押印を描画できません: %s", e)
+        return None
+    if not _ensure_font():
+        return None
+    try:
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        writer = PdfWriter()
+        for page in reader.pages:
+            found = {}
+
+            def visit(text, cm, tm, font_dict, font_size, _f=found):
+                t = (text or "").strip()
+                if t.startswith(STAMP_MARKER_PREFIX) and t in stamps:
+                    # 位置 = 現在の変換行列 × テキスト行列
+                    _f[t] = (cm[4] + tm[4], cm[5] + tm[5])
+
+            try:
+                page.extract_text(visitor_text=visit)
+            except Exception:
+                pass
+            targets = {k: v for k, v in found.items() if (stamps.get(k) or "").strip()}
+            if not targets:
+                writer.add_page(page)
+                continue
+
+            w = float(page.mediabox.width)
+            h = float(page.mediabox.height)
+            buf = io.BytesIO()
+            c = canvas.Canvas(buf, pagesize=(w, h))
+            for key, (x, y) in targets.items():
+                name = stamps[key].strip()
+                r = 15                      # 丸の半径
+                cx, cy = x + r, y + 2       # 目印の少し右・やや上を中心にする
+                c.setStrokeColorRGB(0.80, 0.10, 0.10)
+                c.setLineWidth(1.2)
+                c.circle(cx, cy, r, stroke=1, fill=0)
+                # 苗字は2文字までを想定。文字数で大きさを調整する
+                size = 11 if len(name) <= 2 else 8
+                c.setFont(_JP_FONT, size)
+                c.setFillColorRGB(0.80, 0.10, 0.10)
+                c.drawCentredString(cx, cy - size * 0.36, name)
+            c.save()
+            mark = PdfReader(io.BytesIO(buf.getvalue())).pages[0]
+            page.merge_page(mark)
+            writer.add_page(page)
+        out = io.BytesIO()
+        writer.write(out)
+        return out.getvalue()
+    except Exception as e:
+        log.warning("押印の描画に失敗: %s", e)
         return None
