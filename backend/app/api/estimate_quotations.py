@@ -1095,7 +1095,7 @@ def _send_approval_mail(q: QuotationHeader, approver: str, token: str, db: Sessi
         attachments.append((f"{q.quotation_no}_見積書.html", q_html.encode("utf-8"), "html"))
         attachments.append((f"{q.quotation_no}_社内工数試算.html", l_html.encode("utf-8"), "html"))
 
-    _subj_child = f"[{q.child_no}] " if q.child_no else ""
+    _subj_child = f"[{q.child_no or '案件ID未設定'}] "
     r = send_mail(user.email,
                   f"【承認依頼】{_subj_child}{q.quotation_no} {q.title or ''}（¥{amount:,}）",
                   body, attachments)
@@ -1402,9 +1402,10 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     valid_until_disp = q.valid_until_text or (q.valid_until or " ")
 
     # 明細ページのヘッダー。宛名・条件表は頭紙にあるため繰り返さない
-    _child = f'案件ID: {q.child_no}　' if q.child_no else ''
+    _child_no = q.child_no or '未設定'
+    _child = f'案件ID: {_child_no}　'
     # 頭紙は縦並び（No./日付の上に案件子IDを出す）
-    _child_line = f'案件ID: {q.child_no}<br>' if q.child_no else ''
+    _child_line = f'案件ID: {_child_no}<br>'
     _hdr_title = q.title or ' '
     _hdr_meta = (f"{_child}No. {q.quotation_no}　"
                  f"日付 {q.issue_date or '    '}　担当: {q.sales_person_name or ' '}")
@@ -1672,7 +1673,7 @@ def _build_labor_html(q: QuotationHeader, db: Session) -> str:
 <h1 style="font-size:20px;margin:6px 0 12px">社内工数試算</h1>
 <table style="width:100%;font-size:12px;margin-bottom:12px">
   <tr>
-    <td>案件ID: <b>{q.child_no or '—'}</b>　／　見積No. <b>{q.quotation_no}</b></td>
+    <td>案件ID: <b>{q.child_no or '未設定'}</b>　／　見積No. <b>{q.quotation_no}</b></td>
     <td>件名: {q.title or ' '}</td>
     <td>注文主: {q.customer_name or ' '}</td>
     <td style="text-align:right">日付: {q.issue_date or ' '}</td>
