@@ -15,6 +15,18 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-07-21 — Claude(Cowork) — /procurement 検証（異常なし）
+**触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
+**検証**: origin/main は前回と同一（HEAD d9b85e6、procurement関連の新規コミットなし）。静的解析で退行なし。
+- エンドポイント整合: ProcurementPage.tsx の procurementApi 参照17系統すべて api/index.ts 定義および materials.py 実ルートに一致（不一致なし）。route順序も breakdowns/from-units 等が `{po_id}`/`{mo_id}` より前で安全。
+- P-06 エラーバナー健在: PurchaseOrdersTab `load()` は `setLoadError` で失敗時に赤バナー、成功時クリア（握り潰し退行なし）。
+- P-03/P-05 0値表示: materials.py `_mo_dict`(L439-440) order_qty/unit_price・発注書HTML(L799-801) qty/price ともに `is not None` 維持。フロント側(L344-347)は `?? ''`/`|| 0` で0を正しく表示、`—` は identifier/日付の空欄用のみ。total_amount は常にint集計でNaNリスクなし。
+- バリデーション健在: 部材未選択 alert(L271)・受入数量 `qty<=0` alert(L296)・内訳/子ID未選択 alert(L77,79)。
+- 構文: ProcurementPage.tsx・api/index.ts esbuild OK、materials.py・models.py py_compile OK。Python全角文字なし。
+**ライブAPI/UI**: 無人実行のため web_fetch は対象ドメインが provenance外＋bashのバックエンド疎通不可 → 静的解析で対応。
+**運用メモ**: P-02（既存DBに material_orders.order_no/project_unit_id 列が無い場合 GET /material-orders が500）は `/setup-bom-master-tables` 実行済み前提で本番影響なし。
+**バグ検出**: なし（異常なし）。push はWORKLOG更新のみ。
+
 ### 2026-07-20 — Claude(Cowork) — マニュアルを最新機能へ同期（見積: 承認待ち通知・承認メール・社内工数の扱い変更）
 **触ったファイル**: `frontend/src/pages/HelpPage.tsx`・`WORKLOG.md`
 **基準**: HelpPage 最終更新 f8e869a〜HEAD のユーザー向けページ変更を反映。
