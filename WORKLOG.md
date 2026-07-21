@@ -15,6 +15,18 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-07-22 — Claude(Cowork) — /procurement 検証（異常なし）
+**触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
+**検証**: 前回検証(07-21)以降、procurement系コードの変更なし。HEAD `f075793`(07-21 WORKLOG更新)・`d9b85e6`(07-20 ヘルプ同期) はいずれも procurement 非該当。procurement コードの最終変更は `b89fa9d`(07-20, P-06 発注書一覧エラーバナー) で 07-21 に退行なし確認済み → 本日も同一。
+- エンドポイント整合: ProcurementPage.tsx/api の procurement参照（materials/bom/material-orders/units/adopted-units/suppliers/purchase-orders 各系統）が materials.py 実ルートに全一致。route順序も breakdowns(L578)/from-breakdowns(L595) が `/{po_id}`(L656) より前で shadow なし。
+- P-06 エラーバナー健在: PurchaseOrdersTab の一覧取得は失敗時 `setLoadError` で赤バナー(L127-128)、成功時クリア。握り潰し退行なし。
+- P-03/P-05 0値表示: `_mo_dict`(L439-440) order_qty/unit_price、発注書HTML(L799-800) qty/price ともに `is not None` 維持。0値が正しく表示される。
+- バリデーション健在: 新規発注 alert 系（部材未選択・受入数量）健在。
+- 構文: materials.py・models.py py_compile OK、ProcurementPage.tsx・api/index.ts esbuild OK。全角のコード構文混入なし。
+**ライブAPI/UI**: 無人実行のため web_fetch は対象ドメインが provenance外＋Chrome対話選択不可 → 静的解析で対応。
+**運用メモ**: P-02（既存DBに material_orders.order_no/project_unit_id 列が無い場合 GET /material-orders が500）は `/setup-bom-master-tables` 実行済み前提で本番影響なし。
+**バグ検出**: なし（異常なし）。push はWORKLOG更新のみ。
+
 ### 2026-07-21 — Claude(Cowork) — /procurement 検証（異常なし）
 **触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
 **検証**: origin/main は前回と同一（HEAD d9b85e6、procurement関連の新規コミットなし）。静的解析で退行なし。
