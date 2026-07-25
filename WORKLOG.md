@@ -15,6 +15,20 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-07-25（2回目） — Claude(Cowork) — /procurement 検証（異常なし）
+**触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
+**検証**: HEAD `06bc982`(本日1回目 WORKLOG更新)。前回検証以降 procurement系コード(ProcurementPage.tsx/api/index.ts/materials.py/models.py)に新規コミットなし＝退行なし。作業中テーブル空＝衝突なし。
+- 構文: materials.py・models.py py_compile OK、ProcurementPage.tsx・api/index.ts esbuild OK。
+- エンドポイント整合: api/index.ts の procurement参照が materials.py 実ルートに全一致。route順序も breakdowns(L578)/from-breakdowns(L595) が `/{po_id}`(L656) より前で shadow なし。
+- P-03/P-05 0値表示: `_mo_dict`(L439-440) order_qty/unit_price、発注書HTML(L799-800) qty/price ともに `is not None` 維持で0値が正しく表示。
+- P-06 赤バナー健在: PurchaseOrdersTab `loadError`(L47) 失敗時 setLoadError(L51)→赤バナー(L127-128)、成功時クリア(L50)。握り潰し退行なし。残る `.catch(()=>{})` はサプライヤDropdown(L255)・部材オートコンプリート(L264)のみで従来どおり許容。
+- バリデーション健在: 案件子ID/内訳未選択 alert(L77,79)、部材未選択 alert(L271)、数量 `qty<=0` alert(L296)。
+- 全角混入: Python コード行に全角なし（docstring L250・発注書HTML L844-866 の全角は文字列/コメント内のみ）。
+**ライブAPI/UI**: 無人実行のため sandbox proxy 403＋web_fetch provenance外＋Chrome対話選択不可 → 静的解析で対応。
+**運用メモ**: P-02（既存DBに material_orders.order_no/project_unit_id 列が無い場合 GET /material-orders が500）は `/setup-bom-master-tables` 実行済み前提で本番影響なし。
+**バグ検出**: なし（異常なし）。push はWORKLOG更新のみ。
+
+
 ### 2026-07-25 — Claude(Cowork) — /procurement 検証（異常なし）
 **触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
 **検証**: HEAD `8e3c92c`(07-23 WORKLOG更新)。前回検証(07-23)以降 origin/main に新規コミットなし＝procurement系コード(ProcurementPage.tsx/api/index.ts/materials.py/models.py)の変更なし＝退行なし。作業中テーブル空＝衝突なし。
