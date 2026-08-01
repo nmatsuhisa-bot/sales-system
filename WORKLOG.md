@@ -15,6 +15,17 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-08-02 — Claude(Cowork) — /procurement 検証（異常なし）
+**触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
+**検証**: HEAD `13331cd`(07-31 WORKLOG更新)。git fetch で local HEAD==origin/main==`13331cd` ＝前回検証(07-31)以降 新規コミットなし＝procurement系(ProcurementPage.tsx/api/index.ts/materials.py/models.py)の退行なし。作業中テーブル空＝衝突なし。procurement系の最終変更は `b89fa9d`(07-20 P-06 赤バナー)・`48a13cb`(07-19)・`e7ed9e1`/`d67ae6a`(07-18/19、いずれも procurement 非該当の周辺変更)。
+- 構文: materials.py・models.py py_compile OK、ProcurementPage.tsx・api/index.ts esbuild OK。@router 32件で従来どおり。
+- P-03/P-05 0値表示: `_mo_dict`(L439-440) order_qty/unit_price、発注書HTML(L799-800) qty/price ともに `is not None` 維持で0値が正しく表示。
+- P-06 赤バナー健在: PurchaseOrdersTab `loadError`(L47)、成功時クリア(L50)、失敗時 setLoadError(L51)→赤バナー(L127-128)。握り潰し退行なし。残る `.catch(()=>{})` はサプライヤDropdown(L255)・部材オートコンプリート(L264)のみで従来どおり許容。
+- バリデーション健在: 案件子ID/内訳未選択 alert(L77,79)、部材未選択 alert(L271)、受入数量 `qty<=0` alert(L296)。
+**ライブAPI/UI**: バックエンドの各 /api/procurement/* は web_fetch の provenance 制限で取得不可（`/api` ルートのみ到達確認）。フロント `/procurement` は HTML 200 応答を確認（SPAのため中身は静的解析で対応）。
+**運用メモ**: P-02（既存DBに material_orders.order_no/project_unit_id 列が無い場合 GET /material-orders が500）は `/setup-bom-master-tables` 実行済み前提で本番影響なし。
+**バグ検出**: なし（異常なし）。push はWORKLOG更新のみ。
+
 ### 2026-07-31 — Claude(Cowork) — /procurement 検証（異常なし）
 **触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
 **検証**: HEAD `dd0d838`(07-30 WORKLOG更新)。git fetch で local HEAD==origin/main==`dd0d838` ＝前回検証(07-30)以降 新規コミットなし＝procurement系(ProcurementPage.tsx/api/index.ts/materials.py/models.py)の退行なし。作業中テーブル空＝衝突なし。
