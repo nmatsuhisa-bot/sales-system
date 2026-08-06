@@ -15,6 +15,21 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-08-07 — Claude(Cowork) — /procurement 検証（異常なし）
+**触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
+**検証**: HEAD `4057620`(08-07 feat(auth) パスワード自己リセット)。local HEAD==origin/main。前回検証(08-03 `ba95e23`)以降の新規コミットは `4057620` の1件。作業中テーブル空＝衝突なし。
+- **新規コミット `4057620` の procurement 影響評価**: 変更は auth.py / main.py / App.tsx / LoginPage.tsx / ResetPasswordPage.tsx（新規）と、api/index.ts・models.py への**追記のみ**。api/index.ts は `authApi` へ forgotPassword/resetPassword の2行追加のみで procurementApi に差分なし。models.py は `PasswordResetToken` クラス追加のみで MaterialMaster/BomItem/MaterialOrder/Supplier に差分なし。**procurement系への退行なし**。
+- 構文: materials.py・models.py・auth.py py_compile OK、ProcurementPage.tsx・api/index.ts esbuild OK。materials.py の @router 32件で従来どおり。
+- **エンドポイント整合（機械照合）**: api/index.ts の procurementApi 内 API呼び出し31件をメソッド＋パス正規化して materials.py の @router 32ルートと突合 → **不一致0件**。`/api` 二重付与も0件。
+- route順序: `/purchase-orders/breakdowns`(L578)・`/purchase-orders/from-breakdowns`(L595) が `/purchase-orders/{po_id}`(L656) より前で shadow なし。
+- P-03/P-05 0値表示: `_mo_dict`(L439-440) order_qty/unit_price、発注書HTML(L799-800) qty/price ともに `is not None` 維持で0値が正しく表示。フロント側の `|| '—'` は L194/195/197 の breakdown_no・child_no・order_date（いずれも文字列項目）のみで数値0の誤表示なし。
+- P-06 赤バナー健在: PurchaseOrdersTab `loadError`(L47)、失敗時 setLoadError(L51)→赤バナー(L127-128)。握り潰し退行なし。残る `.catch(()=>{})` はサプライヤDropdown(L255)・部材オートコンプリート(L264)のみで従来どおり許容。
+- バリデーション健在: 案件子ID未選択 alert(L77)、内訳未選択 alert(L79)、部材未選択 alert(L271)、受入数量 `qty<=0` alert(L296)。
+- 全角/f-string: materials.py のコード構文行の全角はコメント内のみ（文字列除去後の走査で確認）。f-string内リスト内包表記なし。
+**ライブAPI/UI**: バックエンド `/api` ルートは 200 到達確認。`/api/procurement/*` 各パスと フロント `/procurement` は web_fetch の provenance 制限で取得不可、Chrome は無人実行のため対話選択不可 → 静的解析で対応。
+**運用メモ**: P-02（既存DBに material_orders.order_no/project_unit_id 列が無い場合 GET /material-orders が500）は `/setup-bom-master-tables` 実行済み前提で本番影響なし。なお `4057620` で `password_reset_tokens` テーブルが追加されたため、パスワードリセット機能を使う場合は本番でテーブル作成が別途必要（procurement とは無関係）。
+**バグ検出**: なし（異常なし）。push はWORKLOG更新のみ。
+
 ### 2026-08-03 — Claude(Cowork) — /procurement 検証（異常なし）
 **触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
 **検証**: HEAD `99ec490`(08-02 WORKLOG更新)。git fetch で local HEAD==origin/main==`99ec490` ＝前回検証(08-02)以降 新規コミットなし＝procurement系(ProcurementPage.tsx/api/index.ts/materials.py/models.py)の退行なし。作業中テーブル空＝衝突なし。
