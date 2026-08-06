@@ -61,6 +61,14 @@ def root():
     return {"message": "販売管理システム API v1.0"}
 
 
+@app.get("/setup-password-reset-tokens")
+def setup_password_reset_tokens():
+    """パスワードリセット用トークンテーブルを作成（冪等）。"""
+    from app.db.models import engine, Base, PasswordResetToken  # noqa: F401
+    Base.metadata.create_all(bind=engine, tables=[PasswordResetToken.__table__])
+    return {"ok": True, "message": "password_reset_tokens を作成しました"}
+
+
 @app.get("/setup-add-is-active")
 def setup_add_is_active():
     from app.db.models import engine

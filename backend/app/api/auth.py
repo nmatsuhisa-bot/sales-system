@@ -73,6 +73,107 @@ def list_function_roles():
     権限を増やすときは app/roles.py の FUNCTION_ROLES に追加するだけでよい。"""
     return {"function_roles": FUNCTION_ROLES}
 
+
+# ============================================================
+# パスワードリセット（メールで自己リセット）
+# ============================================================
+PASSWORD_RESET_HOURS = 2   # リンクの有効期限
+
+
+class ForgotPasswordIn(BaseModel):
+    email: str
+
+
+class ResetPasswordIn(BaseModel):
+    token: str
+    new_password: str
+
+
+@router.post("/forgot-password")
+def forgot_password(data: ForgotPasswordIn, db: Session = Depends(get_db)):
+    """パスワード再設定リンクをメールで送る。
+
+    セキュリティのため、メールアドレスが登録されているかどうかは応答から分からない
+    ようにする（該当がなくても成功メッセージを返す。総当たりでアカウント有無を
+    調べられないため）。
+    """
+    import secrets
+    from app.db.models import PasswordResetToken
+    from app.mailer import send_mail, app_base_url, mail_configured
+
+    generic = {"ok": True,
+               "message": "登録済みのメールアドレスであれば、再設定用のリンクを送信しました。"
+                          "メールをご確認ください。"}
+
+    email = (data.email or "").strip()
+    if not email:
+        raise HTTPException(400, "メールアドレスを入力してください")
+
+    user = db.query(User).filter(User.email == email, User.is_active == True).first()
+    if not user:
+        return generic
+    if not mail_configured():
+        raise HTTPException(503, "メール送信が未設定のため、リンクを送れません。管理者にお問い合わせください")
+
+    # 既存の未使用トークンは無効化してから新規発行
+    now = datetime.now()
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.used_at.is_(None),
+    ).update({PasswordResetToken.used_at: now}, synchronize_session=False)
+
+    tok = PasswordResetToken(
+        token=secrets.token_urlsafe(32),
+        user_id=user.id,
+        expires_at=now + timedelta(hours=PASSWORD_RESET_HOURS),
+    )
+    db.add(tok)
+    db.commit()
+
+    reset_url = f"{app_base_url()}/reset-password?token={tok.token}"
+    body = f"""{user.full_name} 様
+
+販売管理システムのパスワード再設定のご依頼を受け付けました。
+
+▼ 下記のリンクを開いて、新しいパスワードを設定してください
+（有効期限 {PASSWORD_RESET_HOURS} 時間・1回限り）
+{reset_url}
+
+このメールにお心当たりがない場合は、破棄してください。
+リンクを開かない限り、パスワードは変更されません。
+
+--
+井上電設 販売管理システム（自動送信）
+"""
+    r = send_mail(user.email, "【販売管理システム】パスワード再設定のご案内", body)
+    return {**generic, "mail": {"sent": r.get("sent"), "to": user.email}}
+
+
+@router.post("/reset-password")
+def reset_password(data: ResetPasswordIn, db: Session = Depends(get_db)):
+    """再設定リンクのトークンで新しいパスワードを設定する。"""
+    from app.db.models import PasswordResetToken
+
+    if not data.new_password or len(data.new_password) < 6:
+        raise HTTPException(400, "パスワードは6文字以上にしてください")
+
+    tok = db.query(PasswordResetToken).filter(
+        PasswordResetToken.token == data.token
+    ).first()
+    if not tok or tok.used_at is not None:
+        raise HTTPException(400, "このリンクは無効か、既に使用済みです。お手数ですが再度お手続きください")
+    if tok.expires_at < datetime.now():
+        raise HTTPException(400, "このリンクは有効期限が切れています。お手数ですが再度お手続きください")
+
+    user = db.query(User).filter(User.id == tok.user_id).first()
+    if not user:
+        raise HTTPException(400, "対象のユーザーが見つかりません")
+
+    user.hashed_password = bcrypt.hashpw(data.new_password.encode(), bcrypt.gensalt()).decode()
+    tok.used_at = datetime.now()
+    db.commit()
+    return {"ok": True, "message": "パスワードを再設定しました。新しいパスワードでログインしてください"}
+
 class UserCreate(BaseModel):
     email: str
     password: str

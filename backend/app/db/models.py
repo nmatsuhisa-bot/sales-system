@@ -769,6 +769,23 @@ class ApprovalToken(Base):
     created_at = Column(DateTime, server_default=func.now())
 
 
+class PasswordResetToken(Base):
+    """パスワード再設定リンク用トークン（有効期限つき・1回限り）。
+
+    「パスワードをお忘れの方」からメール送信するワンタイムリンクに使う。
+      - expires_at を過ぎたら無効
+      - 一度使ったら used_at が入り再利用不可
+    """
+    __tablename__ = "password_reset_tokens"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    token = Column(String(64), unique=True, nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime)
+    used_from_ip = Column(String(64))
+    created_at = Column(DateTime, server_default=func.now())
+
+
 class OrderTicketFile(Base):
     """受注票の関連書類（注文書・契約書等のPDF）。
     Renderのディスクは再デプロイで消えるため、DBに直接保管する（1件10MBまで）。"""
