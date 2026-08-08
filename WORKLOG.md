@@ -15,6 +15,18 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-08-09 — Claude(Cowork) — /procurement 検証（異常なし）
+**触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
+**検証**: HEAD `c323e39`(08-07 ヘルプページ同期)。git fetch で local HEAD==origin/main==`c323e39`。前回procurement検証(08-07 `4057620`確認)以降、procurement系ファイル（ProcurementPage.tsx/api/index.ts/materials.py/models.py/manufacturing_procurement.sql）への新規コミットなし（`c323e39`はHelpPage.tsxのみ）＝退行なし。作業中テーブル空＝衝突なし。
+- 構文: materials.py・models.py・auth.py py_compile OK、ProcurementPage.tsx・api/index.ts esbuild OK。@router 32件で従来どおり。
+- P-03/P-05 0値表示: `_mo_dict`(L439-440) order_qty/unit_price、発注書HTML(L799-800) qty/price ともに `is not None` 維持で0値が正しく表示。
+- P-06 赤バナー健在: PurchaseOrdersTab `loadError`(L47)、失敗時 setLoadError(L51)→赤バナー(L127-128)。握り潰し退行なし。
+- バリデーション健在: 部材未選択 alert(L271)、受入数量 `qty<=0` alert(L296)。
+- 全角/f-string: materials.py のコード構文行の全角混入なし（docstring/HTML文字列のみ）。f-string内リスト内包表記なし。
+**ライブAPI/UI確認**: 無人実行のため web_fetch は対象ドメイン provenance外 → 静的解析で対応。
+**運用メモ**: P-02（既存DBに material_orders.order_no/project_unit_id 列が無い場合 GET /material-orders が500）は `/setup-bom-master-tables` 実行済み前提で本番影響なし。
+**バグ検出**: なし（異常なし）。push はWORKLOG更新のみ。
+
 ### 2026-08-07 — Claude(Cowork) — マニュアル同期（パスワード自己リセット）
 **触ったファイル**: `frontend/src/pages/HelpPage.tsx`, `WORKLOG.md`
 **基準**: 前回ヘルプ更新 `d9b85e6`(07-20) 〜 HEAD。対象は `4057620` feat(auth) パスワードのメール自己リセット機能のみ（他は worklog コミット）。
