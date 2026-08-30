@@ -158,6 +158,7 @@ def _build_quotation_from_cad_info(info: dict, fname: str, project_order_id, tit
     """
     from app.cad_extract import (
         duct_estimate, family_of, FAMILY, SECTION_NAMES,
+        SECTION_PANEL, SECTION_DUCT, SECTION_UNKNOWN,
         DUCT_RATE_PER_MM_M, DUCT_DEFAULT_RUN_M,
     )
 
@@ -225,7 +226,7 @@ def _build_quotation_from_cad_info(info: dict, fname: str, project_order_id, tit
         spec = ["図面の記載:"] + [f"・{t}" for t in info["panel_texts"]] if info["panel_texts"] else []
         spec = spec or ["図面に制御盤ブロックあり"]
         spec.append("※単価を手入力してください")
-        sections[5].append({
+        sections[SECTION_PANEL].append({
             "name": "制御盤", "spec": "\n".join(spec),
             "qty": 1, "unit": "式", "price": 0,
         })
@@ -245,9 +246,24 @@ def _build_quotation_from_cad_info(info: dict, fname: str, project_order_id, tit
             )
         detail.append("")
         detail.append("※係数は仮値。実長の自動積算にはダクトを専用レイヤーに中心線1本で作図する必要あり")
-        sections[6].append({
+        sections[SECTION_DUCT].append({
             "name": "ﾀﾞｸﾄ部品（概算）", "spec": "\n".join(detail),
             "qty": 1, "unit": "式", "price": duct["total"],
+        })
+
+    # 要確認（図面にあるがマスタ未登録の型式）
+    # 既知の系列だけを探すと未登録の製品が無言で欠落するため、必ず行として出す。
+    for model, cnt in (info.get("unknown_models") or {}).items():
+        sections[SECTION_UNKNOWN].append({
+            "name": f"★要確認 {model}",
+            "spec": "\n".join([
+                f"型式らしい記載: {model}",
+                f"図面内の出現: {cnt}箇所",
+                "※この型式はマスタに未登録のため、品名・数量・単価が判定できません。",
+                "　図面に描かれている機器か確認し、必要なら品名と単価を入力してください。",
+                "　不要な場合はこの行を削除してください。",
+            ]),
+            "qty": 1, "unit": "式", "price": 0,
         })
 
     if not sections:

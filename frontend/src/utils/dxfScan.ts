@@ -16,7 +16,7 @@ export interface DxfScanResult {
 }
 
 // サーバへ送るテキストの絞り込み（型式・径・容量・風量・制御盤・既設のいずれかを含む行）
-const RELEVANT = /(BFR|BFQ|SCA|SCD|ADC|CYP|CYT|CY|PLD|PL|RV|FS|ASM|SD-?\d)|%%[Cc]\d|[φΦ]\d|[kK][wW]|m3\/min|㎥|制御盤|既設/;
+const RELEVANT = /(BFR|BFQ|SCA|SCD|ADC|CYP|CYT|CY|PLD|PL|RV|FS|ASM|SD-?\d|ES\d|WL\d)|%%[Cc]\d|[φΦ]\d|[kK][wW]|m3\/min|㎥|制御盤|既設/;
 const MAX_TEXTS = 4000;
 
 export async function scanDxf(file: File): Promise<DxfScanResult> {

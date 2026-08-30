@@ -47,11 +47,13 @@ MODEL_RE = re.compile(
     r"|FS\d+"                         # FS25
     r"|ASM\d+"                        # ASM300
     r"|SD-?\d+E?"                     # SD-4E / SD-2E
+    r"|ES\d+[NP]?"                    # ES450 / ES550N / ES280P（火の粉遮断弁）
+    r"|WL\d+"                         # WL8 / WL13（ｳｯﾄﾞｸﾞﾗｲﾝﾀﾞｰ・破砕機）
     r")",
     re.IGNORECASE,
 )
 
-# 系列 → (大項目番号, 見積上の品名)。番号は原本見積（新栄合板 26-02-78A 他）の並び
+# 系列 → (大項目番号, 見積上の品名)。番号は原本見積（新栄合板 26-02-78A・釧路 26-01-01B 他）の並び
 FAMILY = {
     "BFR": (1, "ﾊﾞｸﾞﾌｨﾙﾀｰ集塵機"),
     "BFQ": (1, "小型ﾊﾞｸﾞﾌｨﾙﾀｰ集塵機"),
@@ -65,17 +67,37 @@ FAMILY = {
     "FS":  (3, "粉砕機"),
     "ASM": (3, "ﾏｸﾞﾈｯﾄｾﾊﾟﾚｰﾀ"),
     "RV":  (3, "ﾛｰﾀﾘｰﾊﾞﾙﾌﾞ"),
-    "SD":  (4, "火花探知器"),
-    "ADC": (4, "ｵｰﾄﾀﾞﾝﾊﾟ/火の粉遮断弁"),
+    # 破砕機は原本見積（釧路 加工棟）で独立した大項目のため、定量排出装置とは分ける
+    "WL":  (4, "破砕機(ｳｯﾄﾞｸﾞﾗｲﾝﾀﾞｰ)"),
+    "SD":  (5, "火花探知器"),
+    "ADC": (5, "ｵｰﾄﾀﾞﾝﾊﾟ/火の粉遮断弁"),
+    "ES":  (5, "火の粉遮断弁"),
 }
 SECTION_NAMES = {
     1: "集塵装置",
     2: "空気輸送装置",
     3: "定量排出装置",
-    4: "安全装置:火花探知器 並 火の粉遮断弁",
-    5: "制御盤",
-    6: "ﾀﾞｸﾄ部品",
+    4: "破砕機",
+    5: "安全装置:火花探知器 並 火の粉遮断弁",
+    6: "制御盤",
+    7: "ﾀﾞｸﾄ部品",
+    8: "★要確認（図面から読み取れたが未登録の型式）",
 }
+SECTION_PANEL = 6      # 制御盤
+SECTION_DUCT = 7       # ﾀﾞｸﾄ部品
+SECTION_UNKNOWN = 8    # 要確認
+
+# ------------------------------------------------------------------
+# 未知の型式の検出（欠落を防ぐための「要確認」行）
+# ------------------------------------------------------------------
+# 既知の14系列だけを決め打ちで探すと、未登録の製品（例: 火の粉遮断弁ES系列、
+# 破砕機WL系列）が無言で見積から欠落する。実案件で実際に発生していたため、
+# 「型式らしいがマスタに無いもの」を検出して要確認行として見積に載せる。
+UNKNOWN_MODEL_RE = re.compile(r"\b([A-Z]{2,5}-?\d+[A-Z0-9.\-]*)", re.IGNORECASE)
+# CADが自動生成する名前・図面管理用の名前は型式ではないので除外する
+UNKNOWN_DENY_RE = re.compile(
+    r"^(BLOCK|DSC|IMG|DWG|LAYER|LEVEL|SHEET|VIEW|GROUP|XREF|A\$|_)", re.IGNORECASE
+)
 
 KW_RE = re.compile(r"([\d.]+)\s?[kK][wW]")
 FLOW_RE = re.compile(r"([\d,]+)\s?(?:m3|㎥)/min")
@@ -198,6 +220,39 @@ def extract_from_dxf(path: str) -> dict:
     return analyze(block_names, raw_texts, insunits, acadver)
 
 
+def _unknown_models_in(raw_name: str, norm_name: str, matched) -> list:
+    """ブロック名から「型式らしいが未登録の系列」を拾う。
+
+    機器ブロックは `ES450_平面` `WL13_側面` `ACD450_heimen` のように
+    「型式＋区切り＋ビュー名」で命名されている。この形をしていて、かつ
+    既知の系列でないものを未登録の型式候補とする。
+    CADが自動生成する `BLOCK123` 等は除外する。
+    """
+    # 機器ブロックの命名規則（区切り記号かビュー語を伴う）でなければ対象外
+    looks_like_part = ("_" in raw_name) or any(w in raw_name for w in VIEW_WORDS) \
+        or re.search(r"heimen|平面|正面|側面", raw_name, re.IGNORECASE)
+    if not looks_like_part:
+        return []
+
+    # 既知の型式を含むブロックは、その機器の組立ブロック（付属部品を連結した名前）と
+    # みなし、残りのトークンは拾わない。誤検出でノイズになるのを避けるため。
+    if matched:
+        return []
+
+    # 区切りで分割してから判定する。`_` は正規表現の \b が効かないため、
+    # 単純に \b を使うと2番目以降のトークンを取りこぼす。
+    out = []
+    for chunk in re.split(r"[_\s]+", norm_name):
+        m = UNKNOWN_MODEL_RE.match(chunk)
+        if not m:
+            continue
+        t = m.group(1).upper().rstrip("-.")
+        if UNKNOWN_DENY_RE.match(t) or family_of(t):
+            continue
+        out.append(t)
+    return out
+
+
 def analyze(block_names, raw_texts, insunits=None, acadver=None) -> dict:
     """走査済みのブロック名・テキストから見積要素を組み立てる。
 
@@ -205,14 +260,19 @@ def analyze(block_names, raw_texts, insunits=None, acadver=None) -> dict:
     ファイル読み取りと分析を分離している。
     """
     models = collections.Counter()      # 型式 → 出現数（ブロック＋テキスト）
+    unknown = collections.Counter()     # 型式らしいが未登録 → 要確認行にする
     panel_blocks = 0
     for name in block_names:
         # 「SCA30制御盤」等、制御盤ブロックに機器型式が含まれる場合は制御盤として数える
         if "制御盤" in name:
             panel_blocks += 1
             continue
-        for m in MODEL_RE.findall(_normalize_block_name(name)):
+        norm = _normalize_block_name(name)
+        found = MODEL_RE.findall(norm)
+        for m in found:
             models[_canon(m)] += 1
+        for tok in _unknown_models_in(name, norm, found):
+            unknown[tok] += 1
 
     texts = []
     for raw in raw_texts:
@@ -241,8 +301,14 @@ def analyze(block_names, raw_texts, insunits=None, acadver=None) -> dict:
         if DUCT_MIN_DIA <= v <= DUCT_MAX_DIA:
             dia[v] += 1
 
+    # 既知の型式に統合されたもの（BFQ10→BFQ10V 等）は未確認から外す
+    known_up = {m.upper() for m in models}
+    unknown = {k: v for k, v in unknown.items()
+               if not any(k in m or m in k for m in known_up)}
+
     return {
         "models": dict(models),
+        "unknown_models": dict(sorted(unknown.items(), key=lambda x: -x[1])[:20]),
         "panel_blocks": panel_blocks,
         "panel_texts": [t.replace("\n", " ") for t in texts if "制御盤" in t][:5],
         "kw": sorted({float(x) for x in KW_RE.findall(body)}),
