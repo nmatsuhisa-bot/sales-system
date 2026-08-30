@@ -255,13 +255,17 @@ def _build_quotation_from_cad_info(info: dict, fname: str, project_order_id, tit
     # 既知の系列だけを探すと未登録の製品が無言で欠落するため、必ず行として出す。
     for model, cnt in (info.get("unknown_models") or {}).items():
         sections[SECTION_UNKNOWN].append({
-            "name": f"★要確認 {model}",
+            "name": f"★要確認（マスタ未登録） {model}",
             "spec": "\n".join([
                 f"型式らしい記載: {model}",
-                f"図面内の出現: {cnt}箇所",
-                "※この型式はマスタに未登録のため、品名・数量・単価が判定できません。",
-                "　図面に描かれている機器か確認し、必要なら品名と単価を入力してください。",
-                "　不要な場合はこの行を削除してください。",
+                f"図面内の出現: {cnt}箇所（仮に 1式 として計上）",
+                "",
+                "※この型式は製品マスタに未登録のため、品名・数量・単価を判定できません。",
+                "　本行は欠落を防ぐための【仮情報】です。次の対応をお願いします。",
+                "　1) 図面に描かれている自社製品か確認する",
+                "　2) 該当する場合は製品マスタへの登録を依頼する",
+                "　3) 品名・数量・単価を手入力する",
+                "　4) 対象外（他社機器・既設など）の場合はこの行を削除する",
             ]),
             "qty": 1, "unit": "式", "price": 0,
         })
@@ -334,9 +338,15 @@ def _build_quotation_from_cad_info(info: dict, fname: str, project_order_id, tit
         "models": info["models"],
         "duct": {"total": duct["total"], "lines": duct["lines"]},
         "unmatched_models": unmatched,
+        "unknown_models": list((info.get("unknown_models") or {}).keys()),
         "has_existing_note": info["has_existing_note"],
         "warnings": (
-            ([f"単価がマスタに無い型式: {', '.join(unmatched)}"] if unmatched else [])
+            # 未登録の型式は「仮情報の行」を作ったうえで、マスタ登録を依頼する
+            ([f"★マスタ登録をご依頼ください（未登録の型式）: "
+              f"{', '.join((info.get('unknown_models') or {}).keys())}"
+              f" ／ 仮情報の行として見積に追加済みです。品名・単価をご確認ください"]
+             if info.get("unknown_models") else [])
+            + ([f"単価がマスタに無い型式: {', '.join(unmatched)}"] if unmatched else [])
             + (["ダクトは概算です。係数は仮値のため必ず確認してください"] if duct["lines"] else [])
             + (["図面に「既設」の記載があります。見積対象外の機器が含まれていないか確認してください"]
                if info["has_existing_note"] else [])
