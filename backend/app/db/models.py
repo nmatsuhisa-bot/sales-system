@@ -819,6 +819,10 @@ class CraneArrangement(Base):
     vendor_tel = Column(String(50))
     vendor_fax = Column(String(50))
     order_no = Column(String(100))        # 注番
+    site_dept = Column(String(100))       # 現場の部署
+    issue_date = Column(Date)             # 作成日
+    staff_name = Column(String(100))      # 担当（原紙下部）
+    creator_name = Column(String(100))    # 作成（原紙下部）
     items_json = Column(JSON)             # 明細行リスト
     notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
@@ -837,7 +841,13 @@ class ShippingArrangement(Base):
     carrier_name = Column(String(200))    # 運送業者
     carrier_contact = Column(String(100))
     carrier_tel = Column(String(50))
+    carrier_fax = Column(String(50))      # 運送業者FAX
+    dest_dept = Column(String(100))       # 送り先の部署
+    dest_contact = Column(String(100))    # 送り先ご担当
     order_no = Column(String(100))
+    issue_date = Column(Date)             # 作成日
+    staff_name = Column(String(100))      # 担当
+    creator_name = Column(String(100))    # 作成
     items_json = Column(JSON)             # 明細行リスト
     notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
@@ -859,6 +869,52 @@ class ArrangementVendor(Base):
     notes = Column(Text)
     source_tag = Column(String(50))            # 取込元タグ（一括削除用）
     is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class FanArrangement(Base):
+    """排風機の注文確認書 ならび ファン作業指示書
+
+    原紙は「排風機2011年～.xlsx」の PL/BFQ/FS 注文確認書・作業伝票。
+    仕様項目は型式ごとに増減するため、共通項目のみ列に持ち、
+    残りは spec_json に格納する（型式追加のたびに migration しないで済むように）。
+    """
+    __tablename__ = "fan_arrangements"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_order_id = Column(UUID(as_uuid=True), ForeignKey("project_orders.id"))
+    child_no = Column(String(100))
+    order_no = Column(String(100))          # 受注No.
+    form_type = Column(String(20))          # PL / BFQ / FS
+
+    vendor_name = Column(String(200))       # 発注先（昭元産業㈱ 等）
+    vendor_contact = Column(String(100))    # 発注先ご担当
+
+    user_name = Column(String(300))         # ユーザー名
+    user_plant = Column(String(200))        # 工場
+    user_address = Column(String(500))
+    user_tel = Column(String(50))
+    user_contact = Column(String(100))      # ご担当者
+
+    ship_to_name = Column(String(300))      # 出荷先
+    ship_to_plant = Column(String(200))
+    ship_to_address = Column(String(500))
+    ship_to_tel = Column(String(50))
+    ship_to_contact = Column(String(100))
+    ship_date = Column(Date)                # 出荷日
+    transport_method = Column(String(50))   # 引取 / パレット / 工事
+
+    product_name = Column(String(100))      # 名称（プレートファン 等）
+    model = Column(String(100))             # 型式
+    serial_no = Column(String(50))          # 製造No.
+    drive_type = Column(String(50))         # 駆動方式
+
+    spec_json = Column(JSON)                # 周波数・電圧・モータ・吸排気口・ｽｲｯﾁ 等
+    instruction_json = Column(JSON)         # ファン作業指示書の項目（軸受・ﾌﾟｰﾘ・ｶﾊﾞｰ 等）
+
+    sales_person_name = Column(String(100))  # 営業担当
+    creator_name = Column(String(100))       # 作成
+    notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

@@ -351,6 +351,8 @@ export default function ProjectsPage() {
                             className="text-xs bg-orange-100 text-orange-700 px-1 py-0.5 rounded hover:bg-orange-200">クレーン</button>
                           <button onClick={() => setArrangeModal({ type: 'shipping', orderId: o.id, childNo: o.child_no })}
                             className="text-xs bg-blue-100 text-blue-700 px-1 py-0.5 rounded hover:bg-blue-200">送り状</button>
+                          <button onClick={() => setArrangeModal({ type: 'fan', orderId: o.id, childNo: o.child_no })}
+                            className="text-xs bg-teal-100 text-teal-700 px-1 py-0.5 rounded hover:bg-teal-200">排風機</button>
                           <button onClick={() => setArrangeModal({ type: 'hotel', orderId: o.id, childNo: o.child_no })}
                             className="text-xs bg-green-100 text-green-700 px-1 py-0.5 rounded hover:bg-green-200">宿泊</button>
                           <button onClick={() => navigate('/procurement', { state: { childOrder: { id: o.id, child_no: o.child_no, project_name: o.project_name, customer_name: o.customer_name, sales_person_name: o.sales_person_name, sales_date: o.sales_date, status: o.status } } })}

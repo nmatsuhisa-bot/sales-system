@@ -136,8 +136,14 @@ export const arrangementApi = {
   saveShipping: (orderId: string, data: any) => api.put(`/arrangements/shipping/${orderId}`, data),
   getHotel: (orderId: string) => api.get(`/arrangements/hotel/${orderId}`),
   saveHotel: (orderId: string, data: any) => api.put(`/arrangements/hotel/${orderId}`, data),
-  cranePdf: (orderId: string) => `${API_BASE}/arrangements/crane/${orderId}/pdf`,
-  shippingPdf: (orderId: string) => `${API_BASE}/arrangements/shipping/${orderId}/pdf`,
+  // 排風機（注文確認書 / ファン作業指示書）
+  getFan: (orderId: string) => api.get(`/arrangements/fan/${orderId}`),
+  saveFan: (orderId: string, data: any) => api.put(`/arrangements/fan/${orderId}`, data),
+  // 帳票URL。fmt='pdf' でPDFの実体、'html' でブラウザ印刷用
+  cranePdf: (orderId: string, fmt = 'pdf') => `${API_BASE}/arrangements/crane/${orderId}/pdf?format=${fmt}`,
+  shippingPdf: (orderId: string, fmt = 'pdf') => `${API_BASE}/arrangements/shipping/${orderId}/pdf?format=${fmt}`,
+  fanPdf: (orderId: string, fmt = 'pdf') => `${API_BASE}/arrangements/fan/${orderId}/pdf?format=${fmt}`,
+  fanInstructionPdf: (orderId: string, fmt = 'pdf') => `${API_BASE}/arrangements/fan/${orderId}/instruction-pdf?format=${fmt}`,
   hotelPdf: (orderId: string) => `${API_BASE}/arrangements/hotel/${orderId}/pdf`,
   // 手配業者マスタ
   listVendors: (category?: string, search?: string) => api.get('/arrangements/vendors', { params: { category, search } }),
