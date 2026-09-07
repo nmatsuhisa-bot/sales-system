@@ -406,6 +406,29 @@ def save_crane(order_id: str, data: CraneData, db: Session = Depends(get_db)):
     return crane_to_dict(c)
 
 
+def h4(c1, c2, c3, c4):
+    """宛先ブロックの1行（4列）。
+
+    空欄が多いと列が潰れるため、全行の全セルに width を指定する
+    （xhtml2pdf は CSS width を無視し、内容から幅を決めてしまう）。
+    """
+    L = 'style="background:#f0f0f0"'
+    return ('<tr><td width="62" ' + L + '>' + c1 + '</td><td width="230">' + c2 + '</td>'
+            '<td width="42" ' + L + '>' + c3 + '</td><td width="176">' + c4 + '</td></tr>')
+
+
+def h4wide(c1, body):
+    L = 'style="background:#f0f0f0"'
+    return ('<tr><td width="62" ' + L + '>' + c1 + '</td>'
+            '<td colspan="3">' + body + '</td></tr>')
+
+
+def h2(c1, c2):
+    L = 'style="background:#f0f0f0"'
+    return ('<tr><td width="62" ' + L + '>' + c1 + '</td>'
+            '<td width="448">' + c2 + '</td></tr>')
+
+
 def _crane_item_block(it, idx):
     """依頼書の明細1件分（原紙は1件＝4行の枠）。
 
@@ -459,22 +482,16 @@ def crane_pdf(order_id: str, format: str = "html", db: Session = Depends(get_db)
         + '<td style="border:none;text-align:right;font-size:10px">作成 '
           + esc(d.get('issue_date')) + '</td></tr></table>'
         + '<table style="margin-bottom:6px">'
-        + '<tr><td width="62" style="background:#f0f0f0">現場名</td>'
-          '<td>' + esc(d.get('site_name')) + ' 御中</td>'
-          '<td width="42" style="background:#f0f0f0">注番</td>'
-          '<td width="110" style="color:#c00;font-weight:bold">' + esc(d.get('order_no')) + '</td></tr>'
-        + '<tr><td style="background:#f0f0f0">住　所</td>'
-          '<td colspan="3">' + esc(d.get('site_address')) + '</td></tr>'
-        + '<tr><td style="background:#f0f0f0">TEL</td><td>' + esc(d.get('site_tel')) + '</td>'
-          '<td style="background:#f0f0f0">ご担当</td>'
-          '<td>' + esc(d.get('site_dept')) + ' ' + esc(d.get('site_contact')) + ' 様</td></tr>'
+        + h4('現場名', esc(d.get('site_name')) + ' 御中', '注番',
+             '<span style="color:#c00;font-weight:bold">' + esc(d.get('order_no')) + '</span>')
+        + h4wide('住　所', esc(d.get('site_address')))
+        + h4('TEL', esc(d.get('site_tel')), 'ご担当',
+             esc(d.get('site_dept')) + ' ' + esc(d.get('site_contact')) + ' 様')
         + '</table>'
         + '<table style="margin-bottom:6px">'
-        + '<tr><td width="62" style="background:#f0f0f0">依頼業者</td>'
-          '<td>' + esc(d.get('vendor_name')) + ' ' + esc(d.get('vendor_branch')) + ' 御中</td></tr>'
-        + '<tr><td style="background:#f0f0f0">ご担当</td>'
-          '<td>' + esc(d.get('vendor_contact')) + ' 様　　TEL ' + esc(d.get('vendor_tel'))
-          + '　　FAX ' + esc(d.get('vendor_fax')) + '</td></tr>'
+        + h2('依頼業者', esc(d.get('vendor_name')) + ' ' + esc(d.get('vendor_branch')) + ' 御中')
+        + h2('ご担当', esc(d.get('vendor_contact')) + ' 様　　TEL ' + esc(d.get('vendor_tel'))
+             + '　　FAX ' + esc(d.get('vendor_fax')))
         + '</table>'
         + '<div style="font-size:10px;margin:6px 0">下記、手配お願い致します。'
           '※請求書には右上の注番を記入してください。</div>'
@@ -593,22 +610,16 @@ def shipping_pdf(order_id: str, format: str = "html", db: Session = Depends(get_
         + '<td style="border:none;text-align:right;font-size:10px">作成 '
           + esc(d.get('issue_date')) + '</td></tr></table>'
         + '<table style="margin-bottom:6px">'
-        + '<tr><td width="62" style="background:#f0f0f0">送り先</td>'
-          '<td>' + esc(d.get('dest_name')) + ' 御中</td>'
-          '<td width="42" style="background:#f0f0f0">注番</td>'
-          '<td width="110" style="color:#c00;font-weight:bold">' + esc(d.get('order_no')) + '</td></tr>'
-        + '<tr><td style="background:#f0f0f0">住　所</td>'
-          '<td colspan="3">' + esc(d.get('dest_address')) + '</td></tr>'
-        + '<tr><td style="background:#f0f0f0">TEL</td><td>' + esc(d.get('dest_tel')) + '</td>'
-          '<td style="background:#f0f0f0">ご担当</td>'
-          '<td>' + esc(d.get('dest_dept')) + ' ' + esc(d.get('dest_contact')) + ' 様</td></tr>'
+        + h4('送り先', esc(d.get('dest_name')) + ' 御中', '注番',
+             '<span style="color:#c00;font-weight:bold">' + esc(d.get('order_no')) + '</span>')
+        + h4wide('住　所', esc(d.get('dest_address')))
+        + h4('TEL', esc(d.get('dest_tel')), 'ご担当',
+             esc(d.get('dest_dept')) + ' ' + esc(d.get('dest_contact')) + ' 様')
         + '</table>'
         + '<table style="margin-bottom:6px">'
-        + '<tr><td width="62" style="background:#f0f0f0">運送業者</td>'
-          '<td>' + esc(d.get('carrier_name')) + ' 御中</td></tr>'
-        + '<tr><td style="background:#f0f0f0">ご担当</td>'
-          '<td>' + esc(d.get('carrier_contact')) + ' 様　　TEL ' + esc(d.get('carrier_tel'))
-          + '　　FAX ' + esc(d.get('carrier_fax')) + '</td></tr>'
+        + h2('運送業者', esc(d.get('carrier_name')) + ' 御中')
+        + h2('ご担当', esc(d.get('carrier_contact')) + ' 様　　TEL ' + esc(d.get('carrier_tel'))
+             + '　　FAX ' + esc(d.get('carrier_fax')))
         + '</table>'
         + '<div style="font-size:10px;margin:6px 0">下記トラックの手配お願い致します。'
           'トラックの社名・車番等が分かりましたら、記入して送り返して下さい。<br>'
