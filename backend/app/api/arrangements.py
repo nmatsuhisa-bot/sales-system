@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from typing import Optional, List, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from datetime import date
 import io
 import re
@@ -188,7 +188,20 @@ def find_order(order_id, db):
 # =============================================
 # Pydanticスキーマ
 # =============================================
-class CraneData(BaseModel):
+class _FormBase(BaseModel):
+    """画面から送られる帳票データの共通の親。
+
+    日付欄を空にすると "" が送られてくるが、date へは変換できず 422 になる。
+    保存できないと加筆の途中で詰まるため、空文字は未入力(None)として扱う。
+    """
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _blank_to_none(cls, v):
+        return None if v == "" else v
+
+
+class CraneData(_FormBase):
     site_name: Optional[str] = None
     site_address: Optional[str] = None
     site_tel: Optional[str] = None
@@ -207,7 +220,7 @@ class CraneData(BaseModel):
     notes: Optional[str] = None
 
 
-class ShippingData(BaseModel):
+class ShippingData(_FormBase):
     dest_name: Optional[str] = None
     dest_address: Optional[str] = None
     dest_tel: Optional[str] = None
@@ -225,7 +238,7 @@ class ShippingData(BaseModel):
     notes: Optional[str] = None
 
 
-class FanData(BaseModel):
+class FanData(_FormBase):
     form_type: Optional[str] = None
     order_no: Optional[str] = None
     vendor_name: Optional[str] = None
@@ -253,7 +266,7 @@ class FanData(BaseModel):
     notes: Optional[str] = None
 
 
-class HotelData(BaseModel):
+class HotelData(_FormBase):
     site_name: Optional[str] = None
     site_address: Optional[str] = None
     items_json: Optional[List[Any]] = None
