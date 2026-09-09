@@ -15,6 +15,24 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-09-08 — Claude — 製品原価検証モジュール（管理者専用）を追加【未コミット】
+**触ったファイル**: `backend/app/costing_engine.py`（新規）, `backend/app/costing_import.py`（新規）, `backend/app/api/costing.py`（新規）,
+`backend/tests/test_costing_excel.py`（新規）, `backend/migrations/costing.sql`（新規）, `backend/app/db/models.py`（末尾に Cost* 8 クラス追加）,
+`backend/app/main.py`（costing ルーター登録の 2 行のみ）, `backend/requirements.txt`（openpyxl 追加）,
+`frontend/src/pages/CostingPage.tsx`（新規）, `frontend/src/api/index.ts`（costingApi 追加）, `frontend/src/App.tsx`（/costing を AdminRoute で追加）,
+`frontend/src/components/common/Layout.tsx`（adminOnly のナビ項目。一般ユーザーには非表示）
+**仕様**: `docs/原価検証システム_要件整理と実装方針_20260907.md`
+**方式**: 同一システム内の独立モジュール。既存テーブルは変更せず `cost_*` テーブル（cost_material_ext / aliases / prices / price_adjustments / bom_lines / settings / scenarios / calculations）を追加。
+API は `/api/costing/*` でルーター全体に `require_admin`。画面は `/costing`（role=admin のみ）。
+**受入テスト**: `cd backend && python3 tests/test_costing_excel.py <原価ブック.xlsx>`。BFR/PLD/BFQ 3 ブック 21 型式＋3 ユニットで Excel の合計を再現
+（差が出る 4 型式は Excel 側の式の誤りで説明済み。docs §1.4 参照）。
+**本番導入手順**: ①push → Render 自動デプロイ ②admin でログイン後 `GET /api/costing/setup-tables`（画面の「テーブル作成（初回）」ボタン）
+③「取込」タブで原価ブック 3 本をプレビュー→確定。
+**動作確認**: `DATABASE_URL=sqlite:///tests/_costing.db python3 tests/test_costing_api_sqlite.py <3ブック>` で
+setup → 取込確定（3 ブック、資材 323・単価 554・型式 30・明細 1,336）→ 計算（BFR3X6 材料費 3,149,767 円・粗利率 45.6%）→ 別名解決 →
+仕入先別単価/値引き調整/最安ポリシー → 一括シミュレーション → シナリオ保存 → 計算保存 → Excel 出力（55KB）→ 検証 → 設定追加 まで通過。
+ローカルに PostgreSQL が無いため SQLite で代替（UUID 列は `_uuid()` で正規化済み。PostgreSQL では未実行）。静的検査は py_compile / tsc / vite build OK。
+
 ### 2026-08-12 — Claude(Cowork) — /procurement 検証（異常なし）
 **触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
 **検証**: HEAD `ac32fbb`(08-10 定期検証)。git fetch で local HEAD==origin/main==`ac32fbb`。前回(08-10)以降 procurement系ファイル（ProcurementPage.tsx/api/index.ts/materials.py/models.py/manufacturing_procurement.sql）への新規コミットなし＝退行なし。作業中テーブル空＝衝突なし。

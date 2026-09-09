@@ -22,10 +22,17 @@ import ManufacturingPage from './pages/ManufacturingPage';
 import ProcessPage from './pages/ProcessPage';
 import BomMasterPage from './pages/BomMasterPage';
 import HelpPage from './pages/HelpPage';
+import CostingPage from './pages/CostingPage';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('access_token');
   return token ? <>{children}</> : <Navigate to="/login" replace />;
+}
+
+// 管理者専用画面（サーバ側でも require_admin で二重に制限している）
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  return user.role === 'admin' ? <>{children}</> : <Navigate to="/" replace />;
 }
 
 export default function App() {
@@ -57,6 +64,7 @@ export default function App() {
           <Route path="process" element={<ProcessPage />} />
           <Route path="bom-master" element={<BomMasterPage />} />
           <Route path="help" element={<HelpPage />} />
+          <Route path="costing" element={<AdminRoute><CostingPage /></AdminRoute>} />
         </Route>
       </Routes>
     </BrowserRouter>

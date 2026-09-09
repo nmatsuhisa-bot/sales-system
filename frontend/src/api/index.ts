@@ -332,6 +332,62 @@ export const bomMasterApi = {
 };
 
 // =============================================
+// 製品原価検証API（管理者専用）
+// =============================================
+export const costingApi = {
+  setup: () => api.get('/costing/setup-tables'),
+  overview: () => api.get('/costing/overview'),
+  // 設定
+  settings: () => api.get('/costing/settings'),
+  addSetting: (data: any) => api.post('/costing/settings', data),
+  deleteSetting: (id: string) => api.delete(`/costing/settings/${id}`),
+  // ユニット（型式）と明細
+  listUnits: (search?: string) => api.get('/costing/units', { params: { search } }),
+  unitLines: (unitId: string) => api.get(`/costing/units/${unitId}/lines`),
+  addLine: (unitId: string, data: any) => api.post(`/costing/units/${unitId}/lines`, data),
+  updateLine: (lineId: string, data: any) => api.put(`/costing/lines/${lineId}`, data),
+  deleteLine: (lineId: string) => api.delete(`/costing/lines/${lineId}`),
+  // 計算
+  calculate: (data: any) => api.post('/costing/calculate', data),
+  calculateBatch: (data: any) => api.post('/costing/calculate/batch', data),
+  saveCalculation: (data: any) => api.post('/costing/calculations', data),
+  listCalculations: (unit_id?: string) => api.get('/costing/calculations', { params: { unit_id } }),
+  // シナリオ
+  scenarios: () => api.get('/costing/scenarios'),
+  saveScenario: (data: any) => api.post('/costing/scenarios', data),
+  deleteScenario: (id: string) => api.delete(`/costing/scenarios/${id}`),
+  // 資材・単価
+  materials: (params?: any) => api.get('/costing/materials', { params }),
+  createMaterial: (data: any) => api.post('/costing/materials', data),
+  updateMaterialExt: (id: string, data: any) => api.put(`/costing/materials/${id}/ext`, data),
+  addAlias: (id: string, alias: string) => api.post(`/costing/materials/${id}/aliases`, { alias }),
+  deleteAlias: (aliasId: string) => api.delete(`/costing/aliases/${aliasId}`),
+  prices: (id: string) => api.get(`/costing/materials/${id}/prices`),
+  addPrice: (id: string, data: any) => api.post(`/costing/materials/${id}/prices`, data),
+  deletePrice: (priceId: string) => api.delete(`/costing/prices/${priceId}`),
+  bulkPrices: (data: any) => api.post('/costing/prices/bulk', data),
+  adjustments: (id: string) => api.get(`/costing/materials/${id}/adjustments`),
+  addAdjustment: (id: string, data: any) => api.post(`/costing/materials/${id}/adjustments`, data),
+  deleteAdjustment: (adjId: string) => api.delete(`/costing/adjustments/${adjId}`),
+  compare: (id: string, price_date?: string) => api.get(`/costing/materials/${id}/compare`, { params: { price_date } }),
+  suppliers: () => api.get('/costing/suppliers'),
+  priceDates: () => api.get('/costing/price-dates'),
+  // 検証
+  verify: (price_date?: string) => api.get('/costing/verify', { params: { price_date } }),
+  // 取込・出力
+  importExcel: (file: File, apply: boolean, include_orphans: boolean) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post('/costing/import/excel', fd, {
+      params: { apply, include_orphans },
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  exportExcel: (unitId: string, price_date?: string, compare_date?: string) =>
+    api.get(`/costing/export/${unitId}.xlsx`, { params: { price_date, compare_date }, responseType: 'blob' }),
+};
+
+// =============================================
 // スケジュールAPI（週間予定）
 // =============================================
 export const scheduleApi = {

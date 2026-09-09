@@ -1274,3 +1274,141 @@ class TeamSchedule(Base):
     color = Column(String(120))
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+# =============================================
+# 製品原価検証（管理者専用モジュール。docs/原価検証システム_要件整理と実装方針_20260907.md）
+# 既存テーブルは変更せず、cost_* テーブルを 1:1 / 1:N で紐付ける（切り離し可能な構成）
+# =============================================
+
+class CostMaterialExt(Base):
+    """資材の原価属性（material_masters の拡張。1:1）"""
+    __tablename__ = "cost_material_ext"
+    material_id = Column(UUID(as_uuid=True), ForeignKey("material_masters.id", ondelete="CASCADE"), primary_key=True)
+    category = Column(String(30))                 # 鋼板/面積材/形鋼/パイプ/購入品/外注加工/塗料
+    price_unit = Column(String(10), default="個")  # kg / m / m2 / 個 / 枚 / 缶 / 本 / リンク
+    steel_grade = Column(String(50))               # SPHC / SPCC / SS400 / ボンデ ...
+    thickness_mm = Column(Numeric(6, 2))
+    stock_size = Column(String(30))                # 5*10 / 4*8 / 3*6
+    piece_weight_kg = Column(Numeric(10, 3))       # 形鋼の換算用（kg/本）
+    piece_length_m = Column(Numeric(10, 3))        # 形鋼の換算用（m/本）
+    sheet_area_m2 = Column(Numeric(10, 4))         # 面積材の換算用
+    density = Column(Numeric(6, 3))                # 7.85 / 7.93
+    code_source = Column(String(20), default="仮")  # TECHS / 仮
+    preferred_supplier_id = Column(UUID(as_uuid=True), ForeignKey("suppliers.id"))
+    price_policy = Column(String(20), default="preferred")  # preferred=採用仕入先 / cheapest=最安
+    basis_note = Column(Text)                      # 単価計算根拠（Excel の「単価計算根拠」列）
+    notes = Column(Text)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    material = relationship("MaterialMaster")
+    preferred_supplier = relationship("Supplier", foreign_keys=[preferred_supplier_id])
+
+
+class CostMaterialAlias(Base):
+    """原価表上名称（Excel の表記）→ 資材。表記ゆれの吸収と取込の突合に使う"""
+    __tablename__ = "cost_material_aliases"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    alias = Column(String(300), unique=True, nullable=False)
+    material_id = Column(UUID(as_uuid=True), ForeignKey("material_masters.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    material = relationship("MaterialMaster")
+
+
+class CostMaterialPrice(Base):
+    """資材単価の時点履歴（仕入先ごと）"""
+    __tablename__ = "cost_material_prices"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    material_id = Column(UUID(as_uuid=True), ForeignKey("material_masters.id", ondelete="CASCADE"), nullable=False)
+    supplier_id = Column(UUID(as_uuid=True), ForeignKey("suppliers.id"))   # NULL=仕入先未指定（Excel 取込時）
+    effective_date = Column(Date, nullable=False)
+    price = Column(Numeric(15, 4), nullable=False)
+    price_unit = Column(String(10))
+    basis_expr = Column(Text)                       # 根拠式（例 (円/kg)×21.2kg/6.0m=(円/m)）
+    source = Column(String(30), default="手入力")   # 手入力 / Excel取込 / 発注実績 / スプレッドシート
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    material = relationship("MaterialMaster")
+    supplier = relationship("Supplier", foreign_keys=[supplier_id])
+
+
+class CostPriceAdjustment(Base):
+    """取引先単位の値引き調整（加減算額 / 率）。該当が無ければ素の単価"""
+    __tablename__ = "cost_price_adjustments"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    material_id = Column(UUID(as_uuid=True), ForeignKey("material_masters.id", ondelete="CASCADE"), nullable=False)
+    party_type = Column(String(20), default="supplier")   # supplier / customer
+    party_id = Column(UUID(as_uuid=True))                  # suppliers.id または customers.id（NULL=全取引先）
+    party_name = Column(String(200))
+    adjust_type = Column(String(10), default="percent")   # amount / percent
+    value = Column(Numeric(15, 4), nullable=False)          # 負の値で値引き
+    effective_from = Column(Date)
+    effective_to = Column(Date)
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    material = relationship("MaterialMaster")
+
+
+class CostBomLine(Base):
+    """原価BOMの明細行（ユニット=型式シート 1 枚。部位は section 文字列で持つ）"""
+    __tablename__ = "cost_bom_lines"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    unit_id = Column(UUID(as_uuid=True), ForeignKey("unit_masters.id", ondelete="CASCADE"), nullable=False)
+    section = Column(String(100))                  # 部位（ﾌｨﾙﾀｰ室上段 / 天井 / ホッパー ...）
+    label = Column(String(300))                    # 原価表上名称（正面板/3.2t 等）
+    line_type = Column(String(20), nullable=False)  # weight / measure / count / subcontract / paint / subassembly
+    material_id = Column(UUID(as_uuid=True), ForeignKey("material_masters.id"))
+    sub_unit_id = Column(UUID(as_uuid=True), ForeignKey("unit_masters.id"))
+    qty = Column(Numeric(14, 4), nullable=False, default=0)
+    qty_expr = Column(Text)                        # 数量の式（=117+74.27）
+    yield_basis = Column(JSON)                     # {W, L, t, density, pieces, cutouts} 板取りの根拠
+    markup_factor = Column(Numeric(6, 3), default=1)   # Excel の値上想定倍率（参考値。標準原価では使わない）
+    is_option = Column(Boolean, default=False)
+    source_ref = Column(String(100))               # 取込元（シート名#行）
+    sort_order = Column(Integer, default=0)
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    unit = relationship("UnitMaster", foreign_keys=[unit_id])
+    sub_unit = relationship("UnitMaster", foreign_keys=[sub_unit_id])
+    material = relationship("MaterialMaster")
+
+
+class CostSetting(Base):
+    """原価計算の設定値（有効開始日つき）。key: labor_rate_per_hour / overhead_rate / target_margin_rate"""
+    __tablename__ = "cost_settings"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    key = Column(String(50), nullable=False)
+    value = Column(Numeric(15, 4))                 # NULL=未設定（保留）
+    effective_date = Column(Date, nullable=False)
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class CostScenario(Base):
+    """シミュレーションのシナリオ（what-if の条件を JSON で保持）"""
+    __tablename__ = "cost_scenarios"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(200), nullable=False)
+    adjustments = Column(JSON, default=dict)
+    notes = Column(Text)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class CostCalculation(Base):
+    """計算結果の保存（前回比較・改定影響レポート用）"""
+    __tablename__ = "cost_calculations"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    unit_id = Column(UUID(as_uuid=True), ForeignKey("unit_masters.id", ondelete="CASCADE"), nullable=False)
+    price_date = Column(Date, nullable=False)
+    scenario_id = Column(UUID(as_uuid=True), ForeignKey("cost_scenarios.id"))
+    total = Column(Numeric(15, 2))
+    steel_total = Column(Numeric(15, 2))
+    purchased_total = Column(Numeric(15, 2))
+    manufacturing_cost = Column(Numeric(15, 2))
+    result = Column(JSON)
+    label = Column(String(200))
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now())
+    unit = relationship("UnitMaster", foreign_keys=[unit_id])

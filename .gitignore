@@ -19,3 +19,6 @@ dist/
 
 # 顧客提供の見積・図面（一時作業用。コミットしない）
 _work/
+
+# 原価検証 API テストの一時 DB
+backend/tests/_costing.db

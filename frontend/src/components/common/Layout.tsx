@@ -2,11 +2,11 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, FileText, ShoppingCart,
   BarChart3, LogOut, Menu, X, Boxes, Briefcase, Database, UserCog, Calendar,
-  ShoppingBag, Factory, ClipboardList, GitBranch, HelpCircle
+  ShoppingBag, Factory, ClipboardList, GitBranch, HelpCircle, Calculator
 } from 'lucide-react';
 import { useState } from 'react';
 
-type NavEntry = { to: string; icon: any; label: string; end?: boolean } | { divider: true };
+type NavEntry = { to: string; icon: any; label: string; end?: boolean; adminOnly?: boolean } | { divider: true };
 
 const navItems: NavEntry[] = [
   // 主要業務フロー（案件→見積→受注→仕入→製造→工程）
@@ -26,6 +26,8 @@ const navItems: NavEntry[] = [
   { to: '/schedule', icon: Calendar, label: 'スケジュール' },
   { to: '/users', icon: UserCog, label: 'ユーザー管理' },
   { to: '/help', icon: HelpCircle, label: 'ヘルプ' },
+  // 管理者だけに表示（一般ユーザーには存在自体を見せない）
+  { to: '/costing', icon: Calculator, label: '製品原価検証', adminOnly: true },
 ];
 
 export default function Layout() {
@@ -62,7 +64,7 @@ export default function Layout() {
 
         {/* ナビ */}
         <nav className="flex-1 py-4 overflow-y-auto">
-          {navItems.map((item, idx) =>
+          {navItems.filter(item => 'divider' in item || !item.adminOnly || user.role === 'admin').map((item, idx) =>
             'divider' in item ? (
               <div key={`div-${idx}`} className="my-2 mx-4 border-t border-slate-700" />
             ) : (
