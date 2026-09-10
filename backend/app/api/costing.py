@@ -59,6 +59,46 @@ def _uuid(v, required: bool = True):
         raise HTTPException(400, f"ID の形式が不正です: {v}")
 
 
+def _num(v):
+    """画面からの数値（文字列のことがある）を float に。空・不正は None"""
+    if v in (None, "", False):
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _clean_scenario(sc) -> dict:
+    """シナリオの数値項目を正規化する。倍率 1 は「指定なし」として落とす"""
+    sc = dict(sc or {})
+    out = {}
+    for k in ("steel_pct", "labor_rate", "overhead_rate", "target_margin_rate"):
+        v = _num(sc.get(k))
+        if v is not None:
+            out[k] = v
+    cf = {}
+    for c, v in (sc.get("category_factors") or {}).items():
+        f = _num(v)
+        if f is not None and f > 0 and abs(f - 1.0) > 1e-9:
+            cf[c] = f
+    if cf:
+        out["category_factors"] = cf
+    mo = {}
+    for mid, v in (sc.get("material_overrides") or {}).items():
+        f = _num(v)
+        if f is not None:
+            mo[str(mid)] = f
+    if mo:
+        out["material_overrides"] = mo
+    for k in ("supplier_overrides", "party_id"):
+        if sc.get(k):
+            out[k] = sc[k]
+    if sc.get("apply_line_markup"):
+        out["apply_line_markup"] = True
+    return out
+
+
 def _norm_code(s: str) -> str:
     return re.sub(r"[\s×xX*]", "X", (s or "").upper()).replace("XX", "X")
 
@@ -303,7 +343,7 @@ def calculate(data: dict, db: Session = Depends(get_db)):
     if not unit:
         raise HTTPException(404, "ユニットが見つかりません")
     price_date = _d(data.get("price_date")) or dt.date.today()
-    scenario = data.get("scenario") or {}
+    scenario = _clean_scenario(data.get("scenario"))
     ctx = _load_ctx(db)
     try:
         res = _calc(db, ctx, unit, price_date, scenario)
@@ -329,7 +369,7 @@ def calculate(data: dict, db: Session = Depends(get_db)):
 def calculate_batch(data: dict, db: Session = Depends(get_db)):
     """{unit_ids[], price_date, scenario} → 型式横断の一覧（ベースとシナリオの両方）"""
     price_date = _d(data.get("price_date")) or dt.date.today()
-    scenario = data.get("scenario") or {}
+    scenario = _clean_scenario(data.get("scenario"))
     ctx = _load_ctx(db)
     out = []
     for uid in data.get("unit_ids") or []:
@@ -363,7 +403,7 @@ def save_calculation(data: dict, current_user: User = Depends(require_admin), db
     if not unit:
         raise HTTPException(404)
     price_date = _d(data.get("price_date")) or dt.date.today()
-    scenario = data.get("scenario") or {}
+    scenario = _clean_scenario(data.get("scenario"))
     res = _calc(db, _load_ctx(db), unit, price_date, scenario)
     row = CostCalculation(unit_id=unit.id, price_date=price_date, scenario_id=_uuid(data.get("scenario_id"), False),
                           total=res["material_cost"], steel_total=res["material"]["steel_total"],

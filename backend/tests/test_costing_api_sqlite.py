@@ -117,6 +117,14 @@ def main(paths):
                 print("  batch error", b)
             else:
                 print(f"  {b['unit_code']:<16} 基準 {b['base']['material_cost']:>12,.0f} 条件 {b['scenario']['material_cost']:>12,.0f} 必要売価 {b['scenario']['required_price'] or 0:>12,.0f}")
+        # 画面からは数値が文字列で来る。倍率 "1" は指定なし、"1.15" は 15% 増、"" は無視
+        b1 = ok(client.post("/api/costing/calculate/batch", json={"unit_ids": [bfr["id"]], "price_date": "2025-09-17",
+                                                                "scenario": {"steel_pct": "", "category_factors": {"購入品": "1", "鋼板": ""}}}), "batch str1")[0]
+        b2 = ok(client.post("/api/costing/calculate/batch", json={"unit_ids": [bfr["id"]], "price_date": "2025-09-17",
+                                                                "scenario": {"category_factors": {"購入品": "1.15"}, "target_margin_rate": "30"}}), "batch str2")[0]
+        assert abs(b1["scenario"]["material_cost"] - b1["base"]["material_cost"]) < 0.01, "倍率1は無変化のはず"
+        assert b2["scenario"]["material_cost"] > b2["base"]["material_cost"] and b2["scenario"]["required_price"], "倍率1.15で増えるはず"
+        print(f"文字列シナリオ: 倍率1 → 差 {b1['scenario']['material_cost'] - b1['base']['material_cost']:.2f}, 倍率1.15 → {b2['scenario']['material_cost']:,.0f}")
         ok(client.post("/api/costing/scenarios", json={"name": "鋼材+10%", "adjustments": {"steel_pct": 10}}), "scenario")
         ok(client.post("/api/costing/calculations", json={"unit_id": bfr["id"], "price_date": "2025-09-17", "label": "テスト"}), "save calc")
         print("saved:", len(ok(client.get("/api/costing/calculations", params={"unit_id": bfr["id"]}), "calcs")))

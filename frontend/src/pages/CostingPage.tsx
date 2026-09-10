@@ -131,20 +131,23 @@ function useUnits(reloadKey = 0) {
   return { units, err };
 }
 function ScenarioForm({ sc, setSc, suppliers }: any) {
+  // 数値は入力中の文字列のまま保持する（「1」「1.」の途中で数値化すると消えたり丸まったりする）。
+  // 数値への変換と「1 = 指定なし」の扱いはサーバ側（_clean_scenario）で行う。
+  const setNum = (key: string, v: string) => setSc({ ...sc, [key]: v === '' ? undefined : v });
   const setCat = (c: string, v: string) => {
     const cf = { ...(sc.category_factors || {}) };
-    if (v === '' || Number(v) === 1) delete cf[c]; else cf[c] = Number(v);
+    if (v === '') delete cf[c]; else cf[c] = v;
     setSc({ ...sc, category_factors: cf });
   };
   return (
     <div className="p-3 border border-indigo-200 rounded-lg bg-indigo-50 flex flex-wrap gap-3 items-end">
-      <Field label="鋼材一律 (+%)" type="number" w="w-24" v={sc.steel_pct} on={(v: string) => setSc({ ...sc, steel_pct: v === '' ? undefined : Number(v) })} />
+      <Field label="鋼材一律 (+%)" type="number" w="w-24" v={sc.steel_pct} on={(v: string) => setNum('steel_pct', v)} />
       {CATEGORIES.map(c => (
         <Field key={c} label={`${c} 倍率`} type="number" w="w-20" placeholder="1.00" v={sc.category_factors?.[c]} on={(v: string) => setCat(c, v)} />
       ))}
-      <Field label="時間単価 (円/h)" type="number" w="w-24" v={sc.labor_rate} on={(v: string) => setSc({ ...sc, labor_rate: v === '' ? undefined : Number(v) })} />
-      <Field label="経費率 (%)" type="number" w="w-20" v={sc.overhead_rate} on={(v: string) => setSc({ ...sc, overhead_rate: v === '' ? undefined : Number(v) })} />
-      <Field label="目標粗利率 (%)" type="number" w="w-24" v={sc.target_margin_rate} on={(v: string) => setSc({ ...sc, target_margin_rate: v === '' ? undefined : Number(v) })} />
+      <Field label="時間単価 (円/h)" type="number" w="w-24" v={sc.labor_rate} on={(v: string) => setNum('labor_rate', v)} />
+      <Field label="経費率 (%)" type="number" w="w-20" v={sc.overhead_rate} on={(v: string) => setNum('overhead_rate', v)} />
+      <Field label="目標粗利率 (%)" type="number" w="w-24" v={sc.target_margin_rate} on={(v: string) => setNum('target_margin_rate', v)} />
       {suppliers && <SelectField label="値引き調整の取引先" v={sc.party_id} opts={suppliers.map((s: any) => ({ value: s.id, label: s.name }))} on={(v: string) => setSc({ ...sc, party_id: v || undefined })} />}
       <label className="flex items-center gap-1 text-xs text-gray-600"><input type="checkbox" checked={!!sc.apply_line_markup} onChange={e => setSc({ ...sc, apply_line_markup: e.target.checked || undefined })} />Excel の値上想定倍率を適用</label>
     </div>
