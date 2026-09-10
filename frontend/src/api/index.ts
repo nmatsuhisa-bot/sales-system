@@ -385,6 +385,13 @@ export const costingApi = {
   },
   exportExcel: (unitId: string, price_date?: string, compare_date?: string) =>
     api.get(`/costing/export/${unitId}.xlsx`, { params: { price_date, compare_date }, responseType: 'blob' }),
+  // レポート（製品ごとの時系列 / 全製品サマリ）
+  reportTimeseries: (unit_id: string, dates?: string) => api.get('/costing/report/timeseries', { params: { unit_id, dates } }),
+  reportSummary: (dates?: string, include_options?: boolean) => api.get('/costing/report/summary', { params: { dates, include_options } }),
+  reportTimeseriesFile: (fmt: 'xlsx' | 'pdf', unit_id: string, dates?: string) =>
+    api.get(`/costing/report/timeseries.${fmt}`, { params: { unit_id, dates }, responseType: 'blob' }),
+  reportSummaryFile: (fmt: 'xlsx' | 'pdf', dates?: string, include_options?: boolean) =>
+    api.get(`/costing/report/summary.${fmt}`, { params: { dates, include_options }, responseType: 'blob' }),
 };
 
 // =============================================

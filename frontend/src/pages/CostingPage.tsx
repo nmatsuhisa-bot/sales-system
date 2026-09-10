@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { costingApi } from '../api';
-import { Calculator, Upload, Download, Save, Plus, Trash2, RefreshCw, AlertTriangle, Search, Settings, FlaskConical, ShieldCheck } from 'lucide-react';
+import { Calculator, Upload, Download, Save, Plus, Trash2, RefreshCw, AlertTriangle, Search, Settings, FlaskConical, ShieldCheck, FileBarChart, FileText } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 /** 製品原価検証（管理者専用）
  *  ① 製品単位の資材利用状況・単価の検証 ② 販売単価シミュレーション ③ レポート出力
@@ -18,7 +19,14 @@ const pct = (v: any) => (v == null || isNaN(v) ? '—' : `${(v * 100).toFixed(1)
 const num = (v: any, d = 2) => (v == null || isNaN(v) ? '—' : Number(v).toLocaleString(undefined, { maximumFractionDigits: d }));
 const errMsg = (e: any) => e?.response?.data?.detail || e?.message || 'エラー';
 
-type Tab = 'table' | 'materials' | 'verify' | 'simulation' | 'import' | 'settings';
+type Tab = 'table' | 'report' | 'materials' | 'verify' | 'simulation' | 'import' | 'settings';
+
+/** blob をファイルとして保存する（JWT 付きで取得するため a[download] ではなく axios 経由） */
+function saveBlob(data: Blob, filename: string) {
+  const url = URL.createObjectURL(data);
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function CostingPage() {
   const [tab, setTab] = useState<Tab>('table');
@@ -37,7 +45,7 @@ export default function CostingPage() {
   };
 
   const tabs: [Tab, string, any][] = [
-    ['table', '製品原価表', Calculator], ['materials', '資材・単価', Search], ['verify', '検証', ShieldCheck],
+    ['table', '製品原価表', Calculator], ['report', 'レポート', FileBarChart], ['materials', '資材・単価', Search], ['verify', '検証', ShieldCheck],
     ['simulation', 'シミュレーション', FlaskConical], ['import', '取込', Upload], ['settings', '設定', Settings],
   ];
 
@@ -68,6 +76,7 @@ export default function CostingPage() {
         ))}
       </div>
       {tab === 'table' && <CostTableTab reloadKey={reloadKey} />}
+      {tab === 'report' && <ReportTab reloadKey={reloadKey} />}
       {tab === 'materials' && <MaterialsTab />}
       {tab === 'verify' && <VerifyTab />}
       {tab === 'simulation' && <SimulationTab />}
@@ -300,6 +309,214 @@ function LinesGroup({ sec, lines }: { sec: string; lines: any[] }) {
         </tr>
       ))}
     </>
+  );
+}
+
+// ================= レポート =================
+function ReportTab({ reloadKey }: { reloadKey: number }) {
+  const [kind, setKind] = useState<'timeseries' | 'summary'>('timeseries');
+  return (
+    <div>
+      <div className="flex gap-2 mb-3">
+        {([['timeseries', '製品ごとの時系列分析'], ['summary', '全製品サマリ']] as const).map(([k, l]) => (
+          <button key={k} onClick={() => setKind(k)} className={`px-3 py-1.5 text-sm rounded border ${kind === k ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700'}`}>{l}</button>
+        ))}
+      </div>
+      {kind === 'timeseries' ? <TimeseriesReport reloadKey={reloadKey} /> : <SummaryReport />}
+    </div>
+  );
+}
+
+function DatesEditor({ dates, setDates, defaults }: { dates: string; setDates: (v: string) => void; defaults: string[] }) {
+  return (
+    <div>
+      <label className="block text-xs text-gray-500 mb-0.5">単価時点（カンマ区切り。空なら登録済みの全時点＋本日）</label>
+      <div className="flex gap-1 items-center">
+        <input value={dates} onChange={e => setDates(e.target.value)} placeholder={defaults.join(', ')} className="border rounded px-2 py-1 text-sm w-80" />
+        <button className="text-xs underline" onClick={() => setDates('')}>既定</button>
+        <button className="text-xs underline" onClick={() => setDates((dates || defaults.join(',')) + ',' + today())}>+本日</button>
+      </div>
+    </div>
+  );
+}
+
+function TimeseriesReport({ reloadKey }: { reloadKey: number }) {
+  const { units, err: unitErr } = useUnits(reloadKey);
+  const [unitId, setUnitId] = useState('');
+  const [dates, setDates] = useState('');
+  const [defaults, setDefaults] = useState<string[]>([]);
+  const [rep, setRep] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { costingApi.priceDates().then(r => setDefaults([...r.data].reverse())).catch(() => {}); }, [reloadKey]);
+
+  const run = async () => {
+    if (!unitId) { setErr('型式を選択してください'); return; }
+    setLoading(true); setErr(null);
+    try { const r = await costingApi.reportTimeseries(unitId, dates || undefined); setRep(r.data); }
+    catch (e: any) { setErr(errMsg(e)); } finally { setLoading(false); }
+  };
+  const download = async (fmt: 'xlsx' | 'pdf') => {
+    try {
+      const r = await costingApi.reportTimeseriesFile(fmt, unitId, dates || undefined);
+      const isHtml = String(r.headers['content-type'] || '').includes('text/html');
+      saveBlob(r.data, `時系列分析_${rep?.unit?.unit_code || 'unit'}.${isHtml ? 'html' : fmt}`);
+      if (isHtml) setErr('この環境では PDF 変換ができないため HTML で保存しました（ブラウザで開いて印刷してください）');
+    } catch (e: any) { setErr(errMsg(e)); }
+  };
+  const chart = useMemo(() => (rep?.points || []).filter((p: any) => !p.error).map((p: any) => ({
+    date: p.date, 材料費: Math.round(p.material_cost), 製造原価: Math.round(p.manufacturing_cost), 鋼材: Math.round(p.steel_total), 購入外注: Math.round(p.purchased_total),
+  })), [rep]);
+
+  return (
+    <div>
+      <ErrorBanner msg={err || unitErr} />
+      <div className="flex flex-wrap gap-3 items-end mb-4">
+        <SelectField label="型式（ユニット）" w="w-72" v={unitId} on={setUnitId}
+          opts={units.map((u: any) => ({ value: u.id, label: `${u.unit_code}　${u.unit_name !== u.unit_code ? u.unit_name : ''}` }))} />
+        <DatesEditor dates={dates} setDates={setDates} defaults={defaults} />
+        <button onClick={run} disabled={loading} className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-sm rounded disabled:opacity-60"><FileBarChart size={14} />{loading ? '作成中…' : 'プレビュー'}</button>
+        {rep && <button onClick={() => download('xlsx')} className="flex items-center gap-1.5 px-3 py-1.5 bg-white border text-sm rounded"><Download size={14} />Excel</button>}
+        {rep && <button onClick={() => download('pdf')} className="flex items-center gap-1.5 px-3 py-1.5 bg-white border text-sm rounded"><FileText size={14} />PDF</button>}
+      </div>
+      {rep && (
+        <div>
+          <div className="flex flex-wrap items-baseline gap-4 mb-3">
+            <div className="text-lg font-semibold">{rep.unit.unit_code} <span className="text-sm font-normal text-gray-500">{rep.unit.unit_name}</span></div>
+            {rep.change_rate != null && (
+              <div className="text-sm">材料費の変化 {rep.first.date} → {rep.last.date}：
+                <b className={rep.change_rate > 0 ? 'text-red-600' : 'text-emerald-700'}>{(rep.change_rate * 100).toFixed(1)}%</b>
+                <span className="text-gray-500">（{yen(rep.first.material_cost)} → {yen(rep.last.material_cost)} 円）</span></div>
+            )}
+            <div className="text-xs text-gray-500">標準工数 {rep.standard_hours ?? '未登録'} h　販売価格 {yen(rep.standard_price)} 円　作成 {rep.generated_at?.replace('T', ' ')}</div>
+          </div>
+          {chart.length > 1 && (
+            <div className="border rounded bg-white p-2 mb-4" style={{ height: 260 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chart} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `${Math.round(v / 1000).toLocaleString()}千`} width={60} />
+                  <Tooltip formatter={(v: any) => `${Number(v).toLocaleString()} 円`} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Line type="monotone" dataKey="製造原価" stroke="#1e3a8a" strokeWidth={2} dot />
+                  <Line type="monotone" dataKey="材料費" stroke="#2563eb" strokeWidth={2} dot />
+                  <Line type="monotone" dataKey="鋼材" stroke="#64748b" strokeDasharray="4 2" dot />
+                  <Line type="monotone" dataKey="購入外注" stroke="#b45309" strokeDasharray="4 2" dot />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          <div className="text-sm font-medium mb-1">時点別</div>
+          <div className="overflow-x-auto border rounded mb-4"><table className="w-full text-xs border-collapse">
+            <thead><tr className="bg-gray-50"><Th>単価時点</Th><Th right>材料費</Th><Th right>鋼材</Th><Th right>購入/外注</Th><Th right>鋼材比率</Th><Th right>加工費</Th><Th right>経費</Th><Th right>製造原価</Th><Th right>販売価格</Th><Th right>粗利率</Th><Th right>必要売価</Th><Th right>未解決</Th></tr></thead>
+            <tbody>{rep.points.map((p: any) => p.error ? <tr key={p.date}><Td>{p.date}</Td><td colSpan={11} className="text-red-600 px-2">{p.error}</td></tr> : (
+              <tr key={p.date} className={p.unresolved ? 'bg-amber-50' : ''}><Td>{p.date}</Td><Td right className="font-medium">{yen(p.material_cost)}{p.unresolved ? <span className="text-amber-700 ml-0.5" title="単価未解決の行があり材料費は過小">※</span> : null}</Td><Td right>{yen(p.steel_total)}</Td><Td right>{yen(p.purchased_total)}</Td><Td right>{pct(p.steel_ratio)}</Td>
+                <Td right>{yen(p.labor_cost)}</Td><Td right>{yen(p.overhead_cost)}</Td><Td right className="font-medium">{yen(p.manufacturing_cost)}</Td><Td right>{yen(p.standard_price)}</Td><Td right>{pct(p.gross_margin_rate)}</Td><Td right>{yen(p.required_price)}</Td><Td right>{p.unresolved || ''}</Td></tr>
+            ))}</tbody>
+          </table></div>
+          <div className="grid lg:grid-cols-2 gap-4">
+            <div>
+              <div className="text-sm font-medium mb-1">部位別の推移</div>
+              <div className="overflow-x-auto border rounded"><table className="w-full text-xs border-collapse">
+                <thead><tr className="bg-gray-50"><Th>部位</Th>{rep.dates.map((d: string) => <Th key={d} right>{d}</Th>)}<Th right>変化</Th></tr></thead>
+                <tbody>{rep.section_names.map((sec: string) => {
+                  const vals = rep.points.map((p: any) => p.sections?.[sec]);
+                  const v = vals.filter((x: any) => x != null);
+                  const ch = v.length >= 2 && v[0] ? v[v.length - 1] / v[0] - 1 : null;
+                  return <tr key={sec}><Td>{sec}</Td>{vals.map((x: any, i: number) => <Td key={i} right>{yen(x)}</Td>)}<Td right className={ch != null && ch > 0 ? 'text-red-600' : 'text-emerald-700'}>{ch == null ? '—' : `${(ch * 100).toFixed(1)}%`}</Td></tr>;
+                })}</tbody>
+              </table></div>
+            </div>
+            <div>
+              <div className="text-sm font-medium mb-1">上昇・下落の主要因（{rep.dates[0]} → {rep.dates[rep.dates.length - 1]}）</div>
+              <div className="overflow-x-auto border rounded max-h-96 overflow-y-auto"><table className="w-full text-xs border-collapse">
+                <thead className="sticky top-0"><tr className="bg-gray-50"><Th>部位</Th><Th>名称</Th><Th right>旧単価</Th><Th right>新単価</Th><Th right>差額</Th><Th right>単価要因</Th><Th right>数量要因</Th></tr></thead>
+                <tbody>{rep.movers.length === 0 ? <tr><td colSpan={7} className="text-center py-4 text-gray-400">差はありません</td></tr> : rep.movers.map((r: any, i: number) => (
+                  <tr key={i}><Td>{r.section}</Td><Td>{r.label}</Td><Td right>{num(r.base_price)}</Td><Td right>{num(r.other_price)}</Td><Td right className={r.diff > 0 ? 'text-red-600' : 'text-emerald-700'}>{yen(r.diff)}</Td><Td right>{yen(r.price_effect)}</Td><Td right>{yen(r.qty_effect)}</Td></tr>
+                ))}</tbody>
+              </table></div>
+            </div>
+          </div>
+          {rep.saved?.length > 0 && (
+            <div className="mt-4">
+              <div className="text-sm font-medium mb-1">保存済みの計算（実績の記録）</div>
+              <table className="text-xs border-collapse max-w-2xl w-full"><thead><tr className="bg-gray-50"><Th>単価時点</Th><Th right>材料費</Th><Th right>製造原価</Th><Th>メモ</Th><Th>保存日</Th></tr></thead>
+                <tbody>{rep.saved.map((c: any, i: number) => <tr key={i}><Td>{c.price_date}</Td><Td right>{yen(c.total)}</Td><Td right>{yen(c.manufacturing_cost)}</Td><Td>{c.label}</Td><Td>{c.created_at?.slice(0, 10)}</Td></tr>)}</tbody></table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SummaryReport() {
+  const [dates, setDates] = useState('');
+  const [defaults, setDefaults] = useState<string[]>([]);
+  const [includeOptions, setIncludeOptions] = useState(false);
+  const [rep, setRep] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [sort, setSort] = useState<'code' | 'change' | 'margin' | 'cost'>('code');
+  useEffect(() => { costingApi.priceDates().then(r => setDefaults([...r.data].reverse())).catch(() => {}); }, []);
+
+  const run = async () => {
+    setLoading(true); setErr(null);
+    try { const r = await costingApi.reportSummary(dates || undefined, includeOptions); setRep(r.data); }
+    catch (e: any) { setErr(errMsg(e)); } finally { setLoading(false); }
+  };
+  const download = async (fmt: 'xlsx' | 'pdf') => {
+    try {
+      const r = await costingApi.reportSummaryFile(fmt, dates || undefined, includeOptions);
+      const isHtml = String(r.headers['content-type'] || '').includes('text/html');
+      saveBlob(r.data, `製品原価サマリ.${isHtml ? 'html' : fmt}`);
+      if (isHtml) setErr('この環境では PDF 変換ができないため HTML で保存しました（ブラウザで開いて印刷してください）');
+    } catch (e: any) { setErr(errMsg(e)); }
+  };
+  const rows = useMemo(() => {
+    const r = [...(rep?.rows || [])];
+    if (sort === 'change') r.sort((a, b) => (b.change_rate ?? -9) - (a.change_rate ?? -9));
+    if (sort === 'margin') r.sort((a, b) => (a.gross_margin_rate ?? 9) - (b.gross_margin_rate ?? 9));
+    if (sort === 'cost') r.sort((a, b) => (b.material_cost ?? 0) - (a.material_cost ?? 0));
+    return r;
+  }, [rep, sort]);
+
+  return (
+    <div>
+      <ErrorBanner msg={err} />
+      <div className="flex flex-wrap gap-3 items-end mb-4">
+        <DatesEditor dates={dates} setDates={setDates} defaults={defaults} />
+        <label className="flex items-center gap-1 text-xs text-gray-600"><input type="checkbox" checked={includeOptions} onChange={e => setIncludeOptions(e.target.checked)} />オプション部位も含める</label>
+        <SelectField label="並び順" v={sort} opts={[{ value: 'code', label: '型式' }, { value: 'change', label: '上昇率が大きい順' }, { value: 'margin', label: '粗利率が低い順' }, { value: 'cost', label: '材料費が大きい順' }]} on={(v: string) => setSort((v || 'code') as any)} />
+        <button onClick={run} disabled={loading} className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-sm rounded disabled:opacity-60"><FileBarChart size={14} />{loading ? '作成中…' : 'プレビュー'}</button>
+        {rep && <button onClick={() => download('xlsx')} className="flex items-center gap-1.5 px-3 py-1.5 bg-white border text-sm rounded"><Download size={14} />Excel</button>}
+        {rep && <button onClick={() => download('pdf')} className="flex items-center gap-1.5 px-3 py-1.5 bg-white border text-sm rounded"><FileText size={14} />PDF</button>}
+      </div>
+      {rep && (
+        <div>
+          <div className="text-xs text-gray-500 mb-2">作成 {rep.generated_at?.replace('T', ' ')}　時間単価 {yen(rep.settings.labor_rate_per_hour)} 円/h　経費率 {rep.settings.overhead_rate ?? '未設定'}　目標粗利率 {rep.settings.target_margin_rate ?? '未設定'}　型式 {rep.rows.length}</div>
+          <div className="overflow-x-auto border rounded"><table className="w-full text-xs border-collapse">
+            <thead className="sticky top-0"><tr className="bg-gray-50"><Th>型式</Th>{rep.dates.map((d: string) => <Th key={d} right>{d}</Th>)}<Th right>変化</Th><Th right>製造原価</Th><Th right>販売価格</Th><Th right>粗利率</Th><Th right>必要売価</Th><Th right>鋼材比率</Th><Th>主要因</Th><Th right>未解決</Th></tr></thead>
+            <tbody>
+              {rows.map((r: any) => (
+                <tr key={r.unit_id} className={r.unresolved ? 'bg-amber-50' : ''}>
+                  <Td><span className="font-medium">{r.unit_code}</span>{r.unit_name !== r.unit_code && <span className="text-gray-400 ml-1">{r.unit_name}</span>}</Td>
+                  {rep.dates.map((d: string) => <Td key={d} right>{yen(r.series[d])}{r.unresolved_series?.[d] ? <span className="text-amber-700 ml-0.5" title={`単価未解決 ${r.unresolved_series[d]} 行（材料費は過小）`}>※{r.unresolved_series[d]}</span> : null}</Td>)}
+                  <Td right className={r.change_unreliable ? 'text-gray-400' : r.change_rate != null && r.change_rate > 0 ? 'text-red-600' : 'text-emerald-700'} title={r.change_unreliable ? '端点に単価未解決があるため参考値' : ''}>{r.change_rate == null ? '—' : `${(r.change_rate * 100).toFixed(1)}%`}{r.change_unreliable ? '※' : ''}</Td>
+                  <Td right>{yen(r.manufacturing_cost)}</Td><Td right>{yen(r.standard_price)}</Td>
+                  <Td right className={r.gross_margin_rate != null && r.gross_margin_rate < 0 ? 'text-red-600 font-medium' : ''}>{pct(r.gross_margin_rate)}</Td>
+                  <Td right>{yen(r.required_price)}</Td><Td right>{pct(r.steel_ratio)}</Td>
+                  <Td className="text-gray-600">{r.top_mover}{r.top_mover_diff != null && <span className={r.top_mover_diff > 0 ? 'text-red-600 ml-1' : 'text-emerald-700 ml-1'}>{yen(r.top_mover_diff)}</span>}</Td>
+                  <Td right>{r.unresolved || ''}</Td>
+                </tr>
+              ))}
+              <tr className="bg-gray-50 font-medium"><Td>合計</Td>{rep.dates.map((d: string) => <Td key={d} right>{yen(rep.totals[d])}</Td>)}<td colSpan={8} /></tr>
+            </tbody>
+          </table></div>
+        </div>
+      )}
+    </div>
   );
 }
 

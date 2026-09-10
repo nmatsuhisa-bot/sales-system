@@ -977,6 +977,348 @@ def export_excel(unit_id: str, price_date: Optional[str] = None, compare_date: O
                              headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"})
 
 
+# ------------------------------------------------------------
+# レポート（製品ごとの時系列 / 全製品サマリ）— JSON でプレビュー、xlsx / pdf で出力
+# ------------------------------------------------------------
+def _report_dates(db: Session, dates: Optional[str]) -> list:
+    """レポートの単価時点。指定が無ければ登録済みの単価時点すべて＋本日"""
+    if dates:
+        out = sorted({_d(x.strip()) for x in dates.split(",") if x.strip()})
+        return [d for d in out if d]
+    out = sorted({r[0] for r in db.query(CostMaterialPrice.effective_date).distinct().all()})
+    today = dt.date.today()
+    if not out or out[-1] < today:
+        out.append(today)
+    return out
+
+
+def _series_for_unit(db: Session, ctx: dict, unit: UnitMaster, dates: list) -> dict:
+    hours = _f(unit.standard_hours) or _hours_for(db, unit.unit_code)
+    std_price = _std_price_for(db, unit)
+    points, results = [], []
+    for d in dates:
+        try:
+            r = eng.calc_product(ctx, str(unit.id), d, {}, standard_hours=hours, standard_price=std_price,
+                                 settings=_settings_as_of(db, d))
+        except eng.CostError as e:
+            points.append({"date": d.isoformat(), "error": str(e)})
+            results.append(None)
+            continue
+        m = r["material"]
+        points.append({
+            "date": d.isoformat(), "material_cost": m["total"], "steel_total": m["steel_total"],
+            "purchased_total": m["purchased_total"], "steel_ratio": m["steel_ratio"],
+            "labor_cost": r["labor_cost"], "overhead_cost": r["overhead_cost"], "manufacturing_cost": r["manufacturing_cost"],
+            "standard_price": r["standard_price"], "gross_margin_rate": r["gross_margin_rate"],
+            "required_price": r["required_price"], "unresolved": len(m["warnings"]),
+            "sections": {s["section"]: s["total"] for s in m["sections"]},
+        })
+        results.append(m)
+    valid = [p for p in points if "error" not in p]
+    first, last = (valid[0], valid[-1]) if valid else (None, None)
+    change = None
+    if first and last and first["material_cost"]:
+        change = last["material_cost"] / first["material_cost"] - 1
+    movers = []
+    rs = [r for r in results if r]
+    if len(rs) >= 2:
+        movers = eng.diff_results(rs[0], rs[-1])["rows"][:20]
+    section_names = []
+    for p in valid:
+        for s in p["sections"]:
+            if s not in section_names:
+                section_names.append(s)
+    return {
+        "unit": _unit_dict(unit, 0, section_names), "dates": [d.isoformat() for d in dates], "points": points,
+        "change_rate": change, "first": first, "last": last, "movers": movers, "section_names": section_names,
+        "standard_hours": hours, "standard_price": std_price,
+    }
+
+
+@router.get("/report/timeseries")
+def report_timeseries(unit_id: str, dates: Optional[str] = None, db: Session = Depends(get_db)):
+    """製品ごとの時系列分析（単価時点ごとの材料費・製造原価・粗利率、部位別推移、上昇要因）"""
+    unit = db.query(UnitMaster).filter(UnitMaster.id == _uuid(unit_id)).first()
+    if not unit:
+        raise HTTPException(404, "ユニットが見つかりません")
+    ds = _report_dates(db, dates)
+    ctx = _load_ctx(db)
+    out = _series_for_unit(db, ctx, unit, ds)
+    saved = (db.query(CostCalculation).filter(CostCalculation.unit_id == unit.id)
+             .order_by(CostCalculation.price_date).all())
+    out["saved"] = [{"price_date": c.price_date.isoformat(), "total": _f(c.total), "manufacturing_cost": _f(c.manufacturing_cost),
+                     "label": c.label, "created_at": c.created_at.isoformat() if c.created_at else None} for c in saved]
+    out["generated_at"] = dt.datetime.now().isoformat(timespec="minutes")
+    return out
+
+
+@router.get("/report/summary")
+def report_summary(dates: Optional[str] = None, include_options: bool = False, db: Session = Depends(get_db)):
+    """全製品のサマリ（型式 × 単価時点の材料費、変化率、製造原価、販売価格、粗利率、鋼材比率、未解決）"""
+    ds = _report_dates(db, dates)
+    ctx = _load_ctx(db)
+    ids = [r[0] for r in db.query(CostBomLine.unit_id).distinct().all()]
+    units = db.query(UnitMaster).filter(UnitMaster.id.in_(ids)).order_by(UnitMaster.unit_code).all() if ids else []
+    rows = []
+    for u in units:
+        if not include_options and "/" in (u.unit_code or ""):
+            continue
+        s = _series_for_unit(db, ctx, u, ds)
+        last = s["last"] or {}
+        unresolved_series = {p["date"]: p.get("unresolved") or 0 for p in s["points"]}
+        rows.append({
+            "unit_id": str(u.id), "unit_code": u.unit_code, "unit_name": u.unit_name,
+            "series": {p["date"]: p.get("material_cost") for p in s["points"]},
+            "unresolved_series": unresolved_series,
+            "change_rate": s["change_rate"],
+            # 端点のどちらかに単価未解決の行があると、その時点の材料費が過小になり変化率が信用できない
+            "change_unreliable": bool(s["first"] and s["last"] and (s["first"].get("unresolved") or s["last"].get("unresolved"))),
+            "material_cost": last.get("material_cost"), "manufacturing_cost": last.get("manufacturing_cost"),
+            "labor_cost": last.get("labor_cost"), "standard_price": last.get("standard_price"),
+            "gross_margin_rate": last.get("gross_margin_rate"), "required_price": last.get("required_price"),
+            "steel_ratio": last.get("steel_ratio"), "unresolved": last.get("unresolved"),
+            "top_mover": (s["movers"][0]["label"] if s["movers"] else None),
+            "top_mover_diff": (s["movers"][0]["diff"] if s["movers"] else None),
+        })
+    totals = {d.isoformat(): sum((r["series"].get(d.isoformat()) or 0) for r in rows) for d in ds}
+    return {"dates": [d.isoformat() for d in ds], "rows": rows, "totals": totals,
+            "settings": _settings_as_of(db, ds[-1] if ds else dt.date.today()),
+            "generated_at": dt.datetime.now().isoformat(timespec="minutes")}
+
+
+def _html_doc(title: str, body: str, landscape: bool = False, font_px: int = 11) -> str:
+    # フォント指定は app/pdf.py が PDF 用に上書きする（日本語 CID フォント）。ここでは指定しない。
+    # @page は pdf.py の CSS（縦）より後に評価させるため body 先頭に置く。
+    page = "<style>@page{size:A4 landscape;margin:10mm}</style>" if landscape else ""
+    return (
+        "<html><head><meta charset='utf-8'><title>" + title + "</title><style>"
+        f"body{{font-size:{font_px}px;margin:20px}}h1{{font-size:16px;margin:0 0 4px}}h2{{font-size:13px;margin:16px 0 4px}}"
+        "table{border-collapse:collapse;width:100%;margin-bottom:8px}th,td{border:1px solid #999;padding:2px 4px;vertical-align:top}"
+        "th{background:#e8edf2;text-align:left}td.n,th.n{text-align:right;white-space:nowrap}.muted{color:#666}.up{color:#b3261e}.down{color:#1e7d4e}"
+        ".code{white-space:nowrap;font-weight:bold}.w{color:#9a6700}"
+        "</style></head><body>" + page + body + "</body></html>"
+    )
+
+
+def _fmt(v, kind="yen"):
+    if v is None:
+        return "—"
+    if kind == "pct":
+        return f"{v * 100:+.1f}%"
+    if kind == "rate":
+        return f"{v * 100:.1f}%"
+    return f"{v:,.0f}"
+
+
+def _short(s, n=24):
+    s = s or ""
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def _warn_mark(n) -> str:
+    return f"<span class='w'>※{n}</span>" if n else ""
+
+
+def _timeseries_html(s: dict) -> str:
+    u = s["unit"]
+    b = [f"<h1>製品原価 時系列分析　{u['unit_code']}</h1>",
+         f"<div class='muted'>{u['unit_name']}　作成 {s.get('generated_at', '')}　"
+         f"標準工数 {s['standard_hours'] or '未登録'} h　販売価格 {_fmt(s['standard_price'])} 円</div>"]
+    if s["change_rate"] is not None:
+        cls = "up" if s["change_rate"] > 0 else "down"
+        b.append(f"<p>材料費の変化（{s['first']['date']} → {s['last']['date']}）: <b class='{cls}'>{_fmt(s['change_rate'], 'pct')}</b>"
+                 f"（{_fmt(s['first']['material_cost'])} → {_fmt(s['last']['material_cost'])} 円）</p>")
+    b.append("<h2>時点別</h2><table><tr><th>単価時点</th><th class='n'>材料費</th><th class='n'>鋼材</th><th class='n'>購入/外注</th>"
+             "<th class='n'>鋼材比率</th><th class='n'>加工費</th><th class='n'>製造原価</th><th class='n'>販売価格</th><th class='n'>粗利率</th><th class='n'>未解決</th></tr>")
+    for p in s["points"]:
+        if "error" in p:
+            b.append(f"<tr><td>{p['date']}</td><td colspan='9'>{p['error']}</td></tr>")
+            continue
+        b.append(f"<tr><td>{p['date']}</td><td class='n'>{_fmt(p['material_cost'])}{_warn_mark(p['unresolved'])}</td><td class='n'>{_fmt(p['steel_total'])}</td>"
+                 f"<td class='n'>{_fmt(p['purchased_total'])}</td><td class='n'>{_fmt(p['steel_ratio'], 'rate')}</td><td class='n'>{_fmt(p['labor_cost'])}</td>"
+                 f"<td class='n'>{_fmt(p['manufacturing_cost'])}</td><td class='n'>{_fmt(p['standard_price'])}</td>"
+                 f"<td class='n'>{_fmt(p['gross_margin_rate'], 'rate')}</td><td class='n'>{p['unresolved'] or ''}</td></tr>")
+    b.append("</table>")
+    if any(p.get("unresolved") for p in s["points"] if "error" not in p):
+        b.append("<p class='muted'>※n: その時点で単価が解決できない明細が n 行あり、材料費はその分だけ過小。単価履歴か別名を登録すると解消する。</p>")
+    if s["section_names"]:
+        b.append("<h2>部位別の推移</h2><table><tr><th>部位</th>" + "".join(f"<th class='n'>{d}</th>" for d in s["dates"]) + "<th class='n'>変化</th></tr>")
+        for sec in s["section_names"]:
+            vals = [p.get("sections", {}).get(sec) for p in s["points"]]
+            v = [x for x in vals if x is not None]
+            ch = (v[-1] / v[0] - 1) if len(v) >= 2 and v[0] else None
+            b.append(f"<tr><td>{sec}</td>" + "".join(f"<td class='n'>{_fmt(x)}</td>" for x in vals) + f"<td class='n'>{_fmt(ch, 'pct')}</td></tr>")
+        b.append("</table>")
+    if s["movers"]:
+        b.append("<h2>上昇・下落の主要因（明細）</h2><table><tr><th>部位</th><th>名称</th><th class='n'>旧単価</th><th class='n'>新単価</th>"
+                 "<th class='n'>数量</th><th class='n'>差額</th><th class='n'>単価要因</th><th class='n'>数量要因</th></tr>")
+        for r in s["movers"]:
+            cls = "up" if r["diff"] > 0 else "down"
+            b.append(f"<tr><td>{r['section']}</td><td>{_short(r['label'], 40)}</td><td class='n'>{r['base_price']:,.2f}</td><td class='n'>{r['other_price']:,.2f}</td>"
+                     f"<td class='n'>{r['other_qty']:,.3f}</td><td class='n {cls}'>{_fmt(r['diff'])}</td><td class='n'>{_fmt(r['price_effect'])}</td><td class='n'>{_fmt(r['qty_effect'])}</td></tr>")
+        b.append("</table>")
+    if s.get("saved"):
+        b.append("<h2>保存済みの計算</h2><table><tr><th>単価時点</th><th class='n'>材料費</th><th class='n'>製造原価</th><th>メモ</th><th>保存日</th></tr>")
+        for c in s["saved"]:
+            b.append(f"<tr><td>{c['price_date']}</td><td class='n'>{_fmt(c['total'])}</td><td class='n'>{_fmt(c['manufacturing_cost'])}</td><td>{c['label'] or ''}</td><td>{(c['created_at'] or '')[:10]}</td></tr>")
+        b.append("</table>")
+    return _html_doc(f"時系列分析 {u['unit_code']}", "".join(b))
+
+
+def _summary_html(s: dict) -> str:
+    st = s["settings"]
+    b = [f"<h1>製品原価 サマリ（全製品）</h1><div class='muted'>作成 {s['generated_at']}　時間単価 {_fmt(st.get('labor_rate_per_hour'))} 円/h　"
+         f"経費率 {st.get('overhead_rate') if st.get('overhead_rate') is not None else '未設定'}　目標粗利率 {st.get('target_margin_rate') if st.get('target_margin_rate') is not None else '未設定'}</div>",
+         "<table><tr><th style='width:22mm'>型式</th>" + "".join(f"<th class='n'>{d}</th>" for d in s["dates"]) +
+         "<th class='n'>変化</th><th class='n'>製造原価</th><th class='n'>販売価格</th><th class='n'>粗利率</th><th class='n'>必要売価</th><th class='n'>鋼材比率</th><th style='width:38mm'>主要因（差額）</th><th class='n'>未解決</th></tr>"]
+    any_warn = False
+    for r in s["rows"]:
+        ch = r["change_rate"]
+        cls = "muted" if r.get("change_unreliable") else ("up" if (ch or 0) > 0 else "down")
+        cells = []
+        for d in s["dates"]:
+            n = (r.get("unresolved_series") or {}).get(d)
+            any_warn = any_warn or bool(n)
+            cells.append(f"<td class='n'>{_fmt(r['series'].get(d))}{_warn_mark(n)}</td>")
+        b.append(f"<tr><td class='code'>{r['unit_code']}</td>" + "".join(cells) +
+                 f"<td class='n {cls}'>{_fmt(ch, 'pct')}{'※' if r.get('change_unreliable') else ''}</td><td class='n'>{_fmt(r['manufacturing_cost'])}</td><td class='n'>{_fmt(r['standard_price'])}</td>"
+                 f"<td class='n'>{_fmt(r['gross_margin_rate'], 'rate')}</td><td class='n'>{_fmt(r['required_price'])}</td><td class='n'>{_fmt(r['steel_ratio'], 'rate')}</td>"
+                 f"<td>{_short(r['top_mover'], 22)}{('（' + _fmt(r['top_mover_diff']) + '）') if r['top_mover_diff'] is not None else ''}</td><td class='n'>{r['unresolved'] or ''}</td></tr>")
+    b.append("<tr><th>合計</th>" + "".join(f"<th class='n'>{_fmt(s['totals'].get(d))}</th>" for d in s["dates"]) + "<th colspan='8'></th></tr></table>")
+    if any_warn:
+        b.append("<p class='muted'>※n: その時点で単価が解決できない明細が n 行あり、材料費はその分だけ過小（変化率も参考値）。単価履歴か別名を登録すると解消する。</p>")
+    return _html_doc("製品原価サマリ", "".join(b), landscape=True, font_px=9)
+
+
+def _xlsx_response(wb, fname: str):
+    out = io.BytesIO()
+    wb.save(out); out.seek(0)
+    from urllib.parse import quote
+    return StreamingResponse(out, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                             headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"})
+
+
+def _pdf_or_html_response(html: str, fname: str):
+    from app.pdf import html_to_pdf
+    from urllib.parse import quote
+    pdf = html_to_pdf(html)
+    if pdf:
+        return StreamingResponse(io.BytesIO(pdf), media_type="application/pdf",
+                                 headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"})
+    # PDF 変換ができない環境ではブラウザ印刷用の HTML を返す
+    return StreamingResponse(io.BytesIO(html.encode("utf-8")), media_type="text/html; charset=utf-8")
+
+
+@router.get("/report/timeseries.{fmt}")
+def report_timeseries_file(fmt: str, unit_id: str, dates: Optional[str] = None, db: Session = Depends(get_db)):
+    s = report_timeseries(unit_id, dates, db)
+    code = s["unit"]["unit_code"]
+    if fmt == "pdf" or fmt == "html":
+        html = _timeseries_html(s)
+        if fmt == "html":
+            return StreamingResponse(io.BytesIO(html.encode("utf-8")), media_type="text/html; charset=utf-8")
+        return _pdf_or_html_response(html, f"時系列分析_{code}.pdf")
+    if fmt != "xlsx":
+        raise HTTPException(400, "fmt は xlsx / pdf / html")
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+    wb = openpyxl.Workbook()
+    ws = wb.active; ws.title = "時点別"
+    bold, fill = Font(bold=True), PatternFill("solid", fgColor="DDE5EE")
+    ws["A1"] = f"製品原価 時系列分析 {code}"; ws["A1"].font = Font(bold=True, size=13)
+    ws["A2"] = s["unit"]["unit_name"]; ws["C2"] = "標準工数(h)"; ws["D2"] = s["standard_hours"]; ws["E2"] = "販売価格"; ws["F2"] = s["standard_price"]
+    heads = ["単価時点", "材料費", "鋼材", "購入/外注", "鋼材比率", "加工費", "経費", "製造原価", "販売価格", "粗利率", "必要売価", "未解決"]
+    for i, h in enumerate(heads, 1):
+        ws.cell(4, i, h).font = bold; ws.cell(4, i).fill = fill
+    r = 4
+    for p in s["points"]:
+        r += 1
+        if "error" in p:
+            ws.cell(r, 1, p["date"]); ws.cell(r, 2, p["error"]); continue
+        for i, k in enumerate(["date", "material_cost", "steel_total", "purchased_total", "steel_ratio", "labor_cost", "overhead_cost",
+                               "manufacturing_cost", "standard_price", "gross_margin_rate", "required_price", "unresolved"], 1):
+            ws.cell(r, i, p.get(k))
+            if k in ("steel_ratio", "gross_margin_rate"):
+                ws.cell(r, i).number_format = "0.0%"
+            elif k not in ("date", "unresolved"):
+                ws.cell(r, i).number_format = "#,##0"
+    r += 2
+    ws.cell(r, 1, "部位別の推移").font = bold
+    r += 1
+    ws.cell(r, 1, "部位").font = bold
+    for j, d in enumerate(s["dates"], 2):
+        ws.cell(r, j, d).font = bold; ws.cell(r, j).fill = fill
+    ws.cell(r, len(s["dates"]) + 2, "変化").font = bold
+    for sec in s["section_names"]:
+        r += 1
+        ws.cell(r, 1, sec)
+        vals = [p.get("sections", {}).get(sec) for p in s["points"]]
+        for j, v in enumerate(vals, 2):
+            ws.cell(r, j, v); ws.cell(r, j).number_format = "#,##0"
+        v = [x for x in vals if x is not None]
+        if len(v) >= 2 and v[0]:
+            c = ws.cell(r, len(s["dates"]) + 2, v[-1] / v[0] - 1); c.number_format = "+0.0%;-0.0%"
+    for col, w in zip("ABCDEFGHIJKL", (22, 14, 14, 14, 10, 12, 12, 14, 14, 10, 14, 8)):
+        ws.column_dimensions[col].width = w
+    ws2 = wb.create_sheet("要因")
+    for i, h in enumerate(["部位", "名称", "旧単価", "新単価", "旧数量", "新数量", "旧原価", "新原価", "差額", "単価要因", "数量要因"], 1):
+        ws2.cell(1, i, h).font = bold; ws2.cell(1, i).fill = fill
+    for i, row in enumerate(s["movers"], 2):
+        for j, k in enumerate(["section", "label", "base_price", "other_price", "base_qty", "other_qty", "base_amount", "other_amount", "diff", "price_effect", "qty_effect"], 1):
+            ws2.cell(i, j, row[k])
+    ws2.column_dimensions["A"].width = 18; ws2.column_dimensions["B"].width = 36
+    return _xlsx_response(wb, f"時系列分析_{code}.xlsx")
+
+
+@router.get("/report/summary.{fmt}")
+def report_summary_file(fmt: str, dates: Optional[str] = None, include_options: bool = False, db: Session = Depends(get_db)):
+    s = report_summary(dates, include_options, db)
+    if fmt in ("pdf", "html"):
+        html = _summary_html(s)
+        if fmt == "html":
+            return StreamingResponse(io.BytesIO(html.encode("utf-8")), media_type="text/html; charset=utf-8")
+        return _pdf_or_html_response(html, "製品原価サマリ.pdf")
+    if fmt != "xlsx":
+        raise HTTPException(400, "fmt は xlsx / pdf / html")
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+    wb = openpyxl.Workbook()
+    ws = wb.active; ws.title = "サマリ"
+    bold, fill = Font(bold=True), PatternFill("solid", fgColor="DDE5EE")
+    ws["A1"] = "製品原価 サマリ（全製品）"; ws["A1"].font = Font(bold=True, size=13)
+    ws["A2"] = f"作成 {s['generated_at']}"
+    heads = ["型式", "名称"] + s["dates"] + ["変化", "加工費", "製造原価", "販売価格", "粗利率", "必要売価", "鋼材比率", "主要因", "主要因の差額", "未解決"]
+    for i, h in enumerate(heads, 1):
+        ws.cell(4, i, h).font = bold; ws.cell(4, i).fill = fill
+    r = 4
+    nd = len(s["dates"])
+    for row in s["rows"]:
+        r += 1
+        ws.cell(r, 1, row["unit_code"]); ws.cell(r, 2, row["unit_name"])
+        for j, d in enumerate(s["dates"], 3):
+            ws.cell(r, j, row["series"].get(d)); ws.cell(r, j).number_format = "#,##0"
+            n = (row.get("unresolved_series") or {}).get(d)
+            if n:
+                from openpyxl.comments import Comment
+                ws.cell(r, j).comment = Comment(f"単価未解決 {n} 行（材料費は過小）", "原価検証")
+        vals = [row["change_rate"], row["labor_cost"], row["manufacturing_cost"], row["standard_price"], row["gross_margin_rate"],
+                row["required_price"], row["steel_ratio"], row["top_mover"], row["top_mover_diff"], row["unresolved"]]
+        fmts = ["+0.0%;-0.0%", "#,##0", "#,##0", "#,##0", "0.0%", "#,##0", "0.0%", None, "#,##0", None]
+        for j, (v, f) in enumerate(zip(vals, fmts), 3 + nd):
+            ws.cell(r, j, v)
+            if f:
+                ws.cell(r, j).number_format = f
+    r += 1
+    ws.cell(r, 1, "合計").font = bold
+    for j, d in enumerate(s["dates"], 3):
+        ws.cell(r, j, s["totals"].get(d)).font = bold; ws.cell(r, j).number_format = "#,##0"
+    ws.column_dimensions["A"].width = 18; ws.column_dimensions["B"].width = 26
+    for j in range(3, 3 + nd + 10):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(j)].width = 13
+    ws.freeze_panes = "C5"
+    return _xlsx_response(wb, "製品原価サマリ.xlsx")
+
+
 @router.get("/overview")
 def overview(db: Session = Depends(get_db)):
     return {

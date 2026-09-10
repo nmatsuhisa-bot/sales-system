@@ -15,6 +15,15 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-09-10 — Claude — 原価検証: レポート（製品ごとの時系列分析 / 全製品サマリ）を追加【未コミット】
+**触ったファイル**: `backend/app/api/costing.py`（`/report/timeseries` `/report/summary` と `.xlsx` `.pdf` `.html` 出力）,
+`frontend/src/pages/CostingPage.tsx`（「レポート」タブ: 折れ線グラフ＋時点別・部位別・要因表、サマリ表と並び替え）,
+`frontend/src/api/index.ts`（reportTimeseries / reportSummary / *File）, `backend/tests/test_costing_api_sqlite.py`（レポート項目を追加）
+**内容**: 単価時点（登録済み全時点＋本日、または任意指定）ごとに製品原価を再計算し、材料費・鋼材/購入外注・加工費・製造原価・粗利率・必要売価の推移、
+部位別の推移、最初→最後の上昇要因（単価要因/数量要因）を返す。サマリは全型式×時点の材料費、変化率、粗利率、鋼材比率、主要因、未解決数。
+PDF は既存 `app/pdf.py`（xhtml2pdf）で生成し、変換できない環境では HTML を返す。
+**確認**: SQLite 通しテストで時系列 JSON/xlsx/pdf、サマリ JSON/xlsx/pdf を取得（PDF 19KB/13KB）。tsc / vite build OK。ブラウザでの表示確認は未実施（ローカルに DB 無し）。
+
 ### 2026-09-08 — Claude — 製品原価検証モジュール（管理者専用）を追加【未コミット】
 **触ったファイル**: `backend/app/costing_engine.py`（新規）, `backend/app/costing_import.py`（新規）, `backend/app/api/costing.py`（新規）,
 `backend/tests/test_costing_excel.py`（新規）, `backend/migrations/costing.sql`（新規）, `backend/app/db/models.py`（末尾に Cost* 8 クラス追加）,
