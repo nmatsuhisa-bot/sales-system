@@ -15,11 +15,15 @@ from pydantic import BaseModel, field_validator
 from datetime import date
 import io
 import re
+from urllib.parse import quote
 from app.db.models import (
     pk_or_code,
     get_db, ProjectOrder,
     CraneArrangement, ShippingArrangement, HotelArrangement, ArrangementVendor,
     FanArrangement,
+)
+from app.form_edit import (
+    ef, inject_edit, get_path, apply_fields, apply_row_op, parse_date,
 )
 
 router = APIRouter()
@@ -429,7 +433,7 @@ def h2(c1, c2):
             '<td width="448">' + c2 + '</td></tr>')
 
 
-def _crane_item_block(it, idx):
+def _crane_item_block(it, idx, mode="view"):
     """依頼書の明細1件分（原紙は1件＝4行の枠）。
 
     xhtml2pdf は td の CSS width を無視するため列幅は width 属性で指定する。
@@ -450,65 +454,69 @@ def _crane_item_block(it, idx):
         )
     return (
         '<table style="margin-bottom:6px">'
-        + r(str(idx), '機械名', esc(it.get('machine')), '使用期間',
-            esc(it.get('start_date')) + '　' + esc(it.get('start_time')) + ' ～')
-        + r('&nbsp;', '重量・仕様', esc(it.get('spec')), '&nbsp;',
-            esc(it.get('end_date')) + '　' + esc(it.get('end_time')) + ' まで')
-        + r('&nbsp;', '納品方法', esc(it.get('delivery')), '備考', esc(it.get('note')))
-        + r('&nbsp;', '返却方法', esc(it.get('return_method')), '確認印', '&nbsp;',
+        + r(str(idx), '機械名', ef(mode, 'items_json.%d.machine' % (idx - 1), it.get('machine')), '使用期間',
+            ef(mode, 'items_json.%d.start_date' % (idx - 1), it.get('start_date')) + '　' + ef(mode, 'items_json.%d.start_time' % (idx - 1), it.get('start_time')) + ' ～')
+        + r('&nbsp;', '重量・仕様', ef(mode, 'items_json.%d.spec' % (idx - 1), it.get('spec')), '&nbsp;',
+            ef(mode, 'items_json.%d.end_date' % (idx - 1), it.get('end_date')) + '　' + ef(mode, 'items_json.%d.end_time' % (idx - 1), it.get('end_time')) + ' まで')
+        + r('&nbsp;', '納品方法', ef(mode, 'items_json.%d.delivery' % (idx - 1), it.get('delivery')), '備考', ef(mode, 'items_json.%d.note' % (idx - 1), it.get('note')))
+        + r('&nbsp;', '返却方法', ef(mode, 'items_json.%d.return_method' % (idx - 1), it.get('return_method')), '確認印', '&nbsp;',
             ' style="height:26px"')
         + '</table>'
     )
 
 
 @router.get("/crane/{order_id}/pdf")
-def crane_pdf(order_id: str, format: str = "html", db: Session = Depends(get_db)):
+def crane_pdf(order_id: str, format: str = "html", mode: str = "", db: Session = Depends(get_db)):
     po = find_order(order_id, db)
     c = db.query(CraneArrangement).filter(CraneArrangement.project_order_id == po.id).first()
     d = crane_to_dict(c) if c else get_crane(order_id, db)
+    M = _mode(format, mode)
+    F = lambda k, v=None, block=False: ef(M, k, get_path(d, k) if v is None else v, block)
 
     items = d.get("items_json") or []
-    blocks = ''.join(_crane_item_block(it, i + 1) for i, it in enumerate(items))
+    blocks = ''.join(_crane_item_block(it, i + 1, M) + (_rowop(i) if M == "edit" else "") for i, it in enumerate(items))
     if not blocks:
         blocks = '<p style="color:#888">明細がありません</p>'
 
     html = (
         '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">'
         '<title>クレーン・作業車等依頼書</title><style>' + BASE_STYLE + '</style></head><body>'
-        + PRINT_BAR
+        + (PRINT_BAR if M != "edit" else '')
         + '<table style="border:none;margin-bottom:6px"><tr>'
         + '<td style="border:none;font-size:16px;font-weight:bold;letter-spacing:2px">'
           'ｸﾚｰﾝ・作業車等 依頼書</td>'
         + '<td style="border:none;text-align:right;font-size:10px">作成 '
-          + esc(d.get('issue_date')) + '</td></tr></table>'
+          + F('issue_date') + '</td></tr></table>'
         + '<table style="margin-bottom:6px">'
-        + h4('現場名', esc(d.get('site_name')) + ' 御中', '注番',
-             '<span style="color:#c00;font-weight:bold">' + esc(d.get('order_no')) + '</span>')
-        + h4wide('住　所', esc(d.get('site_address')))
-        + h4('TEL', esc(d.get('site_tel')), 'ご担当',
-             esc(d.get('site_dept')) + ' ' + esc(d.get('site_contact')) + ' 様')
+        + h4('現場名', F('site_name') + ' 御中', '注番',
+             '<span style="color:#c00;font-weight:bold">' + F('order_no') + '</span>')
+        + h4wide('住　所', F('site_address'))
+        + h4('TEL', F('site_tel'), 'ご担当',
+             F('site_dept') + ' ' + F('site_contact') + ' 様')
         + '</table>'
         + '<table style="margin-bottom:6px">'
-        + h2('依頼業者', esc(d.get('vendor_name')) + ' ' + esc(d.get('vendor_branch')) + ' 御中')
-        + h2('ご担当', esc(d.get('vendor_contact')) + ' 様　　TEL ' + esc(d.get('vendor_tel'))
-             + '　　FAX ' + esc(d.get('vendor_fax')))
+        + h2('依頼業者', F('vendor_name') + ' ' + F('vendor_branch') + ' 御中')
+        + h2('ご担当', F('vendor_contact') + ' 様　　TEL ' + F('vendor_tel')
+             + '　　FAX ' + F('vendor_fax'))
         + '</table>'
         + '<div style="font-size:10px;margin:6px 0">下記、手配お願い致します。'
           '※請求書には右上の注番を記入してください。</div>'
         + blocks
-        + ('<div style="font-size:10px;margin-top:6px">備考：' + esc(d.get('notes')) + '</div>'
-           if d.get('notes') else '')
+        + ('<div style="font-size:10px;margin-top:6px">備考：' + F('notes', block=True) + '</div>'
+           if (d.get('notes') or M == "edit") else '')
         + '<table style="margin-top:10px;border:none"><tr>'
         + '<td style="border:none;font-size:11px">井上電設株式会社<br>'
           '<span style="font-size:9px">〒460-0022 愛知県名古屋市中区金山4-3-17<br>'
           'TEL：052-322-5271　FAX：052-332-5273</span></td>'
         + '<td style="border:none;text-align:right;font-size:10px">担当：'
-          + esc(d.get('staff_name')) + '<br>作成：' + esc(d.get('creator_name')) + '</td>'
+          + F('staff_name') + '<br>作成：' + F('creator_name') + '</td>'
         + '</tr></table>'
         + '</body></html>'
     )
+    if M == "edit":
+        html = _inject(html, "crane", order_id, "クレーン・作業車等 依頼書", db, pdf_path="pdf", rows=True, extra='')
     return form_response(html, "%s_クレーン作業車依頼書" % (d.get('order_no') or po.child_no),
-                         format == "pdf")
+                         M == "pdf")
 
 
 # =============================================
@@ -547,7 +555,7 @@ def save_shipping(order_id: str, data: ShippingData, db: Session = Depends(get_d
     return shipping_to_dict(s)
 
 
-def _shipping_item_block(it, idx):
+def _shipping_item_block(it, idx, mode="view"):
     """送り状の明細1件分。
 
     原紙は積込①〜③と、運送業者に記入してもらう欄（社名・運転手・携帯№・車番）を持つ。
@@ -571,73 +579,77 @@ def _shipping_item_block(it, idx):
         )
     return (
         '<table style="margin-bottom:8px">'
-        + r(str(idx), '車種', esc(it.get('truck_type')), '積込', esc(it.get('load_date')),
-            '到着', esc(it.get('arrive_date')) + '　' + esc(it.get('arrive_time')))
+        + r(str(idx), '車種', ef(mode, 'items_json.%d.truck_type' % (idx - 1), it.get('truck_type')), '積込', ef(mode, 'items_json.%d.load_date' % (idx - 1), it.get('load_date')),
+            '到着', ef(mode, 'items_json.%d.arrive_date' % (idx - 1), it.get('arrive_date')) + '　' + ef(mode, 'items_json.%d.arrive_time' % (idx - 1), it.get('arrive_time')))
         + '<tr><td width="%d" %s>&nbsp;</td><td width="%d" %s>積込内容</td>'
-          '<td colspan="5">%s</td></tr>' % (W[0], L, W[1], L, esc(it.get('cargo')))
-        + r('&nbsp;', '積込①', esc(it.get('load1_place')), '時間', esc(it.get('load1_time')),
+          '<td colspan="5">%s</td></tr>' % (W[0], L, W[1], L, ef(mode, 'items_json.%d.cargo' % (idx - 1), it.get('cargo')))
+        + r('&nbsp;', '積込①', ef(mode, 'items_json.%d.load1_place' % (idx - 1), it.get('load1_place')), '時間', ef(mode, 'items_json.%d.load1_time' % (idx - 1), it.get('load1_time')),
             '社名', '&nbsp;', ' style="height:20px"')
-        + r('&nbsp;', '積込②', esc(it.get('load2_place')), '時間', esc(it.get('load2_time')),
+        + r('&nbsp;', '積込②', ef(mode, 'items_json.%d.load2_place' % (idx - 1), it.get('load2_place')), '時間', ef(mode, 'items_json.%d.load2_time' % (idx - 1), it.get('load2_time')),
             '運転手', '&nbsp;', ' style="height:20px"')
-        + r('&nbsp;', '積込③', esc(it.get('load3_place')), '時間', esc(it.get('load3_time')),
+        + r('&nbsp;', '積込③', ef(mode, 'items_json.%d.load3_place' % (idx - 1), it.get('load3_place')), '時間', ef(mode, 'items_json.%d.load3_time' % (idx - 1), it.get('load3_time')),
             '携帯№', '&nbsp;', ' style="height:20px"')
         + '<tr><td width="%d" %s>&nbsp;</td><td width="%d" %s>備考</td>'
           '<td colspan="3">%s</td>'
           '<td width="%d" %s>車番</td>'
           '<td width="%d" style="height:20px">&nbsp;</td></tr>'
-          % (W[0], L, W[1], L, esc(it.get('note')), W[5], L, W[6])
+          % (W[0], L, W[1], L, ef(mode, 'items_json.%d.note' % (idx - 1), it.get('note')), W[5], L, W[6])
         + '</table>'
     )
 
 
 @router.get("/shipping/{order_id}/pdf")
-def shipping_pdf(order_id: str, format: str = "html", db: Session = Depends(get_db)):
+def shipping_pdf(order_id: str, format: str = "html", mode: str = "", db: Session = Depends(get_db)):
     po = find_order(order_id, db)
     s = db.query(ShippingArrangement).filter(ShippingArrangement.project_order_id == po.id).first()
     d = shipping_to_dict(s) if s else get_shipping(order_id, db)
+    M = _mode(format, mode)
+    F = lambda k, v=None, block=False: ef(M, k, get_path(d, k) if v is None else v, block)
 
     items = d.get("items_json") or []
-    blocks = ''.join(_shipping_item_block(it, i + 1) for i, it in enumerate(items))
+    blocks = ''.join(_shipping_item_block(it, i + 1, M) + (_rowop(i) if M == "edit" else "") for i, it in enumerate(items))
     if not blocks:
         blocks = '<p style="color:#888">明細がありません</p>'
 
     html = (
         '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">'
         '<title>送り状</title><style>' + BASE_STYLE + '</style></head><body>'
-        + PRINT_BAR
+        + (PRINT_BAR if M != "edit" else '')
         + '<table style="border:none;margin-bottom:6px"><tr>'
         + '<td style="border:none;font-size:16px;font-weight:bold;letter-spacing:4px">送 り 状</td>'
         + '<td style="border:none;text-align:right;font-size:10px">作成 '
-          + esc(d.get('issue_date')) + '</td></tr></table>'
+          + F('issue_date') + '</td></tr></table>'
         + '<table style="margin-bottom:6px">'
-        + h4('送り先', esc(d.get('dest_name')) + ' 御中', '注番',
-             '<span style="color:#c00;font-weight:bold">' + esc(d.get('order_no')) + '</span>')
-        + h4wide('住　所', esc(d.get('dest_address')))
-        + h4('TEL', esc(d.get('dest_tel')), 'ご担当',
-             esc(d.get('dest_dept')) + ' ' + esc(d.get('dest_contact')) + ' 様')
+        + h4('送り先', F('dest_name') + ' 御中', '注番',
+             '<span style="color:#c00;font-weight:bold">' + F('order_no') + '</span>')
+        + h4wide('住　所', F('dest_address'))
+        + h4('TEL', F('dest_tel'), 'ご担当',
+             F('dest_dept') + ' ' + F('dest_contact') + ' 様')
         + '</table>'
         + '<table style="margin-bottom:6px">'
-        + h2('運送業者', esc(d.get('carrier_name')) + ' 御中')
-        + h2('ご担当', esc(d.get('carrier_contact')) + ' 様　　TEL ' + esc(d.get('carrier_tel'))
-             + '　　FAX ' + esc(d.get('carrier_fax')))
+        + h2('運送業者', F('carrier_name') + ' 御中')
+        + h2('ご担当', F('carrier_contact') + ' 様　　TEL ' + F('carrier_tel')
+             + '　　FAX ' + F('carrier_fax'))
         + '</table>'
         + '<div style="font-size:10px;margin:6px 0">下記トラックの手配お願い致します。'
           'トラックの社名・車番等が分かりましたら、記入して送り返して下さい。<br>'
           '積込場所で左端の番号を伝えて下さい。（積込の順番・内容を間違えない為）</div>'
         + ('<table style="margin-bottom:6px"><tr>'
            '<td width="62" style="background:#f0f0f0">備　考</td>'
-           '<td>' + esc(d.get('notes')) + '</td></tr></table>' if d.get('notes') else '')
+           '<td>' + F('notes', block=True) + '</td></tr></table>' if (d.get('notes') or M == "edit") else '')
         + blocks
         + '<table style="margin-top:10px;border:none"><tr>'
         + '<td style="border:none;font-size:11px">井上電設株式会社<br>'
           '<span style="font-size:9px">〒460-0022 愛知県名古屋市中区金山4-3-17<br>'
           'TEL：052-322-5271　FAX：052-332-5273</span></td>'
         + '<td style="border:none;text-align:right;font-size:10px">担当：'
-          + esc(d.get('staff_name')) + '<br>作成：' + esc(d.get('creator_name')) + '</td>'
+          + F('staff_name') + '<br>作成：' + F('creator_name') + '</td>'
         + '</tr></table>'
         + '</body></html>'
     )
-    return form_response(html, "%s_送り状" % (d.get('order_no') or po.child_no), format == "pdf")
+    if M == "edit":
+        html = _inject(html, "shipping", order_id, "トラック手配 送り状", db, pdf_path="pdf", rows=True, extra='')
+    return form_response(html, "%s_送り状" % (d.get('order_no') or po.child_no), M == "pdf")
 
 
 # =============================================
@@ -743,12 +755,14 @@ def _kv(label, value, lw='72px'):
 
 
 @router.get("/fan/{order_id}/pdf")
-def fan_order_pdf(order_id: str, format: str = "html", db: Session = Depends(get_db)):
+def fan_order_pdf(order_id: str, format: str = "html", mode: str = "", db: Session = Depends(get_db)):
     """排風機 注文確認書（発注先へ送り、捺印して返送してもらう書面）"""
     po = find_order(order_id, db)
     f = db.query(FanArrangement).filter(FanArrangement.project_order_id == po.id).first()
     d = fan_to_dict(f) if f else get_fan(order_id, db)
     sp = d.get("spec_json") or {}
+    M = _mode(format, mode)
+    F = lambda k, v=None, block=False: ef(M, k, get_path(d, k) if v is None else v, block)
 
     L = 'style="background:#f0f0f0"'
 
@@ -770,71 +784,75 @@ def fan_order_pdf(order_id: str, format: str = "html", db: Session = Depends(get
     html = (
         '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">'
         '<title>注文確認書</title><style>' + BASE_STYLE + '</style></head><body>'
-        + PRINT_BAR
+        + (PRINT_BAR if M != "edit" else '')
         + '<div style="font-size:17px;font-weight:bold;text-align:center;letter-spacing:6px;'
           'margin-bottom:8px">注 文 確 認 書</div>'
         + '<table style="margin-bottom:6px">'
         + '<tr><td width="316" rowspan="2" style="border:none;vertical-align:top">'
-          + esc(d.get('vendor_name')) + ' 御中<br>' + esc(d.get('vendor_contact')) + ' 様</td>'
+          + F('vendor_name') + ' 御中<br>' + F('vendor_contact') + ' 様</td>'
         + '<td width="64" ' + L + '>受注No.</td>'
-          '<td width="130" style="color:#c00;font-weight:bold">' + esc(d.get('order_no')) + '</td></tr>'
+          '<td width="130" style="color:#c00;font-weight:bold">' + F('order_no') + '</td></tr>'
         + '<tr><td ' + L + '>御確認印</td><td style="height:38px">&nbsp;</td></tr></table>'
         + '<div style="font-size:10px;margin:6px 0">'
           'このたびはご注文を頂きありがとうございます。<br>'
           '下記内容をご確認の上、捺印後折り返しFAXにてご返送下さいますようお願い致します。</div>'
         + '<table style="margin-bottom:6px">'
-        + hdr('ユーザー名', esc(d.get('user_name')) + ' 様　' + esc(d.get('user_plant')),
-              'ご担当者', esc(d.get('user_contact')) + ' 様')
-        + hdr('住所', esc(d.get('user_address')), 'TEL', esc(d.get('user_tel')))
-        + hdr('出荷先', esc(d.get('ship_to_name')) + ' 様　' + esc(d.get('ship_to_plant')),
-              'ご担当者', esc(d.get('ship_to_contact')) + ' 様')
-        + hdr('住所', esc(d.get('ship_to_address')), 'TEL', esc(d.get('ship_to_tel')))
-        + hdr('出荷日', esc(d.get('ship_date')), '運送方法', esc(d.get('transport_method')))
+        + hdr('ユーザー名', F('user_name') + ' 様　' + F('user_plant'),
+              'ご担当者', F('user_contact') + ' 様')
+        + hdr('住所', F('user_address'), 'TEL', F('user_tel'))
+        + hdr('出荷先', F('ship_to_name') + ' 様　' + F('ship_to_plant'),
+              'ご担当者', F('ship_to_contact') + ' 様')
+        + hdr('住所', F('ship_to_address'), 'TEL', F('ship_to_tel'))
+        + hdr('出荷日', F('ship_date'), '運送方法', F('transport_method'))
         + '</table>'
         + '<div style="font-size:9px;margin-bottom:6px">'
           '【引取：貴社手配のトラックにてお引取／パレット：宅配にてパレット梱包出荷／工事：井上工事】</div>'
         + '<table style="margin-bottom:6px">'
-        + spec('名称', esc(d.get('product_name')), '駆動方式', esc(d.get('drive_type')),
-               '製造No.', esc(d.get('serial_no')))
-        + spec('型式', esc(d.get('model')), '周波数', esc(sp.get('frequency')) + ' Hz',
-               '動力', esc(sp.get('voltage')) + ' V')
+        + spec('名称', F('product_name'), '駆動方式', F('drive_type'),
+               '製造No.', F('serial_no'))
+        + spec('型式', F('model'), '周波数', F('spec_json.frequency') + ' Hz',
+               '動力', F('spec_json.voltage') + ' V')
         + spec('ﾓｰﾀ',
-               esc(sp.get('motor_kw')) + ' kW　' + esc(sp.get('motor_pole')) + ' P　'
-               + esc(sp.get('motor_type')),
-               'ﾒｰｶ', esc(sp.get('motor_maker')), '備考', esc(sp.get('motor_note')))
-        + spec_wide('仕様', esc(sp.get('spec_place')) + '（屋内 / 屋外）※ご確認ください')
+               F('spec_json.motor_kw') + ' kW　' + F('spec_json.motor_pole') + ' P　'
+               + F('spec_json.motor_type'),
+               'ﾒｰｶ', F('spec_json.motor_maker'), '備考', F('spec_json.motor_note'))
+        + spec_wide('仕様', F('spec_json.spec_place') + '（屋内 / 屋外）※ご確認ください')
         + spec_wide('吸排気口',
-                    '吸 φ' + esc(sp.get('intake_dia')) + '　' + esc(sp.get('intake_flange'))
-                    + '　／　排 φ' + esc(sp.get('exhaust_dia')) + '　'
-                    + esc(sp.get('exhaust_flange')))
+                    '吸 φ' + F('spec_json.intake_dia') + '　' + F('spec_json.intake_flange')
+                    + '　／　排 φ' + F('spec_json.exhaust_dia') + '　'
+                    + F('spec_json.exhaust_flange'))
         + spec_wide('ｽｲｯﾁ',
-                    esc(sp.get('switch_type')) + '　制御盤：' + esc(sp.get('control_panel'))
+                    F('spec_json.switch_type') + '　制御盤：' + F('spec_json.control_panel')
                     + '<br><span style="font-size:9px">※必要の有無を記載願います。'
                       'なお、電気配線工事は含んでいません。</span>')
-        + spec('指定色', esc(sp.get('paint_color')), '色番号', esc(sp.get('color_no')), '&nbsp;', '&nbsp;')
-        + spec_wide('備考', esc(d.get('notes')))
+        + spec('指定色', F('spec_json.paint_color'), '色番号', F('spec_json.color_no'), '&nbsp;', '&nbsp;')
+        + spec_wide('備考', F('notes', block=True))
         + '</table>'
         + '<div style="font-size:9px">※印箇所ご確認・ご指示願います。</div>'
         + '<table style="margin-top:8px"><tr>'
           '<td width="316" style="border:none">&nbsp;</td>'
           '<td width="56" ' + L + '>営業</td>'
-          '<td width="66">' + esc(d.get('sales_person_name')) + '</td>'
+          '<td width="66">' + F('sales_person_name') + '</td>'
           '<td width="36" ' + L + '>作成</td>'
-          '<td width="66">' + esc(d.get('creator_name')) + '</td></tr></table>'
+          '<td width="66">' + F('creator_name') + '</td></tr></table>'
         + '</body></html>'
     )
+    if M == "edit":
+        html = _inject(html, "fan", order_id, "排風機 注文確認書", db, pdf_path="pdf", rows=False, extra="")
     return form_response(html, "%s_排風機注文確認書" % (d.get('order_no') or po.child_no),
-                         format == "pdf")
+                         M == "pdf")
 
 
 @router.get("/fan/{order_id}/instruction-pdf")
-def fan_instruction_pdf(order_id: str, format: str = "html", db: Session = Depends(get_db)):
+def fan_instruction_pdf(order_id: str, format: str = "html", mode: str = "", db: Session = Depends(get_db)):
     """ファン作業指示書（社内の製造指示）"""
     po = find_order(order_id, db)
     f = db.query(FanArrangement).filter(FanArrangement.project_order_id == po.id).first()
     d = fan_to_dict(f) if f else get_fan(order_id, db)
     sp = d.get("spec_json") or {}
     ins = d.get("instruction_json") or {}
+    M = _mode(format, mode)
+    F = lambda k, v=None, block=False: ef(M, k, get_path(d, k) if v is None else v, block)
 
     L = 'style="background:#f0f0f0"'
 
@@ -860,42 +878,42 @@ def fan_instruction_pdf(order_id: str, format: str = "html", db: Session = Depen
     html = (
         '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">'
         '<title>ファン作業指示書</title><style>' + BASE_STYLE + '</style></head><body>'
-        + PRINT_BAR
+        + (PRINT_BAR if M != "edit" else '')
         + '<table style="margin-bottom:6px">'
         + '<tr><td width="316" rowspan="2" style="border:none;font-size:16px;font-weight:bold;'
           'letter-spacing:4px;vertical-align:top">フ ァ ン 作 業 指 示 書</td>'
         + '<td width="64" ' + L + '>営業担当</td>'
-          '<td width="130">' + esc(d.get('sales_person_name')) + '</td></tr>'
-        + '<tr><td ' + L + '>作成</td><td>' + esc(d.get('creator_name')) + '</td></tr></table>'
+          '<td width="130">' + F('sales_person_name') + '</td></tr>'
+        + '<tr><td ' + L + '>作成</td><td>' + F('creator_name') + '</td></tr></table>'
         + '<table style="margin-bottom:6px">'
-        + r4('型式', esc(d.get('model')), '製造番号', esc(d.get('serial_no')))
-        + r4('御注文主', esc(ins.get('order_customer')) + ' 殿', '受注番号',
-             '<span style="color:#c00;font-weight:bold">' + esc(d.get('order_no')) + '</span>')
-        + r4('納入先', esc(d.get('ship_to_name')) + ' ' + esc(d.get('ship_to_plant')) + ' 殿',
-             '用途・仕様', esc(ins.get('usage_spec')))
-        + r4('出荷日', esc(d.get('ship_date')), '出荷方法', esc(d.get('transport_method')))
+        + r4('型式', F('model'), '製造番号', F('serial_no'))
+        + r4('御注文主', F('instruction_json.order_customer') + ' 殿', '受注番号',
+             '<span style="color:#c00;font-weight:bold">' + F('order_no') + '</span>')
+        + r4('納入先', F('ship_to_name') + ' ' + F('ship_to_plant') + ' 殿',
+             '用途・仕様', F('instruction_json.usage_spec'))
+        + r4('出荷日', F('ship_date'), '出荷方法', F('transport_method'))
         + '</table>'
         + '<table style="margin-bottom:6px">'
         + r4wide('ﾓｰﾀ',
-                 esc(sp.get('motor_kw')) + ' kW　' + esc(sp.get('motor_pole')) + ' P　'
-                 + esc(sp.get('frequency')) + ' Hz　' + esc(sp.get('voltage')) + ' V　'
-                 + esc(sp.get('motor_type')) + '　' + esc(sp.get('motor_maker')))
-        + r4('軸受', '羽根側：' + esc(ins.get('bearing_fan')),
-             'ﾌﾟｰﾘ側', esc(ins.get('bearing_pulley')))
-        + r4('ﾓｰﾀ側ﾌﾟｰﾘ', esc(ins.get('motor_pulley')), 'Vﾍﾞﾙﾄ', esc(ins.get('belt')))
-        + r4('ﾌｧﾝ側ﾌﾟｰﾘ', esc(ins.get('fan_pulley')), '回転数', esc(ins.get('rpm')) + ' rpm')
-        + r4('ｶﾊﾞｰ', esc(ins.get('cover')), '吸口',
-             'φ' + esc(sp.get('intake_dia')) + '　' + esc(sp.get('intake_flange')))
-        + r4('点検口', esc(ins.get('inspection_port')), '出口',
-             'φ' + esc(sp.get('exhaust_dia')) + '　' + esc(sp.get('exhaust_flange')))
-        + r4('架台', esc(ins.get('frame')), '塗装色',
-             esc(_pick(ins.get('paint'), sp.get('paint_color'))))
-        + r4wide('備考', esc(d.get('notes')))
+                 F('spec_json.motor_kw') + ' kW　' + F('spec_json.motor_pole') + ' P　'
+                 + F('spec_json.frequency') + ' Hz　' + F('spec_json.voltage') + ' V　'
+                 + F('spec_json.motor_type') + '　' + F('spec_json.motor_maker'))
+        + r4('軸受', '羽根側：' + F('instruction_json.bearing_fan'),
+             'ﾌﾟｰﾘ側', F('instruction_json.bearing_pulley'))
+        + r4('ﾓｰﾀ側ﾌﾟｰﾘ', F('instruction_json.motor_pulley'), 'Vﾍﾞﾙﾄ', F('instruction_json.belt'))
+        + r4('ﾌｧﾝ側ﾌﾟｰﾘ', F('instruction_json.fan_pulley'), '回転数', F('instruction_json.rpm') + ' rpm')
+        + r4('ｶﾊﾞｰ', F('instruction_json.cover'), '吸口',
+             'φ' + F('spec_json.intake_dia') + '　' + F('spec_json.intake_flange'))
+        + r4('点検口', F('instruction_json.inspection_port'), '出口',
+             'φ' + F('spec_json.exhaust_dia') + '　' + F('spec_json.exhaust_flange'))
+        + r4('架台', F('instruction_json.frame'), '塗装色',
+             F('instruction_json.paint', _pick(ins.get('paint'), sp.get('paint_color'))))
+        + r4wide('備考', F('notes', block=True))
         + '</table>'
         + '<div style="font-size:11px;font-weight:bold;margin:8px 0 4px">想定性能</div>'
         + '<table style="margin-bottom:6px">'
-        + r6('圧力', esc(ins.get('pressure')) + ' mmaq', '風量',
-             esc(ins.get('airflow')) + ' ㎥/min', '電流', esc(ins.get('current')) + ' A')
+        + r6('圧力', F('instruction_json.pressure') + ' mmaq', '風量',
+             F('instruction_json.airflow') + ' ㎥/min', '電流', F('instruction_json.current') + ' A')
         + '</table>'
         + '<div style="font-size:11px;font-weight:bold;margin:8px 0 4px">出荷時チェックリスト</div>'
         + '<table>'
@@ -905,8 +923,10 @@ def fan_instruction_pdf(order_id: str, format: str = "html", db: Session = Depen
         + '</table>'
         + '</body></html>'
     )
+    if M == "edit":
+        html = _inject(html, "fan", order_id, "ファン作業指示書", db, pdf_path="instruction-pdf", rows=False, extra="")
     return form_response(html, "%s_ファン作業指示書" % (d.get('order_no') or po.child_no),
-                         format == "pdf")
+                         M == "pdf")
 
 
 # =============================================
@@ -937,23 +957,25 @@ def save_hotel(order_id: str, data: HotelData, db: Session = Depends(get_db)):
     return hotel_to_dict(h)
 
 @router.get("/hotel/{order_id}/pdf")
-def hotel_pdf(order_id: str, db: Session = Depends(get_db)):
+def hotel_pdf(order_id: str, format: str = "html", mode: str = "", db: Session = Depends(get_db)):
     po = find_order(order_id, db)
     h = db.query(HotelArrangement).filter(HotelArrangement.project_order_id == po.id).first()
-    d = hotel_to_dict(h) if h else {"child_no": po.child_no, "site_name": po.customer_name, "items_json": []}
+    d = hotel_to_dict(h) if h else get_hotel(order_id, db)
+    M = _mode(format, mode)
+    F = lambda k, v=None, block=False: ef(M, k, get_path(d, k) if v is None else v, block)
 
     rows = ''
-    for it in (d.get("items_json") or []):
+    for i, it in enumerate(d.get("items_json") or []):
+        c = lambda k: ef(M, 'items_json.%d.%s' % (i, k), it.get(k))
         rows += (
-            '<tr><td>' + esc(it.get('hotel')) + '</td>'
-            '<td>' + esc(it.get('tel')) + '</td>'
-            '<td>' + esc(it.get('checkin')) + '</td>'
-            '<td>' + esc(it.get('checkout')) + '</td>'
-            '<td style="text-align:center">' + esc(it.get('nights')) + '</td>'
-            '<td style="text-align:center">' + esc(it.get('persons')) + '</td>'
-            '<td style="text-align:right">' + esc(it.get('price')) + '</td>'
-            '<td>' + esc(it.get('guests')) + '</td>'
-            '<td>' + esc(it.get('note')) + '</td></tr>'
+            '<tr><td>' + c('hotel') + '</td><td>' + c('tel') + '</td>'
+            '<td>' + c('checkin') + '</td><td>' + c('checkout') + '</td>'
+            '<td style="text-align:center">' + c('nights') + '</td>'
+            '<td style="text-align:center">' + c('persons') + '</td>'
+            '<td style="text-align:right">' + c('price') + '</td>'
+            '<td>' + c('guests') + '</td><td>' + c('note') + '</td>'
+            + ('<td class="ef-rowop"><button onclick="efDelRow(%d)">削除</button></td>' % i
+               if M == "edit" else '') + '</tr>'
         )
     if not rows:
         rows = '<tr><td colspan="9" style="color:#999;text-align:center">明細がありません</td></tr>'
@@ -961,22 +983,116 @@ def hotel_pdf(order_id: str, db: Session = Depends(get_db)):
     html = (
         '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">'
         '<title>宿泊予約票</title><style>' + BASE_STYLE + '</style></head><body>'
-        + PRINT_BAR
+        + (PRINT_BAR if M != "edit" else '')
         + '<h2 style="font-size:16px;font-weight:bold;margin-bottom:4px">宿泊予約票</h2>'
         + '<p style="font-size:9px;color:#666;margin-bottom:10px">'
         + '※基本は朝食なしで！変更・キャンセルは必ず宿へ連絡！予約したら旅費の領収書を忘れずに！</p>'
         + '<table style="margin-bottom:8px"><tr>'
-        + '<td width="70" style="background:#f0f0f0">現場</td><td>' + esc(d.get('site_name')) + '</td>'
+        + '<td width="70" style="background:#f0f0f0">現場</td><td>' + F('site_name') + '</td>'
         + '<td width="70" style="background:#f0f0f0">受注番号</td><td>' + esc(d.get('child_no')) + '</td></tr>'
-        + '<tr><td style="background:#f0f0f0">住所</td><td colspan="3">' + esc(d.get('site_address')) + '</td></tr></table>'
+        + '<tr><td style="background:#f0f0f0">住所</td><td colspan="3">' + F('site_address') + '</td></tr></table>'
         + '<table><thead><tr>'
         + '<th>ホテル名</th><th style="width:90px">TEL</th><th style="width:60px">IN</th>'
         + '<th style="width:60px">OUT</th><th style="width:30px">泊</th><th style="width:30px">人</th>'
         + '<th style="width:60px">値段/泊</th><th>宿泊者</th><th>備考</th></tr></thead>'
         + '<tbody>' + rows + '</tbody></table>'
+        + ('<div style="margin-top:8px;font-size:10px">備考：' + F('notes', block=True) + '</div>'
+           if (d.get('notes') or M == "edit") else '')
         + COMPANY_FOOTER + '</body></html>'
     )
-    return StreamingResponse(io.BytesIO(html.encode("utf-8")), media_type="text/html")
+    if M == "edit":
+        html = _inject(html, "hotel", order_id, "宿泊予約票", db, rows=True)
+    return form_response(html, "%s_宿泊予約票" % po.child_no, M == "pdf")
+
+
+
+# =============================================
+# 帳票画面での編集（?mode=edit）
+# =============================================
+def _mode(fmt, mode):
+    """表示モード。PDF出力 / 印刷プレビュー / 帳票画面での編集"""
+    if fmt == "pdf":
+        return "pdf"
+    return "edit" if mode == "edit" else "view"
+
+
+def _rowop(i):
+    return ('<div class="ef-rowop"><button onclick="efDelRow(%d)">%d件目の明細を削除</button></div>'
+            % (i, i + 1))
+
+
+# 業者マスタから選べる帳票と、マスタ項目→帳票項目の対応
+VENDOR_CFG = {
+    "crane": ("クレーン・作業車", {"vendor_name": "name", "vendor_branch": "branch",
+                              "vendor_contact": "contact_person", "vendor_tel": "phone",
+                              "vendor_fax": "fax"}),
+    "shipping": ("運送（トラック）", {"carrier_name": "name", "carrier_contact": "contact_person",
+                                "carrier_tel": "phone", "carrier_fax": "fax"}),
+    "fan": ("排風機", {"vendor_name": "name", "vendor_contact": "contact_person"}),
+}
+
+
+def _inject(html, kind, order_id, title, db, pdf_path="pdf", rows=False, extra=""):
+    oid = quote(str(order_id), safe="")
+    base = "/api/arrangements/%s/%s" % (kind, oid)
+    vendors = vmap = None
+    if kind in VENDOR_CFG:
+        cat, vmap = VENDOR_CFG[kind]
+        vendors = [_vendor_dict(v) for v in
+                   db.query(ArrangementVendor).filter(ArrangementVendor.category == cat)
+                     .order_by(ArrangementVendor.name).limit(300).all()]
+    btns = ('<button class="w" onclick="efOp({add_row:true})">明細を追加</button>' if rows else '') + extra
+    if kind == "fan":
+        # 注文確認書と作業指示書は同じデータ。画面を行き来しても入力は共有される
+        other = "instruction-pdf" if pdf_path == "pdf" else "pdf"
+        other_name = "ファン作業指示書" if pdf_path == "pdf" else "注文確認書"
+        btns += ('<button class="g" onclick="efSave().then(function(ok){if(ok)location.href=\'%s/%s?mode=edit\'})">'
+                 '%sの画面へ</button>' % (base, other, other_name))
+        btns += ('<button class="p" onclick="efPdf2(\'%s/%s?format=pdf\')">保存して%sのPDF</button>'
+                 % (base, other, other_name))
+    return inject_edit(html, title=title, save_url=base + "/edit-save",
+                       pdf_url=base + "/%s?format=pdf" % pdf_path,
+                       extra_buttons=btns, vendors=vendors, vendor_map=vmap)
+
+
+EDIT_KINDS = {
+    "crane":    (CraneArrangement, "get_crane", CraneData, crane_to_dict, [("issue_date", "作成日")]),
+    "shipping": (ShippingArrangement, "get_shipping", ShippingData, shipping_to_dict, [("issue_date", "作成日")]),
+    "fan":      (FanArrangement, "get_fan", FanData, fan_to_dict, [("ship_date", "出荷日")]),
+    "hotel":    (HotelArrangement, "get_hotel", HotelData, hotel_to_dict, []),
+}
+
+
+@router.post("/{kind}/{order_id}/edit-save")
+def edit_save(kind: str, order_id: str, body: dict, db: Session = Depends(get_db)):
+    """帳票画面で書き換えた内容を保存する。
+
+    画面に出ている項目だけが送られてくるので、既存の値（未保存なら自動補完の値）に
+    上書きマージする。画面に出ていない項目は消さない。
+    """
+    if kind not in EDIT_KINDS:
+        raise HTTPException(404, "帳票の種類が正しくありません")
+    Model, getter, Schema, to_dict, date_fields = EDIT_KINDS[kind]
+    po = find_order(order_id, db)
+    rec = db.query(Model).filter(Model.project_order_id == po.id).first()
+    base = to_dict(rec) if rec else globals()[getter](order_id, db)
+    data = apply_fields(base, (body or {}).get("fields") or {})
+    data = apply_row_op(data, (body or {}).get("op"))
+    for f, label in date_fields:
+        try:
+            v = parse_date(data.get(f), label)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        data[f] = v.isoformat() if v else None
+    allowed = set(Schema.model_fields)
+    obj = Schema(**{k: v for k, v in data.items() if k in allowed})
+    if not rec:
+        rec = Model(project_order_id=po.id, child_no=po.child_no)
+        db.add(rec)
+    for k, v in obj.model_dump(exclude_unset=True).items():
+        setattr(rec, k, v)
+    db.commit()
+    return {"ok": True, "items": len(data.get("items_json") or [])}
 
 
 # =============================================
@@ -997,8 +1113,8 @@ def setup_arrangement_forms(db: Session = Depends(get_db)):
     排風機（注文確認書/ファン作業指示書）のテーブルを作る。
     """
     from sqlalchemy import text
-    from app.db.models import Base, engine, FanArrangement
-    Base.metadata.create_all(bind=engine, tables=[FanArrangement.__table__])
+    from app.db.models import Base, engine, FanArrangement, FormDocument
+    Base.metadata.create_all(bind=engine, tables=[FanArrangement.__table__, FormDocument.__table__])
     stmts = [
         "ALTER TABLE crane_arrangements ADD COLUMN IF NOT EXISTS site_dept VARCHAR(100)",
         "ALTER TABLE crane_arrangements ADD COLUMN IF NOT EXISTS issue_date DATE",

@@ -8,6 +8,7 @@ from typing import Optional, List
 from pydantic import BaseModel
 from datetime import date, datetime
 import io, uuid, collections
+import re
 
 from app.normalize import nfkc
 from app.db.models import (
@@ -17,6 +18,8 @@ from app.db.models import (
     EstimateBfqSeries, EstimateBfqBody, EstimateBfqFan, EstimateBfqOption,
     EstimateScaBody, EstimatePlFan, EstimateCyclone, EstimateAutoDamper, EstimateLaborItem
 )
+
+from app.form_edit import ef, eftoggle, inject_edit, parse_date
 
 router = APIRouter()
 
@@ -1157,7 +1160,7 @@ def reject_approval(quotation_id: str, db: Session = Depends(get_db)):
 # PDF出力(ケイテック形式)
 # =============================================
 @router.get("/{quotation_id}/pdf")
-def export_pdf(quotation_id: str, format: str = "html", db: Session = Depends(get_db)):
+def export_pdf(quotation_id: str, format: str = "html", mode: str = "", db: Session = Depends(get_db)):
     """見積書。既定はHTML（ブラウザで印刷）。?format=pdf でPDFの実体を返す（メール添付用）"""
     q = db.query(QuotationHeader).options(
         joinedload(QuotationHeader.line_items), joinedload(QuotationHeader.labor_details)
@@ -1175,12 +1178,66 @@ def export_pdf(quotation_id: str, format: str = "html", db: Session = Depends(ge
             return StreamingResponse(
                 io.BytesIO(blob), media_type="application/pdf",
                 headers={"Content-Disposition": f"inline; filename={q.quotation_no}.pdf"})
+    if mode == "edit":
+        html = _build_quotation_html(q, is_draft=_is_draft, edit=True)
+        notes = ["この画面では 宛先・件名・納入先・納入期限・受渡場所・見積有効期限・御支払条件・除外事項 を編集できます。"
+                 "金額・明細は見積の編集画面で変更してください。"]
+        st = q.approval_status or "none"
+        if st in ("approved", "pending"):
+            notes.append("⚠ この見積は%sです。内容を変更して保存すると承認が解除され、再度の承認依頼が必要になります。"
+                         % ("承認済み" if st == "approved" else "承認待ち"))
+        html = inject_edit(html, title="御見積書", notes=notes,
+                           save_url="/api/estimate-quotations/%s/edit-header" % q.id,
+                           pdf_url="/api/estimate-quotations/%s/pdf?format=pdf" % q.id)
+        return StreamingResponse(io.BytesIO(html.encode("utf-8")), media_type="text/html")
     html = _build_quotation_html(q, is_draft=_is_draft)
     return StreamingResponse(
         io.BytesIO(html.encode("utf-8")),
         media_type="text/html",
         headers={"Content-Disposition": f"inline; filename={q.quotation_no}.html"}
     )
+
+
+# 帳票画面で編集できる見積の項目（金額・明細は対象外）
+QUOTE_HEADER_FIELDS = ("customer_name", "customer_contact", "delivery_name", "delivery_place",
+                       "delivery_terms", "valid_until_text", "payment_terms", "title", "exclusions")
+
+
+def _norm_text(v):
+    """比較用の正規化。改行コード・行末空白・前後空白の違いは変更とみなさない"""
+    if v is None:
+        return ""
+    t = str(v).replace("\r\n", "\n").replace("\r", "\n")
+    return "\n".join(l.rstrip() for l in t.split("\n")).strip()
+
+
+@router.post("/{quotation_id}/edit-header")
+def edit_quotation_header(quotation_id: str, body: dict, db: Session = Depends(get_db)):
+    """見積書の帳票画面で書き換えた項目を、見積データへ書き戻す。
+
+    帳票上だけ書き換えると承認済みの内容とPDFが食い違うため、必ず元データを更新する。
+    実際に値が変わった場合に限り、承認済み/承認待ちを未依頼に戻す（見積編集画面と同じルール）。
+    """
+    q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
+    if not q:
+        raise HTTPException(404, "見積が見つかりません")
+    fields = (body or {}).get("fields") or {}
+    changed = []
+    for k in QUOTE_HEADER_FIELDS:
+        if k not in fields:
+            continue
+        new_v = _norm_text(fields[k])
+        if new_v != _norm_text(getattr(q, k)):
+            setattr(q, k, nfkc(new_v) if new_v else None)
+            changed.append(k)
+    released = False
+    if changed and (q.approval_status or "none") != "none":
+        q.approval_status = "none"
+        q.approval_requested_at = None
+        q.approved_at = None
+        released = True
+    db.commit()
+    return {"ok": True, "changed": changed, "approval_released": released}
 
 def _stamp_map(q: QuotationHeader) -> dict:
     """押印（丸印）に入れる苗字。検印は承認済みのときだけ押す。"""
@@ -1193,7 +1250,8 @@ def _stamp_map(q: QuotationHeader) -> dict:
     }
 
 
-def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: bool = False) -> str:
+def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: bool = False,
+                          edit: bool = False) -> str:
     # 「draft」透かし（position:fixedで印刷全ページに出る。承認後は消える）
     # 画面(HTML)は斜めの透かし。PDF変換では position:fixed / transform が効かず
     # 巨大な文字が本文を押し下げてしまうため、上部の帯に切り替える。
@@ -1422,10 +1480,32 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     </table>
   </div>'''
 
+    if edit:
+        exclusions_html = (
+            '<div style="margin-top:10px;font-size:10px">'
+            '<div style="font-weight:bold;margin-bottom:3px">※ 御見積除外事項（1行に1項目）</div>'
+            '<div style="border:1px solid #999;padding:7px 10px;font-size:9.5px;line-height:1.9">'
+            + ef("edit", "exclusions", q.exclusions, block=True, placeholder="例）基礎工事:アンカーボルト並施工")
+            + '</div></div>')
+
     # 宛名（注文主＋御担当者）・受渡場所・見積有効期限
     addressee = " ".join(x for x in (q.customer_name, q.customer_contact) if x) or " "
     delivery_place = q.delivery_place or q.delivery_name or " "
     valid_until_disp = q.valid_until_text or (q.valid_until or " ")
+    # 帳票画面で編集する場合は、値そのものを編集可能にする。
+    # 表示用の補完値（受渡場所→納入先、有効期限の文字→日付）は薄字の見本として出し、
+    # 保存時に「補完値を実データへ書き込んでしまう」ことを防ぐ（承認が不要に解除されるため）
+    _M = "edit" if edit else "view"
+    if edit:
+        addressee = ef(_M, "customer_name", q.customer_name, placeholder="注文主") + " " + \
+                    ef(_M, "customer_contact", q.customer_contact, placeholder="御担当者")
+        delivery_place = ef(_M, "delivery_place", q.delivery_place, placeholder=q.delivery_name or "受渡場所")
+        valid_until_disp = ef(_M, "valid_until_text", q.valid_until_text,
+                              placeholder=str(q.valid_until) if q.valid_until else "見積有効期限")
+    _delivery_terms = ef(_M, "delivery_terms", q.delivery_terms, placeholder="納入期限") if edit else (q.delivery_terms or ' ')
+    _payment_terms = ef(_M, "payment_terms", q.payment_terms, placeholder="御支払条件") if edit else (q.payment_terms or ' ')
+    _title_c = ef(_M, "title", q.title, placeholder="件名") if edit else (q.title or ' ')
+    _dname_c = ef(_M, "delivery_name", q.delivery_name, placeholder="納入先") if edit else (q.delivery_name or ' ')
 
     # 明細ページのヘッダー。宛名・条件表は頭紙にあるため繰り返さない
     _child_no = q.child_no or '未設定'
@@ -1472,13 +1552,13 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
         </div>
         <table style="border-collapse:collapse;font-size:10px;width:100%">
           <tr><td width="26mm" style="border:1px solid #999;padding:3px 6px;background:#f5f5f5">納入期限</td>
-              <td style="border:1px solid #999;padding:3px 8px">{q.delivery_terms or ' '}</td></tr>
+              <td style="border:1px solid #999;padding:3px 8px">{_delivery_terms}</td></tr>
           <tr><td style="border:1px solid #999;padding:3px 6px;background:#f5f5f5">受渡場所</td>
               <td style="border:1px solid #999;padding:3px 8px">{delivery_place}</td></tr>
           <tr><td style="border:1px solid #999;padding:3px 6px;background:#f5f5f5">見積有効期限</td>
               <td style="border:1px solid #999;padding:3px 8px">{valid_until_disp}</td></tr>
           <tr><td style="border:1px solid #999;padding:3px 6px;background:#f5f5f5">御支払条件</td>
-              <td style="border:1px solid #999;padding:3px 8px">{q.payment_terms or ' '}</td></tr>
+              <td style="border:1px solid #999;padding:3px 8px">{_payment_terms}</td></tr>
         </table>
       </td>
       <td width="76mm" style="border:none;vertical-align:top;font-size:9.5px;line-height:1.45;text-align:right">
@@ -1491,7 +1571,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     </tr>
   </table>
 
-  <div style="font-size:10px;margin-bottom:8px">件名: {q.title or ' '}　／　納入先: {q.delivery_name or ' '}　／　担当: {q.sales_person_name or ' '}</div>
+  <div style="font-size:10px;margin-bottom:8px">件名: {_title_c}　／　納入先: {_dname_c}　／　担当: {q.sales_person_name or ' '}</div>
 
   <table style="width:100%;border-collapse:collapse;font-size:11px">
     <tr style="background:#2c3e50;color:#fff">
@@ -1838,7 +1918,7 @@ def issue_order_ticket(quotation_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/order-ticket/{ticket_id}/pdf")
-def order_ticket_pdf(ticket_id: str, with_quotation: int = 0, db: Session = Depends(get_db)):
+def order_ticket_pdf(ticket_id: str, with_quotation: int = 0, mode: str = "", db: Session = Depends(get_db)):
     t = db.query(OrderTicket).options(
         joinedload(OrderTicket.quotation).joinedload(QuotationHeader.line_items),
         joinedload(OrderTicket.project_order),
@@ -1892,6 +1972,23 @@ def order_ticket_pdf(ticket_id: str, with_quotation: int = 0, db: Session = Depe
     _ship = t.shipping_method or ""
     def _chk(name): return f'<b>■{name}</b>' if _ship == name else f'□{name}'
     ship_html = f'出荷方法: {_chk("トラック出荷")} {_chk("宅配出荷")} {_chk("井上納品")} {_chk("引取")}'
+    _M = "edit" if mode == "edit" else "view"
+    _order_date_disp = t.order_date or ' '
+    if _M == "edit":
+        # 有/無・未/済・出荷方法はクリックで切り替え、日付は直接入力
+        _yn2 = lambda v: "有" if v is True else ("無" if v is False else "")
+        ship_html = '出荷方法: ' + eftoggle(_M, "shipping_method", _ship, SHIP_METHODS + ("",))
+        delivery_disp = ef(_M, "delivery_date", t.delivery_date.isoformat() if t.delivery_date else "",
+                           placeholder="2026-09-30")
+        _order_date_disp = ef(_M, "order_date", t.order_date.isoformat() if t.order_date else "",
+                              placeholder="2026-09-01")
+        drawing_disp = eftoggle(_M, "has_drawing", _yn2(t.has_drawing))
+        order_sheet_disp = eftoggle(_M, "has_order_sheet", _yn2(t.has_order_sheet))
+        contract_disp = eftoggle(_M, "has_contract", _yn2(t.has_contract))
+        _ms2 = lambda k, v: eftoggle(_M, k, v or "", ("未", "済", ""))
+        parts_html = (f'<div>部品入力: {_ms2("parts_input_status", t.parts_input_status)}</div>'
+                      f'<div style="margin-top:3px">注文: {_ms2("parts_order_status", t.parts_order_status)}</div>'
+                      f'<div style="margin-top:3px">在庫マイナス: {_ms2("stock_minus_status", t.stock_minus_status)}</div>')
 
     # 子ID（案件）から出荷予定日・顧客納期・売上計上日を取得
     _po = t.project_order
@@ -1940,7 +2037,7 @@ def order_ticket_pdf(ticket_id: str, with_quotation: int = 0, db: Session = Depe
 <table style="margin-bottom:12px;font-size:11px" cellspacing="0">
   <tr>
     <td style="background:#eee;border:1px solid #999;padding:4px 8px;width:100px">受注日</td>
-    <td style="border:1px solid #999;padding:4px 8px">{t.order_date or ' '}</td>
+    <td style="border:1px solid #999;padding:4px 8px">{_order_date_disp}</td>
     <td style="background:#eee;border:1px solid #999;padding:4px 8px;width:100px">見積書No.</td>
     <td style="border:1px solid #999;padding:4px 8px">{q.quotation_no if q else ' '}</td>
   </tr>
@@ -2053,6 +2150,15 @@ def order_ticket_pdf(ticket_id: str, with_quotation: int = 0, db: Session = Depe
 </div>
 </body></html>"""
 
+    if _M == "edit":
+        html = re.sub(r'<div class="no-print"[^>]*>\s*<button onclick="window.print\(\)"[^<]*</button>\s*</div>', '', html, count=1)
+        html = inject_edit(html, title="受注票", pdf_label="保存して印刷画面",
+                           save_url="/api/estimate-quotations/order-ticket/%s/edit-save" % t.id,
+                           pdf_url="/api/estimate-quotations/order-ticket/%s/pdf" % t.id,
+                           notes=["この画面では 受注日・納期・出荷方法・図面/注文書/契約書の有無・部品手配 を編集できます。"
+                                  "金額・明細は見積から引用しているため変更できません。前受金は受注管理の編集画面で入力してください。"])
+        return StreamingResponse(io.BytesIO(html.encode("utf-8")), media_type="text/html")
+
     # 見積書も同時印刷（会議2026-07-17: 二度手間を省く）。?with_quotation=1 で受注票の後ろに見積書を連結
     if with_quotation and q:
         q_html = _build_quotation_html(q, is_draft=((q.approval_status or 'none') != 'approved'))
@@ -2074,6 +2180,28 @@ def order_ticket_pdf(ticket_id: str, with_quotation: int = 0, db: Session = Depe
 # 受注票 関連書類（注文書・契約書等のPDFをDBに保管）
 # =============================================
 MAX_TICKET_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+
+@router.post("/order-ticket/{ticket_id}/edit-save")
+def edit_save_order_ticket(ticket_id: str, body: dict, db: Session = Depends(get_db)):
+    """受注票の帳票画面で書き換えた項目を受注票へ書き戻す（更新処理は受注管理画面と共通）"""
+    f = (body or {}).get("fields") or {}
+    data = {}
+    yn = {"有": True, "無": False}
+    for k in ("has_order_sheet", "has_drawing", "has_contract"):
+        if k in f:
+            data[k] = yn.get((f[k] or "").strip())
+    for k in ("parts_input_status", "parts_order_status", "stock_minus_status", "shipping_method"):
+        if k in f:
+            data[k] = (f[k] or "").strip() or None
+    for k, label in (("delivery_date", "納期"), ("order_date", "受注日")):
+        if k in f:
+            try:
+                d = parse_date(f[k], label)
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+            data[k] = d.isoformat() if d else None
+    return update_order_ticket(ticket_id, data, db)
+
 
 @router.get("/order-ticket/{ticket_id}/files")
 def list_order_ticket_files(ticket_id: str, db: Session = Depends(get_db)):
@@ -2140,443 +2268,309 @@ def delete_order_ticket_file(file_id: str, db: Session = Depends(get_db)):
 # 指示書PDF出力
 # =============================================
 
-@router.get("/{quotation_id}/fan-instruction-pdf")
-def fan_instruction_pdf(quotation_id: str, db: Session = Depends(get_db)):
-    """ファン作業指示書PDF"""
+# =============================================
+# 見積から作る社内帳票（ファン作業指示書・ファン検査記録書・制御盤作業指示書）
+# 見積明細から自動補完し、帳票画面で書き換えた値は form_documents に保存する
+# =============================================
+SHIP_METHODS = ("トラック出荷", "宅配出荷", "井上納品", "引取")
+FORM_TITLES = {"fan-instruction": "ファン作業指示書", "fan-inspection": "ファン検査記録書",
+               "control-panel": "制御盤作業指示書"}
+FAN_INSPECTION_ITEMS = [
+    ('切削', '羽根車ボス外形寸法'), ('切削', '羽根車ボス穴寸法'),
+    ('切削', 'シャフト羽根車側寸法'), ('切削', 'シャフトプーリ側寸法'),
+    ('切削', 'シャフト長さ'), ('切削', 'モータプーリ穴寸法'), ('切削', 'ファンプーリ穴寸法'),
+    ('製缶', '溶接及び歪外観'),
+    ('塗装', '塗装及びコーキング外観'),
+    ('組立', '羽根車穴仕上げ'), ('組立', '羽根車バランス'), ('組立', '軸受グリス封入'),
+    ('組立', '軸受ノックピン'), ('組立', 'プーリ芯出し'), ('組立', 'ベルト張力.振動.電流'),
+    ('組立', 'カバーその他付属品取付'), ('組立', 'PLシール貼付'),
+]
+
+
+def _fan_defaults(q):
+    """見積明細から型式・ファン出力を拾う（従来の帳票と同じ読み取り方）"""
+    import re as _re
+    bfr = next((i for i in q.line_items if i.product_type == 'BFR' and 'バグフィルター' in (i.item_name or '')), None)
+    fan = next((i for i in q.line_items if 'ターボファン' in (i.item_name or '') or 'ファン' in (i.item_name or '')), None)
+    model = (bfr.spec_json or {}).get('model', '') if bfr else ''
+    kw = ''
+    if fan and fan.item_name:
+        m = _re.search(r'(\d+\.?\d*)\s*kw', fan.item_name, _re.IGNORECASE)
+        if m:
+            kw = m.group(1)
+    return {
+        "sales_person_name": q.sales_person_name or "", "model": model,
+        "customer_name": q.customer_name or "", "order_no": q.child_no or q.quotation_no or "",
+        "delivery_name": q.delivery_name or "", "usage_spec": model,
+        "motor_kw": kw, "motor_note": "IE3",
+    }
+
+
+def _cp_defaults(q):
+    d = {"order_no": q.child_no or q.quotation_no or "", "delivery_name": q.delivery_name or "",
+         "customer_name": q.customer_name or "", "sign_staff": q.sales_person_name or ""}
+    motors = [i for i in q.line_items if i.spec_json and 'kw' in i.spec_json][:15]
+    for n, i in enumerate(motors):
+        d["m_%d_name" % n] = i.item_name or ""
+        d["m_%d_kw" % n] = str(i.spec_json.get('kw', ''))
+        d["m_%d_count" % n] = str(int(i.quantity or 1))
+    return d
+
+
+FORM_DEFAULTS = {"fan-instruction": _fan_defaults, "fan-inspection": _fan_defaults,
+                 "control-panel": _cp_defaults}
+
+
+def _load_q(quotation_id, db):
     q = db.query(QuotationHeader).options(
         joinedload(QuotationHeader.line_items)
     ).filter(QuotationHeader.id == quotation_id).first()
-    if not q: raise HTTPException(404)
+    if not q:
+        raise HTTPException(404, "見積が見つかりません")
+    return q
 
-    # 見積明細からBFR/ファン情報を取得
-    bfr_item = next((i for i in q.line_items if i.product_type == 'BFR' and 'バグフィルター' in (i.item_name or '')), None)
-    fan_item = next((i for i in q.line_items if 'ターボファン' in (i.item_name or '') or 'ファン' in (i.item_name or '')), None)
 
-    model = bfr_item.spec_json.get('model', '') if bfr_item and bfr_item.spec_json else ''
-    fan_model = fan_item.spec_json.get('fan_model', '') if fan_item and fan_item.spec_json else ''
-    fan_kw = ''
-    if fan_item and fan_item.item_name:
-        import re
-        kw_match = re.search(r'(\d+\.?\d*)\s*kw', fan_item.item_name, re.IGNORECASE)
-        if kw_match:
-            fan_kw = kw_match.group(1)
+def _form_doc(db, form_type, entity_id):
+    from app.db.models import FormDocument
+    return db.query(FormDocument).filter(
+        FormDocument.form_type == form_type, FormDocument.entity_id == str(entity_id)).first()
 
-    html = f"""<!DOCTYPE html>
-<html lang="ja"><head><meta charset="UTF-8">
-<title>ファン作業指示書</title>
-<style>
-  body {{ font-family: 'Hiragino Sans','Yu Gothic',sans-serif; font-size:11px; margin:15mm; }}
-  @media print {{ .no-print {{ display:none }} }}
-  table {{ border-collapse:collapse; width:100%; }}
-  th, td {{ border:1px solid #999; padding:4px 6px; }}
-  th {{ background:#f0f0f0; font-weight:bold; }}
-  .title {{ font-size:20px; font-weight:bold; text-align:center; letter-spacing:4px; margin:10px 0; }}
-  .header-right {{ position:absolute; top:15mm; right:15mm; text-align:center; }}
-</style></head><body>
 
-<div class="no-print" style="background:#e0f2fe;padding:8px;margin-bottom:10px;border-radius:6px">
-  <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer">🖨️ PDF印刷</button>
+def _form_ctx(form_type, q, mode, db):
+    """(M, d, F, T) を返す。d は自動補完の値に、帳票画面で保存した値を上書きしたもの"""
+    d = dict(FORM_DEFAULTS[form_type](q))
+    doc = _form_doc(db, form_type, q.id)
+    if doc and doc.data_json:
+        d.update(doc.data_json)
+    M = "edit" if mode == "edit" else "view"
+
+    def F(k, block=False, ph=""):
+        v = d.get(k)
+        if M == "edit":
+            return ef(M, k, v, block, ph)
+        return ef(M, k, v, block) if v not in (None, "") else ph
+
+    def T(k, opts):
+        v = d.get(k) or ""
+        if M == "edit":
+            return eftoggle(M, k, v, tuple(opts) + ("",))
+        return " ".join(("<b>■%s</b>" % o) if o == v else ("□%s" % o) for o in opts)
+    return M, d, F, T
+
+
+def _form_page(form_type, q, M, body):
+    title = FORM_TITLES[form_type]
+    html = ("<!DOCTYPE html><html lang=\"ja\"><head><meta charset=\"UTF-8\">"
+            "<title>%s</title><style>"
+            "body{font-family:'Hiragino Sans','Yu Gothic',sans-serif;font-size:11px;margin:15mm}"
+            "table{border-collapse:collapse;width:100%%}"
+            "th,td{border:1px solid #999;padding:4px 6px}"
+            "th{background:#f0f0f0;font-weight:bold}"
+            ".title{font-size:20px;font-weight:bold;text-align:center;letter-spacing:4px;margin:10px 0}"
+            "@media print{.no-print{display:none}}"
+            "</style></head><body>" % title)
+    if M != "edit":
+        html += ('<div class="no-print" style="background:#e0f2fe;padding:8px;margin-bottom:10px;border-radius:6px">'
+                 '<button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;'
+                 'padding:6px 16px;border-radius:5px;cursor:pointer">🖨️ PDF印刷</button></div>')
+    html += body
+    html += ('<div style="margin-top:15px;border:2px solid #000;padding:8px">'
+             '<b style="font-size:16px;margin-right:15px">井上電設株式会社</b>'
+             '<span style="font-size:10px">〒460-0022 名古屋市中区金山四丁目3番17号 '
+             'TEL(052)322-5271 FAX(052)332-5273</span></div></body></html>')
+    if M == "edit":
+        html = inject_edit(html, title=title, pdf_label="保存して印刷画面",
+                           save_url="/api/estimate-quotations/%s/form/%s/save" % (q.id, form_type),
+                           pdf_url="/api/estimate-quotations/%s/%s-pdf" % (q.id, form_type))
+    return StreamingResponse(io.BytesIO(html.encode("utf-8")), media_type="text/html")
+
+
+def _fan_head(F, T, title):
+    return f"""
+<div style="float:right;text-align:right;font-size:10px;margin-bottom:5px">
+  発行日: {F("issue_date")}<br>
+  <table style="font-size:10px;margin-top:4px;width:auto">
+    <tr><td style="background:#f0f0f0">営業担当</td><td style="min-width:80px">{F("sales_person_name")}</td></tr>
+    <tr><td style="background:#f0f0f0">作成</td><td style="min-width:80px">{F("creator_name")}</td></tr>
+  </table>
 </div>
-
-<div style="position:relative">
-  <div style="float:right;text-align:right;font-size:10px;margin-bottom:5px">
-    発行日: {'      '}<br>
-    <table style="font-size:10px;margin-top:4px">
-      <tr><td style="background:#f0f0f0">営業担当</td><td style="min-width:80px">{q.sales_person_name or ' '}</td></tr>
-      <tr><td style="background:#f0f0f0">作成</td><td></td></tr>
-    </table>
-  </div>
-  <div class="title">ファン 作 業 指 示 書</div>
-  <div style="clear:both"></div>
-</div>
-
+<div class="title">{title}</div>
+<div style="clear:both"></div>
 <table style="margin-bottom:8px">
-  <tr>
-    <td style="background:#f0f0f0;width:80px">型式</td>
-    <td style="background:#ffeb3b;font-weight:bold;width:200px">{model}</td>
-    <td style="background:#f0f0f0;width:80px">製造番号</td>
-    <td style="width:200px">  F001〜 ユニークな番号</td>
-  </tr>
-  <tr>
-    <td style="background:#f0f0f0">注文主</td>
-    <td><strong>{q.customer_name or ' '}</strong> 殿</td>
-    <td style="background:#f0f0f0">受注番号</td>
-    <td><strong>{q.child_no or q.quotation_no}</strong></td>
-  </tr>
-  <tr>
-    <td style="background:#f0f0f0">納入先</td>
-    <td>{q.delivery_name or ' '} 殿</td>
-    <td style="background:#f0f0f0">用途.仕様</td>
-    <td>{model}</td>
-  </tr>
-  <tr>
-    <td style="background:#f0f0f0">出荷日</td>
-    <td>   年  月  日</td>
-    <td style="background:#f0f0f0">出荷方法</td>
-    <td>□トラック出荷 □宅配出荷 □井上納品 □引取</td>
-  </tr>
-</table>
+  <tr><td style="background:#f0f0f0;width:80px">型式</td>
+      <td style="background:#ffeb3b;font-weight:bold;width:200px">{F("model")}</td>
+      <td style="background:#f0f0f0;width:80px">製造番号</td><td style="width:200px">{F("serial_no")}</td></tr>
+  <tr><td style="background:#f0f0f0">注文主</td><td><strong>{F("customer_name")}</strong> 殿</td>
+      <td style="background:#f0f0f0">受注番号</td><td><strong>{F("order_no")}</strong></td></tr>
+  <tr><td style="background:#f0f0f0">納入先</td><td>{F("delivery_name")} 殿</td>
+      <td style="background:#f0f0f0">用途.仕様</td><td>{F("usage_spec")}</td></tr>
+  <tr><td style="background:#f0f0f0">出荷日</td><td>{F("ship_date", ph="　　年　　月　　日")}</td>
+      <td style="background:#f0f0f0">出荷方法</td><td>{T("ship_method", SHIP_METHODS)}</td></tr>
+</table>"""
 
+
+@router.get("/{quotation_id}/fan-instruction-pdf")
+def fan_instruction_pdf(quotation_id: str, mode: str = "", db: Session = Depends(get_db)):
+    """ファン作業指示書（?mode=edit で帳票画面での編集）"""
+    q = _load_q(quotation_id, db)
+    M, d, F, T = _form_ctx("fan-instruction", q, mode, db)
+    body = _fan_head(F, T, "ファン 作 業 指 示 書") + f"""
 <table style="margin-bottom:8px">
-  <tr>
-    <th rowspan="2" style="width:60px">モータ</th>
-    <td style="width:50px">{fan_kw}</td><td style="width:20px">kw</td>
-    <td style="width:20px">P</td><td style="width:30px"> </td>
-    <td style="width:20px">Hz</td><td style="width:30px"> </td>
-    <td style="width:20px">V</td><td style="width:40px"> </td>
-    <td style="width:40px">屋内/屋外</td>
-    <td style="width:40px">フランジ</td>
-    <td style="width:40px"> </td>
-  </tr>
-  <tr><td colspan="10">備考: IE3</td></tr>
+  <tr><th style="width:60px">モータ</th>
+    <td>{F("motor_kw")} kw　{F("motor_pole")} P　{F("motor_hz")} Hz　{F("motor_v")} V　
+        {F("motor_place", ph="屋内/屋外")}　{F("motor_mount", ph="フランジ/脚")}</td></tr>
+  <tr><th>備考</th><td>{F("motor_note")}</td></tr>
 </table>
-
 <table style="margin-bottom:8px">
-  <tr>
-    <th style="width:80px">軸受</th>
-    <td>羽根側</td><td style="min-width:150px"> </td>
-    <td>プーリー側</td><td style="min-width:150px"> </td>
-  </tr>
-  <tr>
-    <th>モータ側プーリ</th>
-    <td colspan="2"> </td>
-    <td style="color:red">Vベルト</td><td>  本</td>
-  </tr>
-  <tr>
-    <th>ファン側プーリ</th>
-    <td colspan="2"> </td>
-    <td style="color:red">回転数</td><td>  rpm</td>
-  </tr>
+  <tr><th style="width:90px">軸受</th><td>羽根側 {F("bearing_fan")}</td><td>プーリー側 {F("bearing_pulley")}</td></tr>
+  <tr><th>モータ側プーリ</th><td>{F("motor_pulley")}</td><td style="color:red">Vベルト {F("belt_count")} 本</td></tr>
+  <tr><th>ファン側プーリ</th><td>{F("fan_pulley")}</td><td style="color:red">回転数 {F("rpm")} rpm</td></tr>
 </table>
-
 <table style="margin-bottom:8px">
-  <tr><th style="width:80px">カバー</th><td> </td><th>吸口テーパ</th><td>φ  ×t</td></tr>
-  <tr><th>点検口</th><td> </td><th>フランジ</th><td>Fφ  ×t</td></tr>
-  <tr><th>架台</th><td> </td><th>出口角丸</th><td>φ  H ×t</td></tr>
-  <tr><th>塗装色</th><td> </td><th>フランジ</th><td>Fφ  ×t</td></tr>
+  <tr><th style="width:80px">カバー</th><td>{F("cover")}</td><th style="width:80px">吸口テーパ</th><td>{F("intake_taper", ph="φ　×t")}</td></tr>
+  <tr><th>点検口</th><td>{F("inspection_port")}</td><th>フランジ</th><td>{F("flange1", ph="Fφ　×t")}</td></tr>
+  <tr><th>架台</th><td>{F("frame")}</td><th>出口角丸</th><td>{F("outlet", ph="φ　H　×t")}</td></tr>
+  <tr><th>塗装色</th><td>{F("paint")}</td><th>フランジ</th><td>{F("flange2", ph="Fφ　×t")}</td></tr>
 </table>
-
 <table style="margin-bottom:8px">
-  <tr><th style="width:80px">備考</th><td style="height:60px"></td><th style="width:40px">図面情報</th><td style="width:120px"></td></tr>
+  <tr><th style="width:80px">備考</th><td style="height:60px;vertical-align:top">{F("notes", block=True)}</td>
+      <th style="width:60px">図面情報</th><td style="width:140px;vertical-align:top">{F("drawing_info", block=True)}</td></tr>
 </table>
-
-<!-- 出荷時チェックリスト -->
 <table style="margin-bottom:8px;font-size:10px">
-  <tr>
-    <td colspan="8" style="background:#f0f0f0;font-weight:bold">出荷時チェックリスト</td>
-  </tr>
-  <tr>
-    <th>検査者</th><td style="min-width:80px"> </td>
-    <th>日付</th><td> </td>
-    <th>判定</th><td> </td>
-    <td colspan="2"></td>
-  </tr>
-  <tr>
-    <th>電流値</th><td> </td>
-    <th>外観</th><td> </td>
-    <th>回転方向</th><td> </td>
-    <th>異音</th><td> </td>
-  </tr>
-  <tr>
-    <th>測定点</th><td>軸受A</td><td>軸受B</td><td>X方向</td><td>Y方向</td><td>Z方向</td><td>予備点</td><td>予備点</td>
-  </tr>
-  <tr><th>振動値</th><td> </td><td> </td><td> </td><td> </td><td> </td><td> </td><td> </td></tr>
+  <tr><td colspan="8" style="background:#f0f0f0;font-weight:bold">出荷時チェックリスト</td></tr>
+  <tr><th>検査者</th><td>{F("chk_inspector")}</td><th>日付</th><td>{F("chk_date")}</td>
+      <th>判定</th><td>{F("chk_judge")}</td><td colspan="2"></td></tr>
+  <tr><th>電流値</th><td>{F("chk_current")}</td><th>外観</th><td>{F("chk_look")}</td>
+      <th>回転方向</th><td>{F("chk_rotation")}</td><th>異音</th><td>{F("chk_noise")}</td></tr>
+  <tr><th>測定点</th><td>軸受A</td><td>軸受B</td><td>X方向</td><td>Y方向</td><td>Z方向</td><td>予備点</td><td>予備点</td></tr>
+  <tr><th>振動値</th>{"".join("<td>%s</td>" % F("vib_%d" % n) for n in range(7))}</tr>
 </table>
-
 <table style="font-size:10px">
-  <tr>
-    <td>屋外＝全閉外扇屋外型</td>
-    <th colspan="2">想定性能</th>
-    <th colspan="2">ベルトたわみ量</th>
-    <td>mm</td>
-  </tr>
-  <tr><td>屋内＝全閉外扇屋内型</td><th>圧力</th><td> mmaq</td><th>たわみ荷重最小値</th><td colspan="2"> N</td></tr>
-  <tr><td>グリス＝グリス給油</td><th>風量</th><td> m³/min</td><th>たわみ荷重最大値(新規)</th><td colspan="2"> N</td></tr>
-  <tr><td>高効率＝高効率モータ</td><th>電流</th><td> A</td><th>たわみ荷重最大値(張りなおし)</th><td colspan="2"> N</td></tr>
-</table>
-
-<div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
-  <div style="font-size:16px;font-weight:bold;margin-right:15px">井上電設株式会社</div>
-  <div style="font-size:10px">〒460-0022 名古屋市中区金山四丁目3番17号 TEL(052)322-5271 FAX(052)332-5273</div>
-</div>
-</body></html>"""
-
-    return StreamingResponse(
-        io.BytesIO(html.encode("utf-8")), media_type="text/html",
-        headers={"Content-Disposition": f"inline; filename=fan_instruction_{q.quotation_no}.html"}
-    )
+  <tr><td>屋外＝全閉外扇屋外型</td><th colspan="2">想定性能</th><th>ベルトたわみ量</th><td colspan="2">{F("belt_deflection")} mm</td></tr>
+  <tr><td>屋内＝全閉外扇屋内型</td><th>圧力</th><td>{F("perf_pressure")} mmaq</td><th>たわみ荷重最小値</th><td colspan="2">{F("defl_min")} N</td></tr>
+  <tr><td>グリス＝グリス給油</td><th>風量</th><td>{F("perf_flow")} m³/min</td><th>たわみ荷重最大値(新規)</th><td colspan="2">{F("defl_max_new")} N</td></tr>
+  <tr><td>高効率＝高効率モータ</td><th>電流</th><td>{F("perf_current")} A</td><th>たわみ荷重最大値(張りなおし)</th><td colspan="2">{F("defl_max_re")} N</td></tr>
+</table>"""
+    return _form_page("fan-instruction", q, M, body)
 
 
 @router.get("/{quotation_id}/fan-inspection-pdf")
-def fan_inspection_pdf(quotation_id: str, db: Session = Depends(get_db)):
-    """ファン検査記録書PDF"""
-    q = db.query(QuotationHeader).options(
-        joinedload(QuotationHeader.line_items)
-    ).filter(QuotationHeader.id == quotation_id).first()
-    if not q: raise HTTPException(404)
-
-    bfr_item = next((i for i in q.line_items if i.product_type == 'BFR' and 'バグフィルター' in (i.item_name or '')), None)
-    model = bfr_item.spec_json.get('model', '') if bfr_item and bfr_item.spec_json else ''
-
-    inspection_items = [
-        ('切削', '羽根車ボス外形寸法'), ('切削', '羽根車ボス穴寸法'),
-        ('切削', 'シャフト羽根車側寸法'), ('切削', 'シャフトプーリ側寸法'),
-        ('切削', 'シャフト長さ'), ('切削', 'モータプーリ穴寸法'), ('切削', 'ファンプーリ穴寸法'),
-        ('製缶', '溶接及び歪外観'),
-        ('塗装', '塗装及びコーキング外観'),
-        ('組立', '羽根車穴仕上げ'), ('組立', '羽根車バランス'), ('組立', '軸受グリス封入'),
-        ('組立', '軸受ノックピン'), ('組立', 'プーリ芯出し'), ('組立', 'ベルト張力.振動.電流'),
-        ('組立', 'カバーその他付属品取付'), ('組立', 'PLシール貼付'),
-    ]
-
-    # B007修正: rowspanはカテゴリごとの項目数に設定（"X"リテラルだとラベルが1行しか結合されない）
+def fan_inspection_pdf(quotation_id: str, mode: str = "", db: Session = Depends(get_db)):
+    """ファン検査記録書（?mode=edit で帳票画面での編集）"""
     from collections import Counter
-    cat_counts = Counter(cat for cat, _ in inspection_items)
-
-    rows = ''
-    prev_category = ''
-    for cat, item in inspection_items:
-        cat_cell = f'<td rowspan="{cat_counts[cat]}" style="background:#f0f0f0;font-weight:bold;text-align:center;vertical-align:middle">{cat}</td>' if cat != prev_category else ''
-        rows += f"""<tr>
-            {cat_cell}
-            <td style="border:1px solid #ccc;padding:3px 6px;background:#fff9c4;font-weight:bold">{item}</td>
-            <td style="border:1px solid #ccc;padding:3px 6px;width:60px"></td>
-            <td style="border:1px solid #ccc;padding:3px 6px;width:60px"></td>
-            <td style="border:1px solid #ccc;padding:3px 6px;width:60px"></td>
-            <td style="border:1px solid #ccc;padding:3px 6px;width:60px"></td>
-            <td style="border:1px solid #ccc;padding:3px 6px;width:60px"></td>
-            <td style="border:1px solid #ccc;padding:3px 6px;width:40px"></td>
-        </tr>"""
-        prev_category = cat
-
-    html = f"""<!DOCTYPE html>
-<html lang="ja"><head><meta charset="UTF-8">
-<title>ファン検査記録書</title>
-<style>
-  body {{ font-family: 'Hiragino Sans','Yu Gothic',sans-serif; font-size:11px; margin:15mm; }}
-  @media print {{ .no-print {{ display:none }} }}
-  table {{ border-collapse:collapse; width:100%; }}
-</style></head><body>
-<div class="no-print" style="background:#e0f2fe;padding:8px;margin-bottom:10px;border-radius:6px">
-  <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer">🖨️ PDF印刷</button>
-</div>
-
-<div style="float:right;font-size:10px">
-  発行日:      
-  <table style="margin-top:4px"><tr><td style="background:#f0f0f0">営業担当</td><td style="min-width:60px">{q.sales_person_name or ' '}</td></tr>
-  <tr><td style="background:#f0f0f0">作成</td><td></td></tr></table>
-</div>
-<h2 style="font-size:18px;font-weight:bold;letter-spacing:4px">ファン 検 査 記 録 書</h2>
-<div style="clear:both"></div>
-
-<table style="margin-bottom:8px">
-  <tr>
-    <td style="background:#f0f0f0;width:60px">型式</td>
-    <td style="background:#ffeb3b;font-weight:bold;width:180px">{model}</td>
-    <td style="background:#f0f0f0;width:60px">製造番号</td><td></td>
-  </tr>
-  <tr>
-    <td style="background:#f0f0f0">注文主</td>
-    <td><strong>{q.customer_name or ' '}</strong> 殿</td>
-    <td style="background:#f0f0f0">受注番号</td>
-    <td><strong>{q.child_no or q.quotation_no}</strong></td>
-  </tr>
-  <tr>
-    <td style="background:#f0f0f0">納入先</td>
-    <td>{q.delivery_name or ' '} 殿</td>
-    <td style="background:#f0f0f0">用途.仕様</td>
-    <td>{model}</td>
-  </tr>
-  <tr>
-    <td style="background:#f0f0f0">出荷日</td>
-    <td>  年  月  日</td>
-    <td style="background:#f0f0f0">出荷方法</td>
-    <td>□トラック出荷 □宅配出荷 □井上納品 □引取</td>
-  </tr>
-</table>
-
+    q = _load_q(quotation_id, db)
+    M, d, F, T = _form_ctx("fan-inspection", q, mode, db)
+    cat_counts = Counter(cat for cat, _ in FAN_INSPECTION_ITEMS)
+    rows, prev = "", ""
+    for n, (cat, item) in enumerate(FAN_INSPECTION_ITEMS):
+        cat_cell = ('<td rowspan="%d" style="background:#f0f0f0;font-weight:bold;text-align:center;'
+                    'vertical-align:middle">%s</td>' % (cat_counts[cat], cat)) if cat != prev else ""
+        rows += ("<tr>%s<td style=\"background:#fff9c4;font-weight:bold\">%s</td>" % (cat_cell, item)
+                 + "".join("<td>%s</td>" % F("insp_%d_%s" % (n, c))
+                           for c in ("due", "worker", "work_date", "inspector", "insp_date"))
+                 + "<td style=\"text-align:center\">%s</td></tr>" % T("insp_%d_result" % n, ("良", "不良")))
+        prev = cat
+    body = _fan_head(F, T, "ファン 検 査 記 録 書") + f"""
 <table>
-  <thead>
-    <tr style="background:#2c3e50;color:#fff">
-      <th style="padding:5px;width:60px">検査工程</th>
-      <th style="padding:5px">検査項目</th>
-      <th style="padding:5px;width:60px">加工納期</th>
-      <th style="padding:5px;width:60px">加工者</th>
-      <th style="padding:5px;width:60px">加工日</th>
-      <th style="padding:5px;width:60px">検査者</th>
-      <th style="padding:5px;width:60px">検査日</th>
-      <th style="padding:5px;width:40px">良/不良</th>
-    </tr>
-  </thead>
-  <tbody>
-    {rows}
-  </tbody>
-</table>
-
-<div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
-  <div style="font-size:16px;font-weight:bold;margin-right:15px">井上電設株式会社</div>
-  <div style="font-size:10px">〒460-0022 名古屋市中区金山四丁目3番17号 TEL(052)322-5271 FAX(052)332-5273</div>
-</div>
-</body></html>"""
-
-    return StreamingResponse(
-        io.BytesIO(html.encode("utf-8")), media_type="text/html",
-        headers={"Content-Disposition": f"inline; filename=fan_inspection_{q.quotation_no}.html"}
-    )
+  <thead><tr style="background:#2c3e50;color:#fff">
+    <th style="width:60px;background:#2c3e50;color:#fff">検査工程</th><th style="background:#2c3e50;color:#fff">検査項目</th>
+    <th style="width:62px;background:#2c3e50;color:#fff">加工納期</th><th style="width:62px;background:#2c3e50;color:#fff">加工者</th>
+    <th style="width:62px;background:#2c3e50;color:#fff">加工日</th><th style="width:62px;background:#2c3e50;color:#fff">検査者</th>
+    <th style="width:62px;background:#2c3e50;color:#fff">検査日</th><th style="width:70px;background:#2c3e50;color:#fff">良/不良</th>
+  </tr></thead>
+  <tbody>{rows}</tbody>
+</table>"""
+    return _form_page("fan-inspection", q, M, body)
 
 
 @router.get("/{quotation_id}/control-panel-pdf")
-def control_panel_pdf(quotation_id: str, db: Session = Depends(get_db)):
-    """制御盤作業指示書PDF"""
-    q = db.query(QuotationHeader).options(
-        joinedload(QuotationHeader.line_items)
-    ).filter(QuotationHeader.id == quotation_id).first()
-    if not q: raise HTTPException(404)
-
-    # 制御盤情報を見積明細から取得
-    fan_item = next((i for i in q.line_items if 'ファン' in (i.item_name or '') or 'BFR' in (i.item_name or '')), None)
-    kw = ''
-    if fan_item and fan_item.spec_json:
-        kw = fan_item.spec_json.get('kw', '')
-
-    motors = []
-    for i in q.line_items:
-        if i.spec_json and 'kw' in i.spec_json:
-            motors.append({'name': i.item_name or '', 'kw': i.spec_json.get('kw', ''), 'count': int(i.quantity or 1)})
-
-    motor_rows = ''
-    for idx, m in enumerate(motors[:15], 1):
-        motor_rows += f"<tr><td style='border:1px solid #ccc;padding:3px;text-align:center'>{idx}</td><td style='border:1px solid #ccc;padding:3px'>{m['name']}</td><td style='border:1px solid #ccc;padding:3px;text-align:center'>{m['kw']}</td><td style='border:1px solid #ccc;padding:3px;text-align:center'>{m['count']}</td><td style='border:1px solid #ccc;padding:3px'></td></tr>"
-    for idx in range(len(motors) + 1, 16):
-        motor_rows += f"<tr><td style='border:1px solid #ccc;padding:3px;text-align:center;color:#ccc'>{idx}</td><td style='border:1px solid #ccc'></td><td style='border:1px solid #ccc'></td><td style='border:1px solid #ccc'></td><td style='border:1px solid #ccc'></td></tr>"
-
-    html = f"""<!DOCTYPE html>
-<html lang="ja"><head><meta charset="UTF-8">
-<title>制御盤作業指示書</title>
-<style>
-  body {{ font-family: 'Hiragino Sans','Yu Gothic',sans-serif; font-size:11px; margin:15mm; }}
-  @media print {{ .no-print {{ display:none }} }}
-  table {{ border-collapse:collapse; }}
-  th {{ background:#f0f0f0; }}
-</style></head><body>
-<div class="no-print" style="background:#e0f2fe;padding:8px;margin-bottom:10px;border-radius:6px">
-  <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:6px 16px;border-radius:5px;cursor:pointer">🖨️ PDF印刷</button>
-</div>
-
+def control_panel_pdf(quotation_id: str, mode: str = "", db: Session = Depends(get_db)):
+    """制御盤作業指示書（?mode=edit で帳票画面での編集）"""
+    q = _load_q(quotation_id, db)
+    M, d, F, T = _form_ctx("control-panel", q, mode, db)
+    motor_rows = "".join(
+        "<tr><td style=\"text-align:center;color:#666\">%d</td><td>%s</td><td style=\"text-align:center\">%s</td>"
+        "<td style=\"text-align:center\">%s</td><td>%s</td></tr>"
+        % (n + 1, F("m_%d_name" % n), F("m_%d_kw" % n), F("m_%d_count" % n), F("m_%d_note" % n))
+        for n in range(15))
+    body = f"""
 <div style="float:right;text-align:right">
-  受No. <span style="background:#ff4444;color:#fff;padding:2px 8px;font-weight:bold">{q.child_no or q.quotation_no}</span>
+  受No. <span style="background:#ff4444;color:#fff;padding:2px 8px;font-weight:bold">{F("order_no")}</span>
 </div>
+<div class="title" style="text-align:left">制御盤作業指示書</div>
 <div style="clear:both;margin-bottom:8px"></div>
-
-<table style="width:100%;margin-bottom:8px">
-  <tr>
-    <td style="border:1px solid #ccc;padding:4px;width:60px;background:#f0f0f0">納入先</td>
-    <td style="border:1px solid #ccc;padding:4px" colspan="3">{q.delivery_name or ' '}</td>
-    <td style="border:1px solid #ccc;padding:4px;width:40px;background:#f0f0f0">工場</td>
-    <td style="border:1px solid #ccc;padding:4px;width:60px;background:#f0f0f0">注文主</td>
-    <td style="border:1px solid #ccc;padding:4px">{q.customer_name or ' '}</td>
-  </tr>
+<table style="margin-bottom:8px">
+  <tr><td style="width:60px;background:#f0f0f0">納入先</td><td>{F("delivery_name")}</td>
+      <td style="width:40px;background:#f0f0f0">工場</td><td style="width:110px">{F("plant")}</td>
+      <td style="width:60px;background:#f0f0f0">注文主</td><td>{F("customer_name")}</td></tr>
 </table>
-
-<table style="width:100%;margin-bottom:8px">
-  <tr>
-    <td style="border:1px solid #ccc;padding:4px;width:40px;background:#f0f0f0">名称</td>
-    <td style="border:1px solid #ccc;padding:4px;width:200px"></td>
-    <td style="border:1px solid #ccc;padding:4px;width:40px;background:#f0f0f0">形式</td>
-    <td style="border:1px solid #ccc;padding:4px"></td>
-  </tr>
-  <tr>
-    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">概要</td>
-    <td style="border:1px solid #ccc;padding:4px" colspan="2"></td>
-    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">電子図番</td>
-    <td style="border:1px solid #ccc;padding:4px"></td>
-  </tr>
+<table style="margin-bottom:8px">
+  <tr><td style="width:50px;background:#f0f0f0">名称</td><td>{F("name")}</td>
+      <td style="width:50px;background:#f0f0f0">形式</td><td>{F("form")}</td></tr>
+  <tr><td style="background:#f0f0f0">概要</td><td>{F("summary")}</td>
+      <td style="background:#f0f0f0">電子図番</td><td>{F("drawing_no")}</td></tr>
 </table>
-
-<table style="width:100%;margin-bottom:8px">
-  <tr>
-    <th rowspan="5" style="border:1px solid #ccc;padding:4px;width:50px;vertical-align:middle">盤仕様</th>
-    <td style="border:1px solid #ccc;padding:4px;width:80px;background:#f0f0f0">仕様</td>
-    <td style="border:1px solid #ccc;padding:4px;width:80px"></td>
-    <td style="border:1px solid #ccc;padding:4px;width:60px;background:#f0f0f0">指定色</td>
-    <td style="border:1px solid #ccc;padding:4px;width:80px"></td>
-    <td style="border:1px solid #ccc;padding:4px;width:80px;background:#f0f0f0">架台.タイプ</td>
-    <td style="border:1px solid #ccc;padding:4px"></td>
-  </tr>
-  <tr>
-    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">周波数(Hz)</td>
-    <td style="border:1px solid #ccc;padding:4px"></td>
-    <td colspan="2"></td>
-    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">サイズ:W×L×H</td>
-    <td style="border:1px solid #ccc;padding:4px"></td>
-  </tr>
-  <tr>
-    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">動力(V)</td>
-    <td style="border:1px solid #ccc;padding:4px" colspan="5">□AC200V □AC380V □AC400V □AC415V □AC440V</td>
-  </tr>
-  <tr>
-    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">操作回路(V)</td>
-    <td style="border:1px solid #ccc;padding:4px" colspan="5">□AC100V □AC200V □DC24V</td>
-  </tr>
-  <tr>
-    <th rowspan="3" style="border:1px solid #ccc;padding:4px;background:#f0f0f0;vertical-align:middle">その他</th>
-    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">パトライト</td><td style="border:1px solid #ccc;padding:4px"></td>
-    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">操作SW</td><td style="border:1px solid #ccc;padding:4px"></td>
-    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0">火花探知器</td><td style="border:1px solid #ccc;padding:4px"></td>
-  </tr>
+<table style="margin-bottom:8px">
+  <tr><th rowspan="4" style="width:50px;vertical-align:middle">盤仕様</th>
+      <td style="width:80px;background:#f0f0f0">仕様</td><td>{F("spec")}</td>
+      <td style="width:60px;background:#f0f0f0">指定色</td><td>{F("color")}</td>
+      <td style="width:80px;background:#f0f0f0">架台.タイプ</td><td>{F("frame_type")}</td></tr>
+  <tr><td style="background:#f0f0f0">周波数(Hz)</td><td>{F("hz")}</td><td colspan="2"></td>
+      <td style="background:#f0f0f0">サイズ:W×L×H</td><td>{F("size")}</td></tr>
+  <tr><td style="background:#f0f0f0">動力(V)</td><td colspan="5">{T("power_v", ("AC200V", "AC380V", "AC400V", "AC415V", "AC440V"))}</td></tr>
+  <tr><td style="background:#f0f0f0">操作回路(V)</td><td colspan="5">{T("ctrl_v", ("AC100V", "AC200V", "DC24V"))}</td></tr>
+  <tr><th style="vertical-align:middle">その他</th>
+      <td style="background:#f0f0f0">パトライト</td><td>{F("patlite")}</td>
+      <td style="background:#f0f0f0">操作SW</td><td>{F("op_sw")}</td>
+      <td style="background:#f0f0f0">火花探知器</td><td>{F("spark")}</td></tr>
 </table>
-
-<table style="width:100%;margin-bottom:8px;font-size:10px">
-  <thead>
-    <tr style="background:#f0f0f0">
-      <th style="border:1px solid #ccc;padding:3px;width:30px"></th>
-      <th style="border:1px solid #ccc;padding:3px">名称</th>
-      <th style="border:1px solid #ccc;padding:3px;width:70px">容量(kw)</th>
-      <th style="border:1px solid #ccc;padding:3px;width:50px">台数</th>
-      <th style="border:1px solid #ccc;padding:3px">備考</th>
-    </tr>
-  </thead>
+<table style="margin-bottom:8px;font-size:10px">
+  <thead><tr><th style="width:30px"></th><th>名称</th><th style="width:70px">容量(kw)</th>
+    <th style="width:50px">台数</th><th>備考</th></tr></thead>
   <tbody>{motor_rows}</tbody>
 </table>
-
-<table style="width:100%;margin-bottom:8px;font-size:10px">
-  <tr>
-    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:40px">電子見積</td>
-    <td style="border:1px solid #ccc;padding:4px;width:80px"></td>
-    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:40px">電子仕入</td>
-    <td style="border:1px solid #ccc;padding:4px;width:80px"></td>
-    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:50px">見積金額</td>
-    <td style="border:1px solid #ccc;padding:4px;width:100px"></td>
-    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:50px">受注金額</td>
-    <td style="border:1px solid #ccc;padding:4px"></td>
-  </tr>
+<table style="margin-bottom:8px;font-size:10px">
+  <tr><td style="background:#f0f0f0;width:50px">電子見積</td><td>{F("e_quote")}</td>
+      <td style="background:#f0f0f0;width:50px">電子仕入</td><td>{F("e_purchase")}</td>
+      <td style="background:#f0f0f0;width:50px">見積金額</td><td>{F("quote_amount")}</td>
+      <td style="background:#f0f0f0;width:50px">受注金額</td><td>{F("order_amount")}</td></tr>
 </table>
+<table style="font-size:10px">
+  <tr><td style="background:#f0f0f0;width:30px">担当</td><td>{F("sign_staff")}</td>
+      <td style="background:#f0f0f0;width:30px">確認</td><td>{F("sign_check")}</td>
+      <td style="background:#f0f0f0;width:30px">打合</td><td>{F("sign_meeting")}</td>
+      <td style="background:#f0f0f0;width:30px">立会</td><td>{F("sign_witness")}</td>
+      <td style="background:#f0f0f0;width:30px">出荷</td><td>{F("sign_ship")}</td></tr>
+</table>"""
+    return _form_page("control-panel", q, M, body)
 
-<table style="width:100%;font-size:10px">
-  <tr>
-    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:30px">担当</td>
-    <td style="border:1px solid #ccc;padding:4px;width:80px">{q.sales_person_name or ' '}</td>
-    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:30px">確認</td>
-    <td style="border:1px solid #ccc;padding:4px;width:80px"></td>
-    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:30px">打合</td>
-    <td style="border:1px solid #ccc;padding:4px;width:80px"></td>
-    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:30px">立会</td>
-    <td style="border:1px solid #ccc;padding:4px;width:80px"></td>
-    <td style="border:1px solid #ccc;padding:4px;background:#f0f0f0;width:30px">出荷</td>
-    <td style="border:1px solid #ccc;padding:4px"></td>
-  </tr>
-</table>
 
-<div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">
-  <div style="font-size:20px;font-weight:bold;margin-right:10px">INOUE 井上電設株式会社</div>
-  <div style="font-size:10px">〒460-0022 名古屋市中区金山4丁目3-17 TEL(052)322-5271 FAX(052)332-5273</div>
-</div>
-</body></html>"""
+@router.post("/{quotation_id}/form/{form_type}/save")
+def save_form_document(quotation_id: str, form_type: str, body: dict, db: Session = Depends(get_db)):
+    """見積から作る社内帳票の、帳票画面での書き換えを保存する。
 
-    return StreamingResponse(
-        io.BytesIO(html.encode("utf-8")), media_type="text/html",
-        headers={"Content-Disposition": f"inline; filename=control_panel_{q.quotation_no}.html"}
-    )
+    自動補完の値と同じものは保存しない（見積側が後で変わったとき、補完値に追従させるため）。
+    自動補完の値から書き換えた項目だけを保持する。
+    """
+    from app.db.models import FormDocument
+    if form_type not in FORM_TITLES:
+        raise HTTPException(404, "帳票の種類が正しくありません")
+    q = _load_q(quotation_id, db)
+    defaults = FORM_DEFAULTS[form_type](q)
+    doc = _form_doc(db, form_type, q.id)
+    over = dict((doc.data_json or {}) if doc else {})
+    for k, v in ((body or {}).get("fields") or {}).items():
+        v = "" if v is None else str(v)
+        if v == str(defaults.get(k, "") or ""):
+            over.pop(k, None)
+        else:
+            over[k] = v
+    if not doc:
+        doc = FormDocument(form_type=form_type, entity_id=str(q.id))
+        db.add(doc)
+    doc.data_json = over
+    db.commit()
+    return {"ok": True, "saved_fields": len(over)}
 
 
 # =============================================

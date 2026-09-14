@@ -36,7 +36,7 @@ export default function OrdersPage() {
   useEffect(() => { load(); }, [search, typeFilter, statusFilter]);
 
   const handlePdf = (id: string) => {
-    window.open(`${API_BASE}/estimate-quotations/order-ticket/${id}/pdf`, '_blank');
+    window.open(`${API_BASE}/estimate-quotations/order-ticket/${id}/pdf?mode=edit`, '_blank');
   };
   // 受注票＋見積書の同時印刷（会議2026-07-17: 二度手間を省く）
   const handlePdfWithQuotation = (id: string) => {

@@ -66,20 +66,20 @@ export default function EstimateListPage() {
   };
 
   const handlePdf = (id: string) => {
-    const url = `${API_BASE}/estimate-quotations/${id}/pdf`;
+    const url = `${API_BASE}/estimate-quotations/${id}/pdf?mode=edit`;
     window.open(url, '_blank');
   };
 
   const handleFanInstruction = (id: string) => {
-    window.open(`${API_BASE}/estimate-quotations/${id}/fan-instruction-pdf`, '_blank');
+    window.open(`${API_BASE}/estimate-quotations/${id}/fan-instruction-pdf?mode=edit`, '_blank');
   };
 
   const handleFanInspection = (id: string) => {
-    window.open(`${API_BASE}/estimate-quotations/${id}/fan-inspection-pdf`, '_blank');
+    window.open(`${API_BASE}/estimate-quotations/${id}/fan-inspection-pdf?mode=edit`, '_blank');
   };
 
   const handleControlPanel = (id: string) => {
-    window.open(`${API_BASE}/estimate-quotations/${id}/control-panel-pdf`, '_blank');
+    window.open(`${API_BASE}/estimate-quotations/${id}/control-panel-pdf?mode=edit`, '_blank');
   };
 
   const handleIssueTicket = async (id: string, ticketType?: string) => {
@@ -93,7 +93,7 @@ export default function EstimateListPage() {
       const r = await estimateApi.issueOrderTicket(id);
       const { ticket_no, id: ticketId } = r.data;
       if (r.data.has_previous) { alert(`受注票を再発行しました: ${ticket_no}\n旧受注票は非表示になりました`); } else { alert(`受注票発行: ${ticket_no}`); }
-      const url = `${API_BASE}/estimate-quotations/order-ticket/${ticketId}/pdf`;
+      const url = `${API_BASE}/estimate-quotations/order-ticket/${ticketId}/pdf?mode=edit`;
       window.open(url, '_blank');
     } catch (e: any) {
       alert(e.response?.data?.detail || 'エラー');

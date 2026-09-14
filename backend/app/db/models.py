@@ -919,6 +919,21 @@ class FanArrangement(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class FormDocument(Base):
+    """帳票画面で加筆・修正した内容（元データを持たない帳票用）
+
+    ファン作業指示書・ファン検査記録書・制御盤作業指示書は、見積明細から
+    その都度組み立てるだけで保存先が無かった。帳票画面で書き換えた値を
+    (帳票の種類, 対象ID) 単位でここに保存し、次回表示時は自動補完の値より優先する。
+    """
+    __tablename__ = "form_documents"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    form_type = Column(String(50), nullable=False, index=True)   # fan-instruction / fan-inspection / control-panel
+    entity_id = Column(String(100), nullable=False, index=True)  # 見積ID 等
+    data_json = Column(JSON)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class HotelArrangement(Base):
     """宿泊予約票"""
     __tablename__ = "hotel_arrangements"
