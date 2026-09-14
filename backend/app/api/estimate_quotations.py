@@ -19,7 +19,7 @@ from app.db.models import (
     EstimateScaBody, EstimatePlFan, EstimateCyclone, EstimateAutoDamper, EstimateLaborItem
 )
 
-from app.form_edit import ef, eftoggle, inject_edit, parse_date
+from app.form_edit import ef, eftoggle, inject_edit, parse_date, strip_first_no_print
 
 router = APIRouter()
 
@@ -1179,7 +1179,7 @@ def export_pdf(quotation_id: str, format: str = "html", mode: str = "", db: Sess
                 io.BytesIO(blob), media_type="application/pdf",
                 headers={"Content-Disposition": f"inline; filename={q.quotation_no}.pdf"})
     if mode == "edit":
-        html = _build_quotation_html(q, is_draft=_is_draft, edit=True)
+        html = strip_first_no_print(_build_quotation_html(q, is_draft=_is_draft, edit=True))
         notes = ["この画面では 宛先・件名・納入先・納入期限・受渡場所・見積有効期限・御支払条件・除外事項 を編集できます。"
                  "金額・明細は見積の編集画面で変更してください。"]
         st = q.approval_status or "none"
@@ -1204,11 +1204,16 @@ QUOTE_HEADER_FIELDS = ("customer_name", "customer_contact", "delivery_name", "de
 
 
 def _norm_text(v):
-    """比較用の正規化。改行コード・行末空白・前後空白の違いは変更とみなさない"""
+    """変更有無の判定用の正規化（保存する値そのものは変えない）。
+
+    帳票画面から読み戻した文字は、改行コード・行末空白・連続空白・全角半角が
+    元データと微妙に異なることがある。これを「変更」と誤判定すると、何も直していない
+    保存で承認が解除されてしまうため、見た目に差の出ない違いは同一とみなす。
+    """
     if v is None:
         return ""
-    t = str(v).replace("\r\n", "\n").replace("\r", "\n")
-    return "\n".join(l.rstrip() for l in t.split("\n")).strip()
+    t = nfkc(str(v)).replace("\r\n", "\n").replace("\r", "\n").replace("\u00a0", " ")
+    return "\n".join(re.sub(r"[ \t]+", " ", l).strip() for l in t.split("\n")).strip()
 
 
 @router.post("/{quotation_id}/edit-header")

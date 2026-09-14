@@ -42,7 +42,7 @@ def eftoggle(mode: str, key: str, value: str, options=("有", "無", "")) -> str
 
 EDIT_CSS = """
 .ef{border-bottom:1px dashed #2563eb;min-width:2.5em;display:inline-block;padding:0 2px;
-    outline:none;cursor:text;background:rgba(37,99,235,.04)}
+    outline:none;cursor:text;background:rgba(37,99,235,.04);white-space:pre-wrap}
 .ef-block{display:block;min-height:1.6em}
 .ef:empty:before{content:attr(data-ph);color:#9ca3af}
 .ef:hover{background:rgba(37,99,235,.10)}
@@ -190,6 +190,22 @@ def inject_edit(html: str, *, title: str, save_url: str, pdf_url: str,
 # ------------------------------------------------------------------
 # 保存データの組み立て
 # ------------------------------------------------------------------
+def strip_first_no_print(html: str) -> str:
+    """最初の class="no-print" の div を、入れ子を数えて丸ごと取り除く。
+
+    元の帳票が持つ「PDF印刷」ボタン帯。編集画面では保存バーと重複するため出さない。
+    """
+    m = re.search(r'<div[^>]*class="no-print"[^>]*>', html)
+    if not m:
+        return html
+    depth, start = 1, m.end()
+    for t in re.finditer(r"<div\b|</div>", html[start:]):
+        depth += 1 if t.group(0).startswith("<div") else -1
+        if depth == 0:
+            return html[:m.start()] + html[start + t.end():]
+    return html
+
+
 def get_path(d, key, default=""):
     """ドット区切りのキーで入れ子の値を取り出す（items_json.0.machine 等）"""
     cur = d
