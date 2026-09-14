@@ -58,6 +58,15 @@ EDIT_CSS = """
 .ef-bar .msg{margin-left:auto;font-weight:bold}
 .ef-note{background:#fef3c7;border:1px solid #f59e0b;color:#92400e;padding:6px 10px;
     border-radius:5px;margin:0 0 10px;font-size:11px}
+.efv{position:relative;display:inline-block}
+.efv input{border:none;border-radius:5px;padding:6px 10px;font-size:12px;width:210px}
+.efv-l{display:none;position:absolute;top:100%;left:0;margin-top:2px;background:#fff;color:#111;
+    min-width:280px;max-height:300px;overflow-y:auto;border:1px solid #d1d5db;border-radius:6px;
+    box-shadow:0 4px 12px rgba(0,0,0,.25);z-index:60}
+.efv-i{padding:5px 10px;cursor:pointer;border-bottom:1px solid #f3f4f6}
+.efv-i small{color:#6b7280;margin-left:6px}
+.efv-i:hover,.efv-i.a{background:#dbeafe}
+.efv-none{padding:5px 10px;color:#9ca3af}
 .ef-rowop{font-size:10px;margin:2px 0 8px}
 .ef-rowop button{border:1px solid #dc2626;color:#dc2626;background:#fff;border-radius:4px;
     padding:1px 8px;cursor:pointer}
@@ -101,13 +110,51 @@ EDIT_JS = r"""
   window.efOp   = async function(op){ if(await save(op)) { dirty=false; location.reload(); } };
   window.efDelRow = function(i){ if(confirm((i+1)+'件目の明細を削除します。よろしいですか？')) efOp({del_row:i}); };
 
-  // 業者マスタから選択（該当する帳票のみ）
-  window.efVendor = function(sel){
-    var v = CFG.vendors && CFG.vendors[sel.value]; if(!v) return;
+  // 業者マスタから選択（該当する帳票のみ）。文字を入力すると曖昧検索で候補を絞る
+  // （全角/半角・カタカナ/ひらがな・空白や記号・「株式会社」等の有無を区別しない）
+  function normS(s){
+    s = String(s==null?'':s).normalize('NFKC').toLowerCase()
+      .replace(/株式会社|有限会社|合同会社|\(株\)|\(有\)|\(同\)/g,'')
+      .replace(/[ァ-ヶ]/g, function(c){ return String.fromCharCode(c.charCodeAt(0)-0x60); });
+    return s.replace(/[\s・･\-‐－ー_\/／.,，、。()（）\[\]［］「」『』]/g,'');
+  }
+  function escH(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  var vHits = [], vActive = 0;
+  function vRender(){
+    var box = document.getElementById('ef-vl'); if(!box) return;
+    box.innerHTML = vHits.length ? vHits.map(function(i, n){
+      var v = CFG.vendors[i];
+      return '<div class="efv-i'+(n===vActive?' a':'')+'" onmousedown="event.preventDefault();efVendor('+i+')">'
+        + escH(v.name) + (v.branch ? '<small>'+escH(v.branch)+'</small>' : '') + '</div>';
+    }).join('') : '<div class="efv-none">該当なし</div>';
+    box.style.display = 'block';
+    var a = box.querySelector('.a'); if(a && a.scrollIntoView) a.scrollIntoView({block:'nearest'});
+  }
+  window.efVFilter = function(){
+    var q = document.getElementById('ef-vq'); if(!q) return;
+    var toks = q.value.split(/[\s　]+/).map(normS).filter(Boolean);
+    vHits = [];
+    (CFG.vendors||[]).forEach(function(v, i){
+      var hay = normS(Object.keys(v).map(function(k){ return typeof v[k]==='string' ? v[k] : ''; }).join(' '));
+      if(toks.every(function(t){ return hay.indexOf(t) >= 0; })) vHits.push(i);
+    });
+    vActive = 0; vRender();
+  };
+  window.efVKey = function(e){
+    if(e.key==='ArrowDown'){ e.preventDefault(); vActive = Math.min(vActive+1, vHits.length-1); vRender(); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); vActive = Math.max(vActive-1, 0); vRender(); }
+    else if(e.key==='Enter'){ e.preventDefault(); if(vHits.length) efVendor(vHits[vActive]); }
+    else if(e.key==='Escape'){ efVClose(); e.target.blur(); }
+  };
+  window.efVClose = function(){ var b = document.getElementById('ef-vl'); if(b) b.style.display='none'; };
+  window.efVendor = function(i){
+    var v = CFG.vendors && CFG.vendors[i]; if(!v) return;
     Object.keys(CFG.vendor_map||{}).forEach(function(k){
       var el = document.querySelector('[data-k="'+k+'"]'); if(el){ el.innerText = v[CFG.vendor_map[k]] || ''; }
     });
-    dirty = true; sel.selectedIndex = 0; msg('業者を反映しました（未保存）');
+    var q = document.getElementById('ef-vq'); if(q){ q.value=''; q.blur(); }
+    efVClose(); dirty = true; msg('業者を反映しました（未保存）');
   };
 
   // 同じ項目が帳票内に複数回出る場合（件名など）、1か所を直したら他も揃える。
@@ -153,11 +200,11 @@ def edit_bar(title: str, pdf_url: str, extra_buttons: str = "", notes=None,
     """帳票画面の上部に出す保存バー"""
     vsel = ""
     if vendors:
-        opts = "".join('<option value="%d">%s</option>' % (i, _h.escape(
-            (v.get("name") or "") + ((" " + v["branch"]) if v.get("branch") else "")))
-            for i, v in enumerate(vendors))
-        vsel = ('<select onchange="efVendor(this)" class="g">'
-                '<option value="">業者マスタから選択…</option>%s</select>' % opts)
+        # 候補は CFG.vendors（JS側）から描画する。ここでは検索欄だけ置く
+        vsel = ('<span class="efv"><input id="ef-vq" autocomplete="off" '
+                'placeholder="業者マスタを検索（%d件）…" onfocus="efVFilter()" oninput="efVFilter()" '
+                'onkeydown="efVKey(event)" onblur="setTimeout(efVClose,150)">'
+                '<div id="ef-vl" class="efv-l"></div></span>' % len(vendors))
     note_html = "".join('<div class="ef-note">%s</div>' % n for n in (notes or []))
     return (
         '<div class="ef-bar">'

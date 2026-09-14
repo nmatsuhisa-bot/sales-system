@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { bomMasterApi, procurementApi } from '../api';
+import SearchSelect from '../components/common/SearchSelect';
 import { Plus, Trash2, Edit2, Check, X, Package, Boxes, Download } from 'lucide-react';
 
 const PRODUCT_TYPES = ['BFR', 'BFP', 'SCA', 'LCA', 'SRR', 'FLT', 'CY', 'LRG'];
@@ -257,20 +258,16 @@ function ProductBomTab() {
       <div className="mb-4 flex items-center gap-2">
         <Package size={16} className="text-indigo-600" />
         <label className="text-sm text-gray-600">製品を選択:</label>
-        <select value={selected} onChange={e => setSelected(e.target.value)} className="border rounded px-2 py-1.5 text-sm min-w-[300px]">
-          <option value="">— 製品を選択 —</option>
-          {products.map(p => <option key={p.id} value={p.id}>{p.product_code} / {p.product_name}</option>)}
-        </select>
+        <SearchSelect value={selected} onChange={setSelected} className="w-[320px]" placeholder="製品コード・製品名で検索"
+          options={products.map(p => ({ value: String(p.id), label: `${p.product_code} / ${p.product_name}` }))} />
       </div>
       {selected && (
         <div className="bg-white border rounded-lg p-4">
           <div className="flex items-end gap-2 mb-3 pb-3 border-b">
             <div className="flex-1">
               <label className="block text-xs text-gray-500 mb-1">ユニットを追加</label>
-              <select value={addUnitId} onChange={e => setAddUnitId(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm">
-                <option value="">— ユニット選択 —</option>
-                {units.map(u => <option key={u.id} value={u.id}>{u.unit_code} / {u.unit_name}（{u.unit_type || '—'}）</option>)}
-              </select>
+              <SearchSelect value={addUnitId} onChange={setAddUnitId} placeholder="ユニットコード・名称で検索"
+                options={units.map(u => ({ value: String(u.id), label: `${u.unit_code} / ${u.unit_name}`, sub: u.unit_type || undefined }))} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">員数</label>
@@ -331,20 +328,16 @@ function UnitBomTab() {
       <div className="mb-4 flex items-center gap-2">
         <Boxes size={16} className="text-sky-600" />
         <label className="text-sm text-gray-600">ユニットを選択:</label>
-        <select value={selected} onChange={e => setSelected(e.target.value)} className="border rounded px-2 py-1.5 text-sm min-w-[300px]">
-          <option value="">— ユニットを選択 —</option>
-          {units.map(u => <option key={u.id} value={u.id}>{u.unit_code} / {u.unit_name}</option>)}
-        </select>
+        <SearchSelect value={selected} onChange={setSelected} className="w-[320px]" placeholder="ユニットコード・名称で検索"
+          options={units.map(u => ({ value: String(u.id), label: `${u.unit_code} / ${u.unit_name}`, sub: u.unit_type || undefined }))} />
       </div>
       {selected && (
         <div className="bg-white border rounded-lg p-4">
           <div className="flex items-end gap-2 mb-3 pb-3 border-b">
             <div className="flex-1">
               <label className="block text-xs text-gray-500 mb-1">部品（原材料）を追加</label>
-              <select value={addMatId} onChange={e => setAddMatId(e.target.value)} className="w-full border rounded px-2 py-1.5 text-sm">
-                <option value="">— 部品選択 —</option>
-                {materials.map(m => <option key={m.id} value={m.id}>{m.material_code} / {m.material_name}</option>)}
-              </select>
+              <SearchSelect value={addMatId} onChange={setAddMatId} placeholder="部材コード・部材名で検索"
+                options={materials.map(m => ({ value: String(m.id), label: `${m.material_code} / ${m.material_name}` }))} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">員数</label>
@@ -431,11 +424,9 @@ function MaterialsTab() {
           <Field label="単位" v={newData.unit} on={(v: string) => setNewData({ ...newData, unit: v })} w="w-16" />
           <div>
             <label className="block text-xs text-gray-500 mb-0.5">優先仕入先</label>
-            <select value={newData.default_supplier_id || ''} onChange={e => setNewData({ ...newData, default_supplier_id: e.target.value || null })}
-              className="border rounded px-2 py-1 text-sm w-40">
-              <option value="">-</option>
-              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
+            <SearchSelect value={newData.default_supplier_id ? String(newData.default_supplier_id) : ''} emptyLabel="-" size="xs" className="w-40"
+              onChange={v => setNewData({ ...newData, default_supplier_id: v || null })}
+              options={suppliers.map(s => ({ value: String(s.id), label: s.name }))} />
           </div>
           <Field label="リードタイム(日)" v={newData.standard_lead_days} on={(v: string) => setNewData({ ...newData, standard_lead_days: Number(v) })} w="w-20" type="number" />
           <Field label="備考" v={newData.notes} on={(v: string) => setNewData({ ...newData, notes: v })} w="w-36" />
@@ -468,11 +459,9 @@ function MaterialsTab() {
                   className="border rounded px-1 py-0.5 text-xs w-12" />
               </td>
               <td className="border border-gray-200 px-1 py-1">
-                <select value={editData.default_supplier_id || ''} onChange={e => setEditData({...editData, default_supplier_id: e.target.value || null})}
-                  className="border rounded px-1 py-0.5 text-xs w-36">
-                  <option value="">-</option>
-                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
+                <SearchSelect value={editData.default_supplier_id ? String(editData.default_supplier_id) : ''} emptyLabel="-" size="xs" className="w-36"
+                  onChange={v => setEditData({...editData, default_supplier_id: v || null})}
+                  options={suppliers.map(s => ({ value: String(s.id), label: s.name }))} />
               </td>
               <td className="border border-gray-200 px-1 py-1">
                 <input type="number" value={editData.standard_lead_days ?? ''} onChange={e => setEditData({...editData, standard_lead_days: Number(e.target.value)})}

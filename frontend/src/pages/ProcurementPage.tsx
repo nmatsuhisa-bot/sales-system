@@ -2,6 +2,7 @@ import { useEffect, useState, Fragment } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { procurementApi } from '../api';
 import OrderSearchInput from '../components/common/OrderSearchInput';
+import SearchSelect from '../components/common/SearchSelect';
 import { Plus, Trash2, Check, X, Boxes, FileText, ChevronDown, ChevronRight, GitBranch } from 'lucide-react';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -315,10 +316,9 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
       <div className="flex flex-wrap gap-2 items-end mb-3">
         <div>
           <label className="block text-[10px] text-gray-500">発注先</label>
-          <select disabled={!editable} value={hdr.supplier_id} onChange={e => { setHdr({ ...hdr, supplier_id: e.target.value }); setHdrDirty(true); }} className="border rounded px-2 py-1 text-xs min-w-[160px] disabled:bg-gray-100">
-            <option value="">（未指定）</option>
-            {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+          <SearchSelect disabled={!editable} value={hdr.supplier_id} emptyLabel="（未指定）" size="xs" className="w-48"
+            onChange={v => { setHdr({ ...hdr, supplier_id: v }); setHdrDirty(true); }}
+            options={suppliers.map(s => ({ value: String(s.id), label: s.name, sub: s.supplier_code || undefined }))} />
         </div>
         <div><label className="block text-[10px] text-gray-500">注文日</label>
           <input disabled={!editable} type="date" value={hdr.order_date} onChange={e => { setHdr({ ...hdr, order_date: e.target.value }); setHdrDirty(true); }} className="border rounded px-2 py-1 text-xs disabled:bg-gray-100" /></div>

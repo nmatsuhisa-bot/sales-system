@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { processApi } from '../api';
 import { Plus, Trash2, Edit2, Check, X, Printer, ChevronDown, ChevronUp, Eye } from 'lucide-react';
 import OrderSearchInput from '../components/common/OrderSearchInput';
+import SearchSelect from '../components/common/SearchSelect';
 
 const PRODUCT_TYPES = ['BFR', 'BFP', 'SCA', 'LCA', 'SRR', 'FLT', 'CY', 'LRG'];
 const ROW_TYPES = ['task', 'equipment', 'note', 'blank'];
@@ -517,11 +518,8 @@ function ScheduleEditModal({ schedule: initSchedule, isNew, templates, onClose, 
           <div className="flex items-end gap-2 mb-5 p-3 bg-purple-50 rounded-lg border border-purple-100">
             <div>
               <label className="block text-xs text-gray-500 mb-1">テンプレートから自動生成</label>
-              <select value={selectedTemplateId} onChange={e => setSelectedTemplateId(e.target.value)}
-                className="border rounded px-2 py-1.5 text-sm w-48">
-                <option value="">テンプレート選択</option>
-                {templates.map((t: any) => <option key={t.id} value={t.id}>{t.template_name}（{t.product_type}）</option>)}
-              </select>
+              <SearchSelect value={selectedTemplateId} onChange={setSelectedTemplateId} className="w-56" placeholder="テンプレート選択"
+                options={templates.map((t: any) => ({ value: String(t.id), label: t.template_name, sub: t.product_type || undefined }))} />
             </div>
             <button onClick={applyTemplate}
               className="px-3 py-1.5 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 whitespace-nowrap">

@@ -933,11 +933,13 @@ def update_quotation(quotation_id: str, data: QuotationHeaderCreate, db: Session
     if data.expected_updated_at and q.updated_at and q.updated_at.isoformat() != data.expected_updated_at:
         raise HTTPException(409, "他のユーザーが更新しました。最新の内容を再読込してから保存してください。")
     subtotal, labor_total, tax, total = _calc_totals(data.line_items, data.labor_details, data.discount_amount)
+    old_total = int(q.total_amount or 0)
     for k, v in data.dict(exclude={"line_items", "labor_details", "expected_updated_at"}, exclude_none=True).items():
         setattr(q, k, nfkc(v))
     q.subtotal = subtotal; q.labor_total = labor_total; q.tax_amount = tax; q.total_amount = total
-    # 内容が変わるため、承認済み/承認待ちは未依頼に戻す（承認後の無断変更を防ぐ）
-    if (q.approval_status or "none") != "none":
+    # 総額が変わった場合だけ、承認済み/承認待ちを未依頼に戻す（承認後の無断値上げ・値下げを防ぐ）。
+    # 総額が同じなら文言や明細の表記を直しても承認は維持する（2026-09-15 指示）
+    if int(total or 0) != old_total and (q.approval_status or "none") != "none":
         q.approval_status = "none"
         q.approval_requested_at = None
         q.approved_at = None
@@ -1184,7 +1186,7 @@ def export_pdf(quotation_id: str, format: str = "html", mode: str = "", db: Sess
                  "金額・明細は見積の編集画面で変更してください。"]
         st = q.approval_status or "none"
         if st in ("approved", "pending"):
-            notes.append("⚠ この見積は%sです。内容を変更して保存すると承認が解除され、再度の承認依頼が必要になります。"
+            notes.append("この見積は%sです。この画面では総額が変わらないため、保存しても承認は解除されません。"
                          % ("承認済み" if st == "approved" else "承認待ち"))
         html = inject_edit(html, title="御見積書", notes=notes,
                            save_url="/api/estimate-quotations/%s/edit-header" % q.id,
@@ -1221,7 +1223,8 @@ def edit_quotation_header(quotation_id: str, body: dict, db: Session = Depends(g
     """見積書の帳票画面で書き換えた項目を、見積データへ書き戻す。
 
     帳票上だけ書き換えると承認済みの内容とPDFが食い違うため、必ず元データを更新する。
-    実際に値が変わった場合に限り、承認済み/承認待ちを未依頼に戻す（見積編集画面と同じルール）。
+    この画面では金額・明細を扱わず総額が変わらないため、承認状態は変えない
+    （承認の解除は総額が変わった場合のみ。見積編集画面と同じルール）。
     """
     q = db.query(QuotationHeader).filter(QuotationHeader.id == quotation_id).first()
     if not q:
@@ -1235,14 +1238,8 @@ def edit_quotation_header(quotation_id: str, body: dict, db: Session = Depends(g
         if new_v != _norm_text(getattr(q, k)):
             setattr(q, k, nfkc(new_v) if new_v else None)
             changed.append(k)
-    released = False
-    if changed and (q.approval_status or "none") != "none":
-        q.approval_status = "none"
-        q.approval_requested_at = None
-        q.approved_at = None
-        released = True
     db.commit()
-    return {"ok": True, "changed": changed, "approval_released": released}
+    return {"ok": True, "changed": changed, "approval_released": False}
 
 def _stamp_map(q: QuotationHeader) -> dict:
     """押印（丸印）に入れる苗字。検印は承認済みのときだけ押す。"""

@@ -3,6 +3,8 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { estimateApi, projectApi, mastersApi, authApi, API_BASE } from '../api';
 import { Plus, Trash2, Save, FileText, ArrowLeft, Calculator } from 'lucide-react';
 import OrderSearchInput from '../components/common/OrderSearchInput';
+import SearchSelect from '../components/common/SearchSelect';
+import { fuzzyFilter } from '../utils/fuzzy';
 
 // 1文字入力バグ防止のため関数外に定義（毎レンダーで再生成されると入力がリマウントされフォーカスを失う）
 function HeaderField({ label, name, header, setHeader, type = 'text', cols = 1 }: any) {
@@ -68,6 +70,7 @@ export default function EstimateFormPage() {
   const [plFans, setPlFans] = useState<any[]>([]);
   const [cyclones, setCyclones] = useState<any[]>([]);
   const [laborMaster, setLaborMaster] = useState<any[]>([]);
+  const [laborQuery, setLaborQuery] = useState('');         // 工数マスタの絞り込み
   const [employees, setEmployees] = useState<any[]>([]);
   const [teamUsers, setTeamUsers] = useState<any[]>([]);   // 作成者の選択肢（ログインユーザー）
 
@@ -411,7 +414,7 @@ export default function EstimateFormPage() {
     window.open(url, '_blank');
   };
 
-  // 承認ワークフロー操作。保存内容が変わると承認は自動で未依頼に戻る（バックエンド側で制御）
+  // 承認ワークフロー操作。総額が変わる保存をすると承認は自動で未依頼に戻る（バックエンド側で制御）
   const reloadApproval = () => {
     if (!id) return;
     estimateApi.get(id).then(r => {
@@ -513,12 +516,9 @@ export default function EstimateFormPage() {
           <HeaderField header={header} setHeader={setHeader} label="件名" name="title" cols={2} />
           <div>
             <label className="block text-xs text-gray-500 mb-1">営業担当</label>
-            <select value={header.sales_person_name}
-              onChange={e => setHeader(h => ({ ...h, sales_person_name: e.target.value }))}
-              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
-              <option value="">選択</option>
-              {employees.map(e => <option key={e.id} value={e.employee_name}>{e.employee_name}</option>)}
-            </select>
+            <SearchSelect value={header.sales_person_name} emptyLabel="選択"
+              onChange={v => setHeader(h => ({ ...h, sales_person_name: v }))}
+              options={employees.map(e => ({ value: e.employee_name, label: e.employee_name, sub: e.employee_code }))} />
           </div>
           <HeaderField header={header} setHeader={setHeader} label="注文主" name="customer_name" />
           <HeaderField header={header} setHeader={setHeader} label="注文主 御担当者" name="customer_contact" />
@@ -548,27 +548,23 @@ export default function EstimateFormPage() {
           </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">作成（ユーザーから選択）</label>
-            <select value={header.created_by_name}
-              onChange={e => setHeader(h => ({ ...h, created_by_name: e.target.value }))}
-              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
-              <option value="">選択</option>
-              {teamUsers.map(u => <option key={u.id} value={u.full_name}>{u.full_name}</option>)}
-              {header.created_by_name && !teamUsers.some(u => u.full_name === header.created_by_name) && (
-                <option value={header.created_by_name}>{header.created_by_name}</option>
-              )}
-            </select>
+            <SearchSelect value={header.created_by_name} emptyLabel="選択"
+              onChange={v => setHeader(h => ({ ...h, created_by_name: v }))}
+              options={[
+                ...teamUsers.map(u => ({ value: u.full_name, label: u.full_name, sub: u.department || undefined })),
+                ...(header.created_by_name && !teamUsers.some(u => u.full_name === header.created_by_name)
+                  ? [{ value: header.created_by_name, label: header.created_by_name }] : []),
+              ]} />
           </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">検印（承認者）</label>
-            <select value={header.approver_name}
-              onChange={e => setHeader(h => ({ ...h, approver_name: e.target.value }))}
-              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
-              <option value="">選択</option>
-              {approvers.map(a => <option key={a} value={a}>{a}</option>)}
-              {header.approver_name && !approvers.includes(header.approver_name) && (
-                <option value={header.approver_name}>{header.approver_name}（権限なし）</option>
-              )}
-            </select>
+            <SearchSelect value={header.approver_name} emptyLabel="選択"
+              onChange={v => setHeader(h => ({ ...h, approver_name: v }))}
+              options={[
+                ...approvers.map(a => ({ value: a, label: a })),
+                ...(header.approver_name && !approvers.includes(header.approver_name)
+                  ? [{ value: header.approver_name, label: `${header.approver_name}（権限なし）` }] : []),
+              ]} />
             {approvers.length === 0 && (
               <p className="text-[11px] text-red-500 mt-0.5">
                 検印承認者が登録されていません。ユーザー管理で機能権限「検印承認者」を付与してください
@@ -629,7 +625,7 @@ export default function EstimateFormPage() {
             </div>
           </div>
           <p className="text-[11px] text-gray-500 mt-2">
-            承認前でも印刷できますが「draft」透かしが入ります。承認後に内容を保存し直すと承認は解除され、再依頼が必要になります。
+            承認前でも印刷できますが「draft」透かしが入ります。承認後に総額が変わる保存をすると承認は解除され、再依頼が必要になります（総額が同じなら解除されません）。
             {approval.approved_at && approval.status === 'approved' && ` 承認日時: ${new Date(approval.approved_at).toLocaleString('ja-JP')}`}
           </p>
         </div>
@@ -758,7 +754,10 @@ export default function EstimateFormPage() {
       {activeTab === 'labor' && (
         <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
           <div className="flex gap-2 mb-4 flex-wrap">
-            {laborMaster.map(item => (
+            <input value={laborQuery} onChange={e => setLaborQuery(e.target.value)}
+              placeholder="工数マスタを検索（例: すえつけ）"
+              className="border border-gray-200 rounded px-2 py-1 text-xs w-48 focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+            {fuzzyFilter(laborMaster, laborQuery, i => `${i.item_name} ${i.unit || ''}`).map(item => (
               <button key={item.id} onClick={() => addLaborFromMaster(item)}
                 className="bg-gray-50 border border-gray-200 text-gray-700 px-2 py-1 rounded text-xs hover:bg-blue-50 hover:border-blue-300">
                 + {item.item_name}
@@ -853,38 +852,30 @@ export default function EstimateFormPage() {
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">型式</label>
-                <select value={bfrSel.body} onChange={e => onBfrBodySelect(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                  <option value="">選択</option>
-                  {Array.from(new Set(bfrBodies.map(b => b.model_code))).map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
+                <SearchSelect value={bfrSel.body} emptyLabel="選択" onChange={v => onBfrBodySelect(v)}
+                  options={Array.from(new Set(bfrBodies.map(b => b.model_code))).map(m => ({ value: m, label: m }))} />
               </div>
               {bfrSel.body && (<>
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">フィルター種類</label>
-                  <select value={bfrSel.filterType} onChange={e => setBfrSel(s => ({ ...s, filterType: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                    <option value="">選択</option>
-                    {bfrBodies.find(b => b.model_code === bfrSel.body)?.variants.map((v: any) => (
-                      <option key={v.filter_type} value={v.filter_type}>{v.filter_type}（フィルター¥{Number(v.filter_price).toLocaleString()}×{v.filter_count}本）</option>
-                    ))}
-                  </select>
+                  <SearchSelect value={bfrSel.filterType} emptyLabel="選択"
+                    onChange={v => setBfrSel(s => ({ ...s, filterType: v }))}
+                    options={(bfrBodies.find(b => b.model_code === bfrSel.body)?.variants || []).map((v: any) => ({
+                      value: v.filter_type, label: v.filter_type,
+                      sub: `フィルター¥${Number(v.filter_price).toLocaleString()}×${v.filter_count}本`,
+                    }))} />
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">ターボファン</label>
-                  <select value={bfrSel.fan} onChange={e => setBfrSel(s => ({ ...s, fan: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                    <option value="">なし</option>
-                    {bfrFans.map(f => <option key={f.id} value={f.fan_model}>{f.fan_model} ×{f.quantity}台 ¥{Number(f.price).toLocaleString()}</option>)}
-                  </select>
+                  <SearchSelect value={bfrSel.fan} emptyLabel="なし"
+                    onChange={v => setBfrSel(s => ({ ...s, fan: v }))}
+                    options={bfrFans.map(f => ({ value: f.fan_model, label: f.fan_model, sub: `×${f.quantity}台 ¥${Number(f.price).toLocaleString()}` }))} />
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">ロータリーバルブ</label>
-                  <select value={bfrSel.rv} onChange={e => setBfrSel(s => ({ ...s, rv: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                    <option value="">なし</option>
-                    {bfrRvs.map(r => <option key={r.id} value={r.rv_model}>{r.rv_model} {r.kw}kW ¥{Number(r.price).toLocaleString()}</option>)}
-                  </select>
+                  <SearchSelect value={bfrSel.rv} emptyLabel="なし"
+                    onChange={v => setBfrSel(s => ({ ...s, rv: v }))}
+                    options={bfrRvs.map(r => ({ value: r.rv_model, label: `${r.rv_model} ${r.kw}kW`, sub: `¥${Number(r.price).toLocaleString()}` }))} />
                 </div>
                 <label className="flex items-center gap-2 text-sm cursor-pointer">
                   <input type="checkbox" checked={bfrSel.hasPurgeCircuit}
@@ -915,17 +906,12 @@ export default function EstimateFormPage() {
               <div className="space-y-3">
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">型式</label>
-                  <select value={bfqSel.model}
-                    onChange={e => setBfqSel(s => ({ ...s, model: e.target.value, dustOpt: '', panelAdds: [] }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                    <option value="">選択</option>
-                    {bfq.bodies.map((b: any) => (
-                      <option key={b.model_code} value={b.model_code}>
-                        {b.model_code}（{b.fan_kw}kW・{b.dust_recovery}）
-                        {b.base_price == null ? '　※本体価格 未設定' : `　¥${b.base_price.toLocaleString()}`}
-                      </option>
-                    ))}
-                  </select>
+                  <SearchSelect value={bfqSel.model} emptyLabel="選択"
+                    onChange={v => setBfqSel(s => ({ ...s, model: v, dustOpt: '', panelAdds: [] }))}
+                    options={bfq.bodies.map((b: any) => ({
+                      value: b.model_code, label: `${b.model_code}（${b.fan_kw}kW・${b.dust_recovery}）`,
+                      sub: b.base_price == null ? '※本体価格 未設定' : `¥${b.base_price.toLocaleString()}`,
+                    }))} />
                 </div>
                 {bfqBody && (<>
                   {bfqBody.base_price == null && (
@@ -970,15 +956,13 @@ export default function EstimateFormPage() {
                         {bfqBody.dust_recovery} のオプション
                         {bfqDustOpts.some(o => o.is_provisional) && <span className="text-amber-600 ml-1">※価格は仮</span>}
                       </label>
-                      <select value={bfqSel.dustOpt} onChange={e => setBfqSel(s => ({ ...s, dustOpt: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                        <option value="">選択しない</option>
-                        {bfqDustOpts.map(o => (
-                          <option key={o.id} value={o.id}>
-                            {o.option_name}{o.spec && o.spec !== o.option_name ? ` ${o.spec}` : ''} ¥{(o.price || 0).toLocaleString()}
-                          </option>
-                        ))}
-                      </select>
+                      <SearchSelect value={bfqSel.dustOpt == null ? '' : String(bfqSel.dustOpt)} emptyLabel="選択しない"
+                        onChange={v => setBfqSel(s => ({ ...s, dustOpt: v }))}
+                        options={bfqDustOpts.map(o => ({
+                          value: String(o.id),
+                          label: `${o.option_name}${o.spec && o.spec !== o.option_name ? ` ${o.spec}` : ''}`,
+                          sub: `¥${(o.price || 0).toLocaleString()}`,
+                        }))} />
                     </div>
                   )}
                   <div>
@@ -1033,37 +1017,30 @@ export default function EstimateFormPage() {
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">型式</label>
-                <select value={scaSel.body} onChange={e => setScaSel(s => ({ ...s, body: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                  <option value="">選択</option>
-                  {scaBodies.map(b => (
-                    <option key={b.id} value={b.model_code}>
-                      {b.model_code}（φ{b.diameter} 収容量{b.capacity}m³ ¥{Number(b.base_price).toLocaleString()}）
-                    </option>
-                  ))}
-                </select>
+                <SearchSelect value={scaSel.body} emptyLabel="選択"
+                  onChange={v => setScaSel(s => ({ ...s, body: v }))}
+                  options={scaBodies.map(b => ({
+                    value: b.model_code, label: b.model_code,
+                    sub: `φ${b.diameter} 収容量${b.capacity}m³ ¥${Number(b.base_price).toLocaleString()}`,
+                  }))} />
               </div>
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input type="checkbox" checked={scaSel.hasPl} onChange={e => setScaSel(s => ({ ...s, hasPl: e.target.checked }))} />
                 プレートファン（空送）を追加
               </label>
               {scaSel.hasPl && (
-                <select value={scaSel.pl} onChange={e => setScaSel(s => ({ ...s, pl: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                  <option value="">型式選択</option>
-                  {plFans.map(f => <option key={f.id} value={`${f.model_code}_${f.kw}`}>{f.model_code} {f.kw}kW ¥{Number(f.price).toLocaleString()}</option>)}
-                </select>
+                <SearchSelect value={scaSel.pl} emptyLabel="型式選択"
+                  onChange={v => setScaSel(s => ({ ...s, pl: v }))}
+                  options={plFans.map(f => ({ value: `${f.model_code}_${f.kw}`, label: `${f.model_code} ${f.kw}kW`, sub: `¥${Number(f.price).toLocaleString()}` }))} />
               )}
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input type="checkbox" checked={scaSel.hasCyclone} onChange={e => setScaSel(s => ({ ...s, hasCyclone: e.target.checked }))} />
                 サイクロンを追加
               </label>
               {scaSel.hasCyclone && (
-                <select value={scaSel.cyclone} onChange={e => setScaSel(s => ({ ...s, cyclone: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                  <option value="">型式選択</option>
-                  {cyclones.map(c => <option key={c.id} value={c.id}>{c.model_code} {c.shape} {c.material} ¥{Number(c.price).toLocaleString()}</option>)}
-                </select>
+                <SearchSelect value={scaSel.cyclone == null ? '' : String(scaSel.cyclone)} emptyLabel="型式選択"
+                  onChange={v => setScaSel(s => ({ ...s, cyclone: v }))}
+                  options={cyclones.map(c => ({ value: String(c.id), label: `${c.model_code} ${c.shape} ${c.material}`, sub: `¥${Number(c.price).toLocaleString()}` }))} />
               )}
             </div>
             <div className="flex justify-end gap-3 mt-5">

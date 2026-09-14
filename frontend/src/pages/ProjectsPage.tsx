@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { projectApi, mastersApi, API_BASE } from '../api';
+import SearchSelect from '../components/common/SearchSelect';
 import { Plus, ChevronDown, ChevronRight, Edit2, Trash2, FileText, Copy } from 'lucide-react';
 
 const STATUS_OPTIONS = ['営業中', '確度高', '内示', '受注', '検収済', '請求済', '入金済', '失注'];
@@ -88,6 +89,18 @@ export default function ProjectsPage() {
   const [agencies, setAgencies] = useState<any[]>([]);
   const [destinations, setDestinations] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
+
+  // 選択欄の候補（入力で曖昧検索）
+  const agencyOptions = useMemo(() => agencies.map(a => ({
+    value: a.agency_code, label: a.agency_name, sub: a.agency_code,
+  })), [agencies]);
+  const destinationOptions = useMemo(() => destinations.map(d => ({
+    value: d.customer_id, label: `${d.company_name}${d.factory_name ? ` ${d.factory_name}` : ''}`,
+    sub: [d.customer_id, d.address].filter(Boolean).join('　'),
+  })), [destinations]);
+  const employeeOptions = useMemo(() => employees.map(e => ({
+    value: e.employee_code, label: e.employee_name, sub: e.employee_code,
+  })), [employees]);
 
   const load = () => {
     projectApi.list({ search: search || undefined, status: statusFilter || undefined, per_page: 50 })
@@ -431,12 +444,8 @@ export default function ProjectsPage() {
                 {form.distribution_type === '代理店' && (<>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">商社</label>
-                    <select value={form.customer_code_1 || ''}
-                      onChange={e => { const a = agencies.find(a => a.agency_code === e.target.value); setForm((f: any) => ({ ...f, customer_code_1: e.target.value, customer_name_1: a?.agency_name || '' })); }}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
-                      <option value="">選択</option>
-                      {agencies.map(a => <option key={a.id} value={a.agency_code}>{a.agency_name}</option>)}
-                    </select>
+                    <SearchSelect value={form.customer_code_1} emptyLabel="選択" options={agencyOptions}
+                      onChange={v => { const a = agencies.find(a => a.agency_code === v); setForm((f: any) => ({ ...f, customer_code_1: v, customer_name_1: a?.agency_name || '' })); }} />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">商社名</label>
@@ -445,12 +454,8 @@ export default function ProjectsPage() {
                 </>)}
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">納入先</label>
-                  <select value={form.customer_code_2 || ''}
-                    onChange={e => { const d = destinations.find(d => d.customer_id === e.target.value); setForm((f: any) => ({ ...f, customer_code_2: e.target.value, customer_name_2: d ? `${d.company_name}${d.factory_name ? ' ' + d.factory_name : ''}` : '' })); }}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
-                    <option value="">選択</option>
-                    {destinations.map(d => <option key={d.id} value={d.customer_id}>{d.company_name}{d.factory_name ? ` ${d.factory_name}` : ''}</option>)}
-                  </select>
+                  <SearchSelect value={form.customer_code_2} emptyLabel="選択" options={destinationOptions}
+                    onChange={v => { const d = destinations.find(d => d.customer_id === v); setForm((f: any) => ({ ...f, customer_code_2: v, customer_name_2: d ? `${d.company_name}${d.factory_name ? ' ' + d.factory_name : ''}` : '' })); }} />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">納入先名</label>
@@ -458,12 +463,8 @@ export default function ProjectsPage() {
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">自社営業担当</label>
-                  <select value={form.sales_person_code || ''}
-                    onChange={e => { const emp = employees.find(emp => emp.employee_code === e.target.value); setForm((f: any) => ({ ...f, sales_person_code: e.target.value, sales_person_name: emp?.employee_name || '' })); }}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
-                    <option value="">選択</option>
-                    {employees.map(e => <option key={e.id} value={e.employee_code}>{e.employee_name}</option>)}
-                  </select>
+                  <SearchSelect value={form.sales_person_code} emptyLabel="選択" options={employeeOptions}
+                    onChange={v => { const emp = employees.find(emp => emp.employee_code === v); setForm((f: any) => ({ ...f, sales_person_code: v, sales_person_name: emp?.employee_name || '' })); }} />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">担当者名</label>
@@ -545,12 +546,8 @@ export default function ProjectsPage() {
                 <TextField label="案件名" value={orderForm.project_name} onChange={(v: string) => setOrderForm((f: any) => ({ ...f, project_name: v }))} cols={2} />
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">納入先</label>
-                  <select value={orderForm.customer_code || ''}
-                    onChange={e => { const d = destinations.find(d => d.customer_id === e.target.value); setOrderForm((f: any) => ({ ...f, customer_code: e.target.value, customer_name: d ? `${d.company_name}${d.factory_name ? ' ' + d.factory_name : ''}` : '' })); }}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
-                    <option value="">選択</option>
-                    {destinations.map(d => <option key={d.id} value={d.customer_id}>{d.company_name}{d.factory_name ? ` ${d.factory_name}` : ''}</option>)}
-                  </select>
+                  <SearchSelect value={orderForm.customer_code} emptyLabel="選択" options={destinationOptions}
+                    onChange={v => { const d = destinations.find(d => d.customer_id === v); setOrderForm((f: any) => ({ ...f, customer_code: v, customer_name: d ? `${d.company_name}${d.factory_name ? ' ' + d.factory_name : ''}` : '' })); }} />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">納入先名</label>
@@ -558,12 +555,8 @@ export default function ProjectsPage() {
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">商社</label>
-                  <select value={orderForm.agency_code || ''}
-                    onChange={e => { const a = agencies.find(a => a.agency_code === e.target.value); setOrderForm((f: any) => ({ ...f, agency_code: e.target.value, agency_name: a?.agency_name || '' })); }}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
-                    <option value="">直接取引(なし)</option>
-                    {agencies.map(a => <option key={a.id} value={a.agency_code}>{a.agency_name}</option>)}
-                  </select>
+                  <SearchSelect value={orderForm.agency_code} emptyLabel="直接取引(なし)" options={agencyOptions}
+                    onChange={v => { const a = agencies.find(a => a.agency_code === v); setOrderForm((f: any) => ({ ...f, agency_code: v, agency_name: a?.agency_name || '' })); }} />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">商社名</label>
@@ -571,12 +564,8 @@ export default function ProjectsPage() {
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">自社営業担当</label>
-                  <select value={orderForm.sales_person_code || ''}
-                    onChange={e => { const emp = employees.find(emp => emp.employee_code === e.target.value); setOrderForm((f: any) => ({ ...f, sales_person_code: e.target.value, sales_person_name: emp?.employee_name || '' })); }}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
-                    <option value="">選択</option>
-                    {employees.map(e => <option key={e.id} value={e.employee_code}>{e.employee_name}</option>)}
-                  </select>
+                  <SearchSelect value={orderForm.sales_person_code} emptyLabel="選択" options={employeeOptions}
+                    onChange={v => { const emp = employees.find(emp => emp.employee_code === v); setOrderForm((f: any) => ({ ...f, sales_person_code: v, sales_person_name: emp?.employee_name || '' })); }} />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">担当者名</label>

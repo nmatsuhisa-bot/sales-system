@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
 import { authApi, mastersApi, scheduleApi } from '../api';
+import SearchSelect from '../components/common/SearchSelect';
 
 interface User { id: string; full_name: string; email: string; department?: string; role?: string; }
 interface ScheduleEntry {
@@ -213,10 +214,8 @@ export default function SchedulePage() {
             <option value="">全部門</option>
             {departments.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
-          <select value={userFilter} onChange={e => setUserFilter(e.target.value)} className="border rounded px-2 py-1.5 text-sm max-w-[140px]">
-            <option value="">全員</option>
-            {deptUsers.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
-          </select>
+          <SearchSelect value={userFilter} onChange={setUserFilter} emptyLabel="全員" className="w-40"
+            options={deptUsers.map(u => ({ value: String(u.id), label: u.full_name, sub: u.department || undefined }))} />
           <button onClick={handlePrint} className="px-3 py-1.5 border rounded text-sm bg-gray-700 text-white hover:bg-gray-800">PDF出力</button>
         </div>
       </div>
