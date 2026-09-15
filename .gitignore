@@ -22,3 +22,6 @@ _work/
 
 # 原価検証 API テストの一時 DB
 backend/tests/_costing.db
+
+# 工場機械管理 API テスト・開発用の一時 DB
+backend/tests/_equipment*.db

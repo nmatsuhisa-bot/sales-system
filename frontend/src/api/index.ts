@@ -426,3 +426,63 @@ export const authApi = {
   resetPassword: (token: string, new_password: string) =>
     api.post('/auth/reset-password', { token, new_password }),
 };
+
+// =============================================
+// 工場機械・図面管理API
+// =============================================
+const multipart = (_fd: FormData) => ({ headers: { 'Content-Type': 'multipart/form-data' } });
+export const equipmentApi = {
+  setup: () => api.get('/equipment/setup-tables'),
+  overview: () => api.get('/equipment/overview'),
+  // 拠点
+  sites: () => api.get('/equipment/sites'),
+  createSite: (data: any) => api.post('/equipment/sites', data),
+  updateSite: (id: string, data: any) => api.put(`/equipment/sites/${id}`, data),
+  // 図面
+  drawings: (params?: any) => api.get('/equipment/drawings', { params }),
+  createDrawing: (fd: FormData) => api.post('/equipment/drawings', fd, multipart(fd)),
+  updateDrawing: (id: string, data: any) => api.put(`/equipment/drawings/${id}`, data),
+  replaceDrawingImage: (id: string, fd: FormData) => api.post(`/equipment/drawings/${id}/image`, fd, multipart(fd)),
+  deleteDrawing: (id: string) => api.delete(`/equipment/drawings/${id}`),
+  // 画像は JWT が要るので <img src> ではなく blob で取る
+  drawingImage: (id: string, original = false) =>
+    api.get(`/equipment/drawings/${id}/image`, { params: { original }, responseType: 'blob' }),
+  // 機械
+  machines: (params?: any) => api.get('/equipment/machines', { params }),
+  machine: (idOrCode: string) => api.get(`/equipment/machines/${encodeURIComponent(idOrCode)}`),
+  createMachine: (data: any) => api.post('/equipment/machines', data),
+  updateMachine: (id: string, data: any) => api.put(`/equipment/machines/${id}`, data),
+  deleteMachine: (id: string) => api.delete(`/equipment/machines/${id}`),
+  machineHistory: (id: string) => api.get(`/equipment/machines/${id}/history`),
+  importMachines: (file: File, apply: boolean, overwrite: boolean) => {
+    const fd = new FormData(); fd.append('file', file); fd.append('apply', String(apply)); fd.append('overwrite', String(overwrite));
+    return api.post('/equipment/import/machines', fd, multipart(fd));
+  },
+  // 固定資産台帳
+  importAssets: (file: File, apply: boolean, period?: string) => {
+    const fd = new FormData(); fd.append('file', file); fd.append('apply', String(apply)); if (period) fd.append('period', period);
+    return api.post('/equipment/import/assets', fd, multipart(fd));
+  },
+  assetPeriods: () => api.get('/equipment/assets/periods'),
+  assets: (params?: any) => api.get('/equipment/assets', { params }),
+  // 紐付け
+  links: (period?: string) => api.get('/equipment/links', { params: { period } }),
+  createLink: (data: any) => api.post('/equipment/links', data),
+  updateLink: (id: string, data: any) => api.put(`/equipment/links/${id}`, data),
+  deleteLink: (id: string) => api.delete(`/equipment/links/${id}`),
+  autoLink: (period?: string) => api.post('/equipment/links/auto', { period }),
+  importLinks: (file: File, apply: boolean) => {
+    const fd = new FormData(); fd.append('file', file); fd.append('apply', String(apply));
+    return api.post('/equipment/import/links', fd, multipart(fd));
+  },
+  reconcile: (period?: string) => api.get('/equipment/reconcile', { params: { period } }),
+  // 配置（下書き → 確定）
+  board: (drawingId: string, as_of?: string) => api.get(`/equipment/drawings/${drawingId}/board`, { params: as_of ? { as_of } : {} }),
+  addMove: (drawingId: string, data: any) => api.post(`/equipment/drawings/${drawingId}/moves`, data),
+  undoMove: (drawingId: string) => api.post(`/equipment/drawings/${drawingId}/moves/undo`),
+  discardDraft: (drawingId: string) => api.delete(`/equipment/drawings/${drawingId}/draft`),
+  commit: (drawingId: string, memo?: string) => api.post(`/equipment/drawings/${drawingId}/commit`, { memo }),
+  commits: (drawingId: string) => api.get(`/equipment/drawings/${drawingId}/commits`),
+  commitDetail: (commitId: string) => api.get(`/equipment/commits/${commitId}`),
+  moves: (params?: any) => api.get('/equipment/moves', { params }),
+};

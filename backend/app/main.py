@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import auth, customers, products, quotations, orders, purchase_orders, inventory, reports, projects, masters, estimate_quotations, arrangements, materials as procurement_api, manufacturing, process_schedule, bom_master, team_schedule, costing
+from app.api import auth, customers, products, quotations, orders, purchase_orders, inventory, reports, projects, masters, estimate_quotations, arrangements, materials as procurement_api, manufacturing, process_schedule, bom_master, team_schedule, costing, equipment
 
 app = FastAPI(
     title="販売管理・見積管理システム API",
@@ -35,6 +35,8 @@ app.include_router(bom_master.router, prefix="/api/bom-master", tags=["製品BOM
 app.include_router(team_schedule.router, prefix="/api/schedules", tags=["スケジュール"])
 # 製品原価検証（管理者専用。ルーター全体に require_admin を掛けている）
 app.include_router(costing.router, prefix="/api/costing", tags=["製品原価検証"])
+# 工場機械・図面管理（管理者専用。ルーター全体に require_admin を掛けている）
+app.include_router(equipment.router, prefix="/api/equipment", tags=["工場機械管理"])
 
 
 @app.get("/seed-users")

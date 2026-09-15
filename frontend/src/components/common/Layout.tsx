@@ -2,7 +2,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, FileText, ShoppingCart,
   BarChart3, LogOut, Menu, X, Boxes, Briefcase, Database, UserCog, Calendar,
-  ShoppingBag, Factory, ClipboardList, GitBranch, HelpCircle, Calculator
+  ShoppingBag, Factory, ClipboardList, GitBranch, HelpCircle, Calculator, Wrench
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -28,6 +28,7 @@ const navItems: NavEntry[] = [
   { to: '/help', icon: HelpCircle, label: 'ヘルプ' },
   // 管理者だけに表示（一般ユーザーには存在自体を見せない）
   { to: '/costing', icon: Calculator, label: '製品原価検証', adminOnly: true },
+  { to: '/equipment', icon: Wrench, label: '工場機械管理', adminOnly: true },
 ];
 
 export default function Layout() {

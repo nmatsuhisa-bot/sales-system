@@ -15,6 +15,19 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-09-15 — Claude — 工場機械・図面管理モジュール（機械マスタ／固定資産台帳紐付け／図面配置と移動履歴）を追加
+**触ったファイル**: `backend/app/api/equipment.py`（新規）, `backend/app/db/models.py`（末尾に Eq* 8 クラス追加）, `backend/migrations/equipment.sql`（新規・写し）,
+`backend/app/main.py`（equipment ルーター登録の 2 行のみ）, `backend/tests/test_equipment_api_sqlite.py`（新規）, `backend/tests/dev_equipment_server.py`（新規・ローカル画面確認用）,
+`frontend/src/pages/EquipmentPage.tsx`（新規）, `frontend/src/api/index.ts`（equipmentApi 追加）, `frontend/src/App.tsx`（/equipment）, `frontend/src/components/common/Layout.tsx`（ナビ「工場機械管理」）,
+`tools/equipment_machine_list_pdf2csv.py` / `tools/equipment_prepare_drawings.py` / `tools/equipment_initial_links.py`（新規・ローカル用）, `docs/工場機械・図面管理_要件整理と実装方針_20260915.md`（新規）, `.gitignore`（一時 DB）
+**仕様**: docs/工場機械・図面管理_要件整理と実装方針_20260915.md
+**方式**: 独立モジュール。既存テーブルは変更せず `eq_*` 8 テーブルを追加。API は `/api/equipment/*`（管理者専用。ルーター全体に require_admin）。画面は `/equipment`（AdminRoute。ナビも adminOnly）。
+管理ID = 機械一覧表の管理番号。配置は有効期間付き（as_of で過去時点を復元）。ドラッグ 1 回 = 下書き 1 件（サーバ保存、途中終了しても残る）→「1つ戻す」「すべて破棄」「確定」。
+**確認**: `DATABASE_URL=sqlite:///tests/_equipment.db python3 tests/test_equipment_api_sqlite.py` を内蔵ミニデータと実データ（一覧表 289 行→機械 273 / 台帳 247 / 図面 2 枚）で実行し全項目通過。
+tsc / vite build OK。ローカル（tests/dev_equipment_server.py + vite）でブラウザ確認: 取込→図面表示→チップのドラッグで下書き→1つ戻す→元図面表示→時点（日付）表示→確定→確定履歴。
+**本番導入手順**: ①push → Render 自動デプロイ ②admin でログイン後「工場機械管理 → 取込・設定 → テーブル作成（初回）」③ tools/ で CSV・画像を作って画面から取込（docs §6）。
+**未検証**: PostgreSQL での実行（ローカルに無いため SQLite で代替）。HTML5 ドラッグ&ドロップ（未配置リスト→図面）は自動操作できずブラウザでは未確認（チップのドラッグは確認済み）。
+
 ### 2026-09-10 — Claude — 原価検証: レポート（製品ごとの時系列分析 / 全製品サマリ）を追加【未コミット】
 **触ったファイル**: `backend/app/api/costing.py`（`/report/timeseries` `/report/summary` と `.xlsx` `.pdf` `.html` 出力）,
 `frontend/src/pages/CostingPage.tsx`（「レポート」タブ: 折れ線グラフ＋時点別・部位別・要因表、サマリ表と並び替え）,

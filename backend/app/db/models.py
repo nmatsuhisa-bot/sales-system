@@ -1427,3 +1427,159 @@ class CostCalculation(Base):
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     created_at = Column(DateTime, server_default=func.now())
     unit = relationship("UnitMaster", foreign_keys=[unit_id])
+
+
+# =============================================
+# 工場機械・図面管理（eq_*）
+#   機械マスタ / 固定資産台帳スナップショットと紐付け / 図面上の配置と移動履歴
+#   仕様: docs/工場機械・図面管理_要件整理と実装方針_20260915.md
+# =============================================
+class EqSite(Base):
+    """拠点（桜田北・桜田南・小牧・沢下・福江・第3倉庫・本社 …）"""
+    __tablename__ = "eq_sites"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    code = Column(String(30), unique=True, nullable=False)
+    name = Column(String(100), nullable=False)
+    sort_order = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class EqDrawing(Base):
+    """配置図。画像は Render のディスクが消えるため DB に保管する（背景用と番号入り元図の 2 枚）"""
+    __tablename__ = "eq_drawings"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    site_id = Column(UUID(as_uuid=True), ForeignKey("eq_sites.id"), nullable=False)
+    name = Column(String(200), nullable=False)
+    version_no = Column(Integer, default=1)
+    width_px = Column(Integer, nullable=False)
+    height_px = Column(Integer, nullable=False)
+    image = Column(LargeBinary, nullable=False)
+    image_type = Column(String(50), default="image/png")
+    original = Column(LargeBinary)                # 番号入りの元図面（任意）
+    original_type = Column(String(50))
+    source_filename = Column(String(300))
+    scale_note = Column(String(100))              # 1/200 など
+    valid_from = Column(Date)
+    is_active = Column(Boolean, default=True)
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    site = relationship("EqSite")
+
+
+class EqMachine(Base):
+    """機械マスタ。code = 管理ID（機械一覧表の管理番号 S1-13 / SK-17 / F-07 … をそのまま使う）"""
+    __tablename__ = "eq_machines"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    code = Column(String(30), unique=True, nullable=False)
+    name = Column(String(200), nullable=False)
+    category1 = Column(String(50))
+    category2 = Column(String(50))
+    maker = Column(String(100))
+    dealer = Column(String(100))
+    model = Column(String(200))
+    made_year = Column(String(20))
+    electric_spec = Column(String(100))
+    notes = Column(Text)
+    work_content = Column(String(200))
+    legal_inspection = Column(String(200))
+    inspector = Column(String(200))
+    repair_log = Column(Text)
+    list_site = Column(String(30))               # 一覧表の「工場」列（参考。所在は配置で決まる）
+    price = Column(Numeric(15, 0))
+    price_raw = Column(String(100))
+    asset_flag_raw = Column(String(50))          # 一覧表の「決算資産記載」列そのまま
+    depreciation_raw = Column(String(50))        # 一覧表の「償却資」列そのまま
+    status = Column(String(20), default="active")  # active / removed / disposed / unknown
+    extra_rows = Column(JSON)                    # 同一番号の付帯行（電気工事・移設費など）
+    sort_order = Column(Integer, default=0)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class EqAsset(Base):
+    """固定資産台帳の期ごとのスナップショット（CSV を期ごとに取り込む。機械以外の資産も含む）"""
+    __tablename__ = "eq_assets"
+    __table_args__ = (UniqueConstraint("period", "asset_key", name="uq_eq_assets_period_key"),)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    period = Column(String(10), nullable=False)   # 例 2026-02（期首の年月）
+    asset_key = Column(String(60), nullable=False)  # 台帳の管理番号。空欄の資産は名称・取得日・価額から生成した仮キー
+    asset_no = Column(String(30))
+    name = Column(String(300), nullable=False)
+    account = Column(String(50))                  # 勘定科目
+    acquired_on = Column(Date)
+    in_service_on = Column(Date)
+    price = Column(Numeric(15, 0))
+    quantity = Column(String(30))
+    department = Column(String(50))
+    method = Column(String(30))
+    useful_life = Column(String(10))
+    ending_balance = Column(Numeric(15, 0))
+    site_note = Column(String(100))               # 仕訳摘要（桜田・小牧 …）
+    remarks = Column(String(200))                 # 摘要
+    disposed_on = Column(Date)
+    sold_on = Column(Date)
+    raw = Column(JSON)
+    imported_at = Column(DateTime, server_default=func.now())
+
+
+class EqMachineAsset(Base):
+    """機械 ⇄ 固定資産の紐付け（多対多。台帳1行=機械3行、機械1行=台帳2行 の両方が実在する）"""
+    __tablename__ = "eq_machine_assets"
+    __table_args__ = (UniqueConstraint("machine_id", "asset_key", name="uq_eq_machine_assets"),)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    machine_id = Column(UUID(as_uuid=True), ForeignKey("eq_machines.id", ondelete="CASCADE"), nullable=False)
+    asset_key = Column(String(60), nullable=False)
+    link_type = Column(String(30), default="本体")   # 本体 / 付帯工事 / 移設費 / 親資産に含む / リース / その他
+    confidence = Column(String(20), default="candidate")  # confirmed / candidate
+    note = Column(Text)
+    created_by = Column(String(100))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    machine = relationship("EqMachine")
+
+
+class EqCommit(Base):
+    """図面ごとの確定（1回の確定で複数の移動をまとめて反映）"""
+    __tablename__ = "eq_commits"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    drawing_id = Column(UUID(as_uuid=True), ForeignKey("eq_drawings.id", ondelete="CASCADE"), nullable=False)
+    committed_at = Column(DateTime, nullable=False)
+    user_id = Column(UUID(as_uuid=True))
+    user_name = Column(String(100))
+    memo = Column(Text)
+    move_count = Column(Integer, default=0)
+
+
+class EqPlacement(Base):
+    """配置（有効期間付き）。valid_to が NULL の行が現在の配置。座標は画像に対する 0〜1 の比率"""
+    __tablename__ = "eq_placements"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    machine_id = Column(UUID(as_uuid=True), ForeignKey("eq_machines.id", ondelete="CASCADE"), nullable=False)
+    drawing_id = Column(UUID(as_uuid=True), ForeignKey("eq_drawings.id", ondelete="CASCADE"), nullable=False)
+    x = Column(Numeric(9, 6), nullable=False)
+    y = Column(Numeric(9, 6), nullable=False)
+    valid_from = Column(DateTime, nullable=False)
+    valid_to = Column(DateTime)
+    commit_id = Column(UUID(as_uuid=True), ForeignKey("eq_commits.id"))
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class EqMove(Base):
+    """移動 1 件ごとの履歴。commit_id が NULL のものは未確定（下書き）。undone_at が入ったものは取り消し済み"""
+    __tablename__ = "eq_moves"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    drawing_id = Column(UUID(as_uuid=True), ForeignKey("eq_drawings.id", ondelete="CASCADE"), nullable=False)
+    machine_id = Column(UUID(as_uuid=True), ForeignKey("eq_machines.id", ondelete="CASCADE"), nullable=False)
+    seq = Column(Integer, nullable=False)
+    kind = Column(String(10), nullable=False)     # place（未配置→配置） / move / remove（図面から外す）
+    from_x = Column(Numeric(9, 6))
+    from_y = Column(Numeric(9, 6))
+    to_x = Column(Numeric(9, 6))
+    to_y = Column(Numeric(9, 6))
+    moved_at = Column(DateTime, nullable=False)
+    user_id = Column(UUID(as_uuid=True))
+    user_name = Column(String(100))
+    commit_id = Column(UUID(as_uuid=True), ForeignKey("eq_commits.id"))
+    undone_at = Column(DateTime)
