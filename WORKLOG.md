@@ -15,6 +15,16 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-09-15 — Claude — 工場機械管理: 図面ごとの独立配置・初期配置 CSV 取込・図面 10 枚の初期配置データ
+**触ったファイル**: `backend/app/api/equipment.py`（配置を図面ごとに独立に変更、`POST /import/placements` 追加）, `backend/tests/test_equipment_api_sqlite.py`,
+`frontend/src/pages/EquipmentPage.tsx`（⑦初期配置の取込、機械一覧の「現在の図面」複数表示、未配置リストの並び）, `frontend/src/api/index.ts`,
+`tools/equipment_extract_positions.py`（新規: 赤枠検出 + OCR + 確認シート）, `docs/工場機械・図面管理_要件整理と実装方針_20260915.md`
+**内容**: 全体図と詳細図の両方に同じ機械が載るため、配置を図面ごとに独立にした（別図面で置いても他図面の配置は閉じない）。
+図面 10 枚（20260625_工場図面）の元図面から赤枠 178 個・溶接棚の黒枠 35 個を検出し、番号は切り出しシートを目視で読んで `_work/equipment/placements_initial.csv`（318 件）を作成。
+背景画像に番号を描いたオーバーレイ（`_work/equipment/positions/*_overlay.png`）で 10 枚とも元図面と一致することを確認。
+**確認**: SQLite 通しテスト（実データ）全項目通過。tsc / vite build OK。ローカル開発サーバで図面 10 枚を登録し CSV 取込 → 314 件配置（4 件は既配置で skip）、機械 204 台が図面上に載った。
+**未検証**: PostgreSQL。本番への図面登録と CSV 取込は管理者ログインが必要なため未実施（`_work/equipment/` に画像 20 枚と CSV を用意済み）。
+
 ### 2026-09-15 — Claude — 工場機械・図面管理モジュール（機械マスタ／固定資産台帳紐付け／図面配置と移動履歴）を追加
 **触ったファイル**: `backend/app/api/equipment.py`（新規）, `backend/app/db/models.py`（末尾に Eq* 8 クラス追加）, `backend/migrations/equipment.sql`（新規・写し）,
 `backend/app/main.py`（equipment ルーター登録の 2 行のみ）, `backend/tests/test_equipment_api_sqlite.py`（新規）, `backend/tests/dev_equipment_server.py`（新規・ローカル画面確認用）,

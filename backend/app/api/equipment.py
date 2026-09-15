@@ -407,14 +407,15 @@ def delete_drawing(drawing_id: str, db: Session = Depends(get_db), _: User = Dep
 # 機械マスタ
 # ------------------------------------------------------------
 def _current_placements(db: Session, machine_ids: Optional[list] = None) -> dict:
-    """machine_id -> {drawing_id, drawing_name, site_name, x, y, since} （現在の配置）"""
+    """machine_id -> [{drawing_id, drawing_name, site_name, x, y, since}, ...] （現在の配置。
+    全体図と詳細図のように同じ機械が複数の図面に載ることがあるため、図面ごとに独立して持つ）"""
     q = db.query(EqPlacement, EqDrawing).join(EqDrawing, EqDrawing.id == EqPlacement.drawing_id).filter(EqPlacement.valid_to.is_(None))
     if machine_ids is not None:
         q = q.filter(EqPlacement.machine_id.in_(machine_ids))
     out = {}
-    for p, d in q.all():
-        out[p.machine_id] = {"drawing_id": str(d.id), "drawing_name": d.name, "site_name": d.site.name if d.site else None,
-                             "x": _f(p.x), "y": _f(p.y), "since": _iso(p.valid_from)}
+    for p, d in q.order_by(EqDrawing.name).all():
+        out.setdefault(p.machine_id, []).append({"drawing_id": str(d.id), "drawing_name": d.name, "site_name": d.site.name if d.site else None,
+                                                 "x": _f(p.x), "y": _f(p.y), "since": _iso(p.valid_from)})
     return out
 
 
@@ -445,12 +446,13 @@ def list_machines(search: Optional[str] = None, status: Optional[str] = None, li
         st = "unlinked" if not links else ("linked" if all(l["confidence"] == "confirmed" for l in links) else "candidate")
         if link_state and link_state != st:
             continue
-        pl = placements.get(m.id)
+        pl = placements.get(m.id) or []
         if placed == "yes" and not pl:
             continue
         if placed == "no" and pl:
             continue
-        d = _machine_dict(m, links, pl)
+        d = _machine_dict(m, links, pl[0] if pl else None)
+        d["placements"] = pl
         d["link_state"] = st
         d["in_ledger"] = any(l["asset"] for l in links)
         out.append(d)
@@ -469,7 +471,10 @@ def get_machine(machine_id: str, db: Session = Depends(get_db)):
     assets = {a.asset_key: a for a in db.query(EqAsset).filter(EqAsset.period == period).all()} if period else {}
     links = [_link_dict(l, assets.get(l.asset_key)) for l in
              db.query(EqMachineAsset).filter(EqMachineAsset.machine_id == m.id).order_by(EqMachineAsset.created_at).all()]
-    return _machine_dict(m, links, _current_placements(db, [m.id]).get(m.id))
+    pl = _current_placements(db, [m.id]).get(m.id) or []
+    d = _machine_dict(m, links, pl[0] if pl else None)
+    d["placements"] = pl
+    return d
 
 
 def _is_uuid(v) -> bool:
@@ -1008,13 +1013,18 @@ def drawing_board(drawing_id: str, as_of: Optional[str] = None, db: Session = De
                                draft=draft_kind.get(mid), committed_x=_f(p.x) if p else None, committed_y=_f(p.y) if p else None))
     removed = [dict(md(mid), x=_f(p.x), y=_f(p.y), since=_iso(p.valid_from), draft="remove")
                for mid, p in committed.items() if draft_kind.get(mid) == "remove" and mid in machines]
-    # 未配置 = どの図面にも現在の配置が無く、この図面の下書きで置かれてもいない機械（除去・処分済みは除く）
-    placed_anywhere = {p.machine_id for p in db.query(EqPlacement).filter(EqPlacement.valid_to.is_(None)).all()}
-    other_drafts = {mv.machine_id for mv in db.query(EqMove).filter(EqMove.commit_id.is_(None), EqMove.undone_at.is_(None),
-                                                                     EqMove.drawing_id != d.id, EqMove.kind != "remove").all()}
-    unplaced = [dict(md(m.id), elsewhere_draft=(m.id in other_drafts)) for m in
-                sorted(machines.values(), key=lambda m: (m.sort_order or 0, m.code))
-                if m.id not in placed_anywhere and m.id not in state and m.status == "active"]
+    # 未配置 = この図面に置かれていない稼働中の機械（他の図面に載っていてもよい。全体図と詳細図の両方に置けるようにするため）。
+    # 図面の拠点と一覧表の「工場」が合うものを先に出す
+    elsewhere = _current_placements(db)
+    site_name = d.site.name if d.site else ""
+
+    def same_site(m):
+        ls = (m.list_site or "").replace("？", "")
+        return bool(ls) and (site_name.startswith(ls) or ls.startswith(site_name[:2]))
+    unplaced = [dict(md(m.id), same_site=same_site(m),
+                     placed_elsewhere=[p["drawing_name"] for p in elsewhere.get(m.id, []) if p["drawing_id"] != str(d.id)]) for m in
+                sorted(machines.values(), key=lambda m: (not same_site(m), m.sort_order or 0, m.code))
+                if m.id not in state and m.status == "active"]
     out.update({"placements": placements, "removed_in_draft": removed,
                 "draft_moves": [_move_dict(mv, machine=machines.get(mv.machine_id)) for mv in drafts],
                 "unplaced": unplaced,
@@ -1056,10 +1066,7 @@ def add_move(drawing_id: str, data: dict, db: Session = Depends(get_db), user: U
             kind = "place"
         if kind == "place" and cur is not None:
             kind = "move"
-        if kind == "place":
-            # 他の図面に現在の配置があれば、確定時にそちらは自動で閉じる（機械は 1 か所にしか無い）
-            pass
-    seq = (db.query(sqlfunc.max(EqMove.seq)).filter(EqMove.drawing_id == d.id).scalar() or 0) + 1
+    seq =(db.query(sqlfunc.max(EqMove.seq)).filter(EqMove.drawing_id == d.id).scalar() or 0) + 1
     mv = EqMove(drawing_id=d.id, machine_id=m.id, seq=seq, kind=kind,
                 from_x=cur[0] if cur else None, from_y=cur[1] if cur else None, to_x=to_x, to_y=to_y,
                 moved_at=_now(), user_id=user.id, user_name=user.full_name)
@@ -1118,9 +1125,9 @@ def commit_draft(drawing_id: str, data: Optional[dict] = None, db: Session = Dep
             continue
         if cur is not None and abs(_f(cur.x) - x) < 1e-9 and abs(_f(cur.y) - y) < 1e-9:
             continue  # 動かして元に戻した場合は履歴を切らない
-        # 他図面も含め、現在の配置をすべて閉じる（機械は 1 か所）
-        for p in db.query(EqPlacement).filter(EqPlacement.machine_id == mid, EqPlacement.valid_to.is_(None)).all():
-            p.valid_to = now
+        # この図面の現在の配置を閉じて新しい配置を開く（他の図面の配置には触らない）
+        if cur is not None:
+            cur.valid_to = now
         db.add(EqPlacement(machine_id=mid, drawing_id=d.id, x=x, y=y, valid_from=now, commit_id=c.id))
         changed += 1
     # 下書き（取り消し済みを含む）を確定に紐づける
@@ -1128,6 +1135,70 @@ def commit_draft(drawing_id: str, data: Optional[dict] = None, db: Session = Dep
         mv.commit_id = c.id
     db.commit()
     return {"ok": True, "commit": _commit_dict(c), "changed": changed}
+
+
+@router.post("/import/placements")
+async def import_placements(file: UploadFile = File(...), apply: bool = Form(False), memo: Optional[str] = Form(None),
+                            db: Session = Depends(get_db), user: User = Depends(require_admin)):
+    """初期配置 CSV（drawing, machine_code, x, y）を取り込む。drawing は図面名（完全一致）、x/y は画像に対する 0〜1。
+    図面ごとに下書きを作って確定する（既にその図面に置かれている機械は飛ばす）。apply=false はプレビューのみ"""
+    text = _decode_csv(await file.read())
+    reader = csv.DictReader(io.StringIO(text))
+    need = {"drawing", "machine_code", "x", "y"}
+    if not reader.fieldnames or not need.issubset(set(reader.fieldnames)):
+        raise HTTPException(400, "ヘッダーに drawing, machine_code, x, y が必要です")
+    # 図面は名前、または登録時の画像ファイル名（拡張子あり／なし）で引ける
+    drawings = {}
+    for d in db.query(EqDrawing).filter(EqDrawing.is_active == True).all():
+        drawings.setdefault(d.name, d)
+        if d.source_filename:
+            drawings.setdefault(d.source_filename, d)
+            drawings.setdefault(d.source_filename.rsplit(".", 1)[0], d)
+    machines = {m.code: m for m in db.query(EqMachine).all()}
+    plan, errors, skipped = {}, [], []
+    for i, r in enumerate(reader, 2):
+        dn = (r.get("drawing") or "").strip(); code = _norm_code(r.get("machine_code"))
+        d = drawings.get(dn) or drawings.get(dn.rsplit(".", 1)[0]); m = machines.get(code)
+        if not d:
+            errors.append(f"{i}行目: 図面「{dn}」が無い"); continue
+        if not m:
+            errors.append(f"{i}行目: 機械 {code} が無い"); continue
+        try:
+            x = float(r.get("x")); y = float(r.get("y"))
+            if not (0 <= x <= 1 and 0 <= y <= 1):
+                raise ValueError
+        except (TypeError, ValueError):
+            errors.append(f"{i}行目: 座標が不正 ({r.get('x')}, {r.get('y')})"); continue
+        plan.setdefault(d.id, {})
+        if m.id in plan[d.id]:
+            skipped.append(f"{dn}: {code} が重複（後の行を無視）"); continue
+        plan[d.id][m.id] = (x, y, code)
+    created, per_drawing = 0, []
+    now = _now()
+    for did, items in plan.items():
+        d = db.query(EqDrawing).filter(EqDrawing.id == did).first()
+        state = _effective_state(db, did)
+        todo = {mid: v for mid, v in items.items() if mid not in state}
+        for mid, (x, y, code) in items.items():
+            if mid in state:
+                skipped.append(f"{d.name}: {code} は既に配置済み")
+        per_drawing.append({"drawing": d.name, "rows": len(items), "to_place": len(todo)})
+        if not apply or not todo:
+            continue
+        seq = (db.query(sqlfunc.max(EqMove.seq)).filter(EqMove.drawing_id == did).scalar() or 0)
+        c = EqCommit(drawing_id=did, committed_at=now, user_id=user.id, user_name=user.full_name,
+                     memo=(memo or "初期配置（CSV取込）").strip(), move_count=len(todo))
+        db.add(c); db.flush()
+        for mid, (x, y, code) in todo.items():
+            seq += 1
+            db.add(EqMove(drawing_id=did, machine_id=mid, seq=seq, kind="place", to_x=x, to_y=y, moved_at=now,
+                          user_id=user.id, user_name=user.full_name, commit_id=c.id))
+            db.add(EqPlacement(machine_id=mid, drawing_id=did, x=x, y=y, valid_from=now, commit_id=c.id))
+            created += 1
+    if apply:
+        db.commit()
+    return {"applied": bool(apply), "placed": created if apply else sum(p["to_place"] for p in per_drawing),
+            "drawings": per_drawing, "skipped": skipped, "errors": errors}
 
 
 @router.get("/drawings/{drawing_id}/commits")

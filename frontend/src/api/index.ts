@@ -476,6 +476,10 @@ export const equipmentApi = {
     return api.post('/equipment/import/links', fd, multipart(fd));
   },
   reconcile: (period?: string) => api.get('/equipment/reconcile', { params: { period } }),
+  importPlacements: (file: File, apply: boolean, memo?: string) => {
+    const fd = new FormData(); fd.append('file', file); fd.append('apply', String(apply)); if (memo) fd.append('memo', memo);
+    return api.post('/equipment/import/placements', fd, multipart(fd));
+  },
   // 配置（下書き → 確定）
   board: (drawingId: string, as_of?: string) => api.get(`/equipment/drawings/${drawingId}/board`, { params: as_of ? { as_of } : {} }),
   addMove: (drawingId: string, data: any) => api.post(`/equipment/drawings/${drawingId}/moves`, data),

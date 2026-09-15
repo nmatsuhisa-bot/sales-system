@@ -343,7 +343,8 @@ function BoardTab({ reloadKey, onChanged }: { reloadKey: number; onChanged: () =
           {!readOnly && (
             <div className="border rounded bg-white flex-1 min-h-0 flex flex-col">
               <div className="px-2 py-1.5 border-b text-xs font-medium text-gray-700 flex items-center gap-1">
-                未配置の機械 <span className="text-gray-400">({board?.unplaced?.length ?? 0})</span>
+                この図面に無い機械 <span className="text-gray-400">({board?.unplaced?.length ?? 0})</span>
+                <span className="ml-auto text-[10px] font-normal text-gray-400">同じ拠点を先に表示</span>
               </div>
               <div className="px-2 py-1 border-b">
                 <div className="flex items-center gap-1 border rounded px-1.5"><Search size={12} className="text-gray-400" />
@@ -356,7 +357,7 @@ function BoardTab({ reloadKey, onChanged }: { reloadKey: number; onChanged: () =
                     className={`px-2 py-1 border-b cursor-grab hover:bg-indigo-50 ${selected === m.id ? 'bg-indigo-50' : ''}`}
                     title="図面へドラッグして配置">
                     <span className="font-semibold text-gray-800">{m.code}</span> <span className="text-gray-700">{m.name}</span>
-                    <div className="text-gray-400">{[m.list_site, m.model].filter(Boolean).join(' / ')}{m.elsewhere_draft && <span className="ml-1 text-amber-700">他図面に未確定</span>}</div>
+                    <div className="text-gray-400">{[m.list_site, m.model].filter(Boolean).join(' / ')}{!!m.placed_elsewhere?.length && <span className="ml-1 text-sky-700">他図面: {m.placed_elsewhere.join(', ')}</span>}</div>
                   </div>
                 ))}
                 {!unplaced.length && <div className="p-2 text-gray-400">該当なし</div>}
@@ -492,7 +493,7 @@ function MachinesTab({ reloadKey, onChanged }: { reloadKey: number; onChanged: (
             <tr key={r.id} className="hover:bg-indigo-50/40">
               <Td className="font-semibold whitespace-nowrap">{r.code}</Td><Td>{r.name}</Td><Td>{r.model}</Td><Td>{r.maker}</Td><Td>{r.made_year}</Td>
               <Td right>{r.price != null ? yen(r.price) : (r.price_raw || '')}</Td><Td>{r.list_site}</Td><Td>{r.asset_flag_raw}</Td>
-              <Td>{r.placement ? <span>{r.placement.drawing_name}</span> : <span className="text-gray-400">未配置</span>}</Td>
+              <Td>{r.placements?.length ? r.placements.map((p: any) => p.drawing_name).join(' / ') : <span className="text-gray-400">未配置</span>}</Td>
               <Td>{r.links.length ? r.links.map((l: any) => <LinkBadge key={l.id} l={l} />) : <span className="text-gray-400">—</span>}</Td>
               <Td><span className={`px-1.5 py-0.5 rounded ${r.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{STATUS_LABEL[r.status] || r.status}</span></Td>
               <Td className="whitespace-nowrap">
@@ -745,6 +746,7 @@ function SetupTab({ onChanged }: { onChanged: () => void }) {
   const [aFile, setAFile] = useState<File | null>(null); const [aPeriod, setAPeriod] = useState(''); const [aPreview, setAPreview] = useState<any>(null);
   const [lFile, setLFile] = useState<File | null>(null); const [lPreview, setLPreview] = useState<any>(null);
   const [dForm, setDForm] = useState<any>({ site_id: '', name: '', scale_note: '', valid_from: '', file: null, original: null });
+  const [pFile, setPFile] = useState<File | null>(null); const [pPreview, setPPreview] = useState<any>(null);
   const [newSite, setNewSite] = useState({ code: '', name: '' });
   const [busy, setBusy] = useState(false);
 
@@ -847,6 +849,19 @@ function SetupTab({ onChanged }: { onChanged: () => void }) {
                 </tr>))}</tbody>
             </table>
           </div>
+        </Card>
+        <Card title="⑦ 初期配置の取込（CSV）">
+          <p className="text-xs text-gray-500 mb-2">CSV（drawing, machine_code, x, y）で図面上の位置を一括登録します。drawing は⑤で登録した図面名、x/y は画像の左上からの比率（0〜1）。図面ごとに「初期配置（CSV取込）」として確定され、既にその図面に置かれている機械は飛ばします。元図面の赤枠から作った CSV は <code>tools/equipment_extract_positions.py</code> で作れます。</p>
+          <div className="flex items-end gap-2 flex-wrap">
+            <input type="file" accept=".csv" onChange={e => { setPFile(e.target.files?.[0] || null); setPPreview(null); }} className="text-xs" />
+            <button disabled={!pFile || busy} onClick={() => run(() => equipmentApi.importPlacements(pFile!, false)).then(d => d && setPPreview(d))} className="px-3 py-1.5 border rounded hover:bg-gray-50 disabled:opacity-40">プレビュー</button>
+            <button disabled={!pPreview || busy} onClick={() => run(() => equipmentApi.importPlacements(pFile!, true), r => `初期配置を ${r.placed} 件登録しました`).then(() => setPPreview(null))} className="px-3 py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40">取込を確定</button>
+          </div>
+          {pPreview && <div className="mt-2 text-xs bg-gray-50 border rounded p-2">
+            <div>配置予定 <b>{pPreview.placed}</b> 件（{pPreview.drawings.map((d: any) => `${d.drawing} ${d.to_place}/${d.rows}`).join(' / ')}）</div>
+            {!!pPreview.skipped.length && <div className="text-gray-500 mt-1">飛ばす: {pPreview.skipped.join('、')}</div>}
+            {!!pPreview.errors.length && <div className="text-red-700 mt-1">{pPreview.errors.map((e: string) => <div key={e}>{e}</div>)}</div>}
+          </div>}
         </Card>
         <Card title="⑥ 拠点">
           <div className="flex flex-wrap gap-1 mb-2 text-xs">{sites.map(s => <span key={s.id} className={`px-2 py-0.5 rounded border ${s.is_active ? 'bg-white' : 'bg-gray-100 text-gray-400'}`}>{s.name} <span className="text-gray-400">({s.code})</span></span>)}</div>

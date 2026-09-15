@@ -208,13 +208,27 @@ past0 = ok(client.get(f"/api/equipment/drawings/{did}/board", params={"as_of": "
 check(past0["placements"] == [], "取込前の日付では配置なし")
 check(any(u["code"] == "SK-17" for u in now_board["unplaced"]), "外した SK-17 は未配置に戻る")
 
-# ---- 別図面へ移す（place すると確定時に元図面の配置が閉じる） ----
+# ---- 別図面にも置く（全体図と詳細図のように、同じ機械が複数の図面に載れる） ----
 if len(dids) > 1:
     did2 = dids[1]
+    b2 = ok(client.get(f"/api/equipment/drawings/{did2}/board"), "別図面 board")
+    u = next((u for u in b2["unplaced"] if u["code"] == "S1-13"), None)
+    check(u is not None and u["placed_elsewhere"], "別図面の未配置リストに S1-13 が『他図面に配置済み』として出る")
     ok(client.post(f"/api/equipment/drawings/{did2}/moves", json={"machine_code": "S1-13", "kind": "place", "x": 0.1, "y": 0.1}), "別図面に S1-13 を place")
-    ok(client.post(f"/api/equipment/drawings/{did2}/commit", json={"memo": "移設"}), "別図面 commit")
+    ok(client.post(f"/api/equipment/drawings/{did2}/commit", json={"memo": "全体図にも配置"}), "別図面 commit")
     b1 = ok(client.get(f"/api/equipment/drawings/{did}/board"), "元図面 board")
-    check(not any(p["code"] == "S1-13" for p in b1["placements"]), "元図面から S1-13 が消える")
+    check(any(p["code"] == "S1-13" for p in b1["placements"]), "元図面の S1-13 はそのまま残る")
+    mm = ok(client.get("/api/equipment/machines/S1-13"), "machine S1-13")
+    check(len(mm["placements"]) == 2, "S1-13 の現在の配置は 2 図面")
+    # 初期配置 CSV（図面は名前で指定。dl は名前順なので id から名前を引く）
+    dn2 = next(x["name"] for x in dl if x["id"] == did2)
+    csv_pl = ("drawing,machine_code,x,y\n"
+              f"{dn2},K-36,0.3,0.3\n{dn2},S1-13,0.5,0.5\n{dn2},ZZ-99,0.1,0.1\nない図面,K-36,0.1,0.1\n{dn2},F-10,1.5,0.1\n")
+    pv = ok(client.post("/api/equipment/import/placements", files={"file": ("p.csv", csv_pl.encode("utf-8-sig"), "text/csv")}, data={"apply": "false"}), "初期配置 CSV プレビュー")
+    check(pv["placed"] == 1 and len(pv["errors"]) == 3 and any("配置済み" in s for s in pv["skipped"]), f"プレビュー: 配置 1・エラー 3・配置済み 1 → {pv}")
+    ip = ok(client.post("/api/equipment/import/placements", files={"file": ("p.csv", csv_pl.encode("utf-8-sig"), "text/csv")}, data={"apply": "true"}), "初期配置 CSV 取込")
+    b2 = ok(client.get(f"/api/equipment/drawings/{did2}/board"), "別図面 board(取込後)")
+    check(ip["placed"] == 1 and any(p["code"] == "K-36" and p["x"] == 0.3 for p in b2["placements"]) and b2["last_commit"]["memo"].startswith("初期配置"), "CSV 取込で K-36 が配置され確定される")
 
 # ---- 履歴 ----
 h = ok(client.get(f"/api/equipment/machines/{by_code['S1-13']['id']}/history"), "machine history")
