@@ -1040,6 +1040,13 @@ def fan_order_pdf(order_id: str, format: str = "html", mode: str = "", db: Sessi
     d = fan_to_dict(f) if f else get_fan(order_id, db)
     sp = d.get("spec_json") or {}
     ftype = d.get("form_type") if d.get("form_type") in FAN_FORMS else "PL"
+    # 様式を切り替えたとき、名称が前の様式の既定名のままだと食い違うため追従させる。
+    # 手で書き換えた名称（既定名以外）はそのまま残す
+    _defaults = {v[0] for v in FAN_FORMS.values()} | {'ターボファン'}
+    if not d.get("product_name") or d.get("product_name") in _defaults:
+        if d.get("product_name") != FAN_FORMS[ftype][0] and not (
+                ftype == "PL" and d.get("product_name") == 'ターボファン'):
+            d["product_name"] = FAN_FORMS[ftype][0]
     M = _mode(format, mode)
     F = lambda k, v=None, block=False: ef(M, k, get_path(d, k) if v is None else v, block)
 
