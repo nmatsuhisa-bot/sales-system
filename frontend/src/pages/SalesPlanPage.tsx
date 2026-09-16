@@ -205,7 +205,8 @@ export default function SalesPlanPage() {
         <h1 className="text-xl font-bold text-gray-800">売上計画表</h1>
         <div className="flex gap-2 items-center">
           <select value={year} onChange={e => setYear(Number(e.target.value))} className="border rounded px-2 py-1 text-sm">
-            {[thisYear - 2, thisYear - 1, thisYear, thisYear + 1].map(y => (
+            {/* 先の年度の受注（例: 2028年度の売上予定）も選べるよう +2 年まで出す */}
+            {[thisYear - 2, thisYear - 1, thisYear, thisYear + 1, thisYear + 2].map(y => (
               <option key={y} value={y}>{y}年度（{y}/2/21〜{y + 1}/2/20）</option>
             ))}
           </select>

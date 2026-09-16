@@ -2300,12 +2300,33 @@ def _fan_defaults(q):
         m = _re.search(r'(\d+\.?\d*)\s*kw', fan.item_name, _re.IGNORECASE)
         if m:
             kw = m.group(1)
+    # 極数・周波数・電圧は、パターン選択で保存された仕様(spec_json)と品名から拾う
+    pole = hz = volt = ''
+    for i in q.line_items:
+        sj = i.spec_json or {}
+        if not hz and sj.get('hz'):
+            hz = str(sj['hz'])
+        if not volt and sj.get('voltage'):
+            volt = str(sj['voltage'])
+        text = (i.item_name or '') + ' ' + (i.spec_detail or '')
+        if not pole:
+            m = _re.search(r'(\d+)\s*[pP]\b', text)
+            if m:
+                pole = m.group(1)
     return {
         "sales_person_name": q.sales_person_name or "", "model": model,
         "customer_name": q.customer_name or "", "order_no": q.child_no or q.quotation_no or "",
-        "delivery_name": q.delivery_name or "", "usage_spec": model,
+        "delivery_name": q.delivery_name or "", "usage_spec": _pick_s(q.title, model),
         "motor_kw": kw, "motor_note": "IE3",
+        "motor_pole": pole, "motor_hz": hz, "motor_v": volt,
     }
+
+
+def _pick_s(*vals):
+    for v in vals:
+        if v not in (None, ""):
+            return v
+    return ""
 
 
 def _cp_defaults(q):

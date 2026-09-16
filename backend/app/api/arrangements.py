@@ -337,16 +337,48 @@ def hotel_to_dict(h):
 # =============================================
 # 案件・見積からの自動補完
 # =============================================
+def _norm_name(s):
+    """会社名の照合用。全角半角・空白・法人格の表記ゆれを無視する。"""
+    import unicodedata
+    t = unicodedata.normalize('NFKC', str(s or '')).lower()
+    for w in ('株式会社', '有限会社', '合同会社', '(株)', '(有)', '(同)'):
+        t = t.replace(w, '')
+    return re.sub(r'[\s・,.\-_()（）]', '', t)
+
+
+def _site_master(po, db):
+    """納入先マスタから現場の住所・TELを引く。
+
+    案件（子ID）の顧客IDで引き、無ければ顧客名で照合する。
+    住所・TELは見積に無いため、ここが唯一の自動補完の情報源になる。
+    """
+    from app.db.models import DeliveryDestination
+    d = None
+    if po.customer_code:
+        d = db.query(DeliveryDestination).filter(
+            DeliveryDestination.customer_id == po.customer_code).first()
+    if not d and po.customer_name:
+        key = _norm_name(po.customer_name)
+        for cand in db.query(DeliveryDestination).limit(2000).all():
+            full = cand.company_factory_name or ((cand.company_name or '') + (cand.factory_name or ''))
+            if _norm_name(full) == key or _norm_name(cand.company_name) == key:
+                d = cand
+                break
+    return d
+
+
 def _order_context(po, db):
     """案件と見積から、手配書に流用できる情報をまとめて取り出す。
 
     見積は納入先（delivery_name / delivery_place）を持っているので、
     現場名・住所はそちらを優先する。無ければ案件の顧客名で埋める。
+    住所・TELは見積にも案件にも無いため、納入先マスタから補う。
     """
     q = latest_quotation(po, db)
     ctx = {
         "child_no": po.child_no or '',
         "customer_name": po.customer_name or '',
+        "agency_name": po.agency_name or '',
         "project_name": po.project_name or '',
         "sales_person_name": po.sales_person_name or '',
         "site_name": po.customer_name or '',
@@ -355,7 +387,10 @@ def _order_context(po, db):
         "site_contact": '',
         "ship_date": po.shipment_date or po.expected_shipment_date,
         "quotation_no": po.quotation_no or '',
+        "quotation_title": '',
+        "delivery_terms": '',
         "line_items": [],
+        "labor_details": [],
     }
     if q:
         ctx["site_name"] = _pick(q.delivery_name, q.customer_name, ctx["site_name"])
@@ -364,12 +399,98 @@ def _order_context(po, db):
         ctx["sales_person_name"] = _pick(q.sales_person_name, ctx["sales_person_name"])
         ctx["creator_name"] = _pick(q.created_by_name, '')
         ctx["quotation_no"] = _pick(q.quotation_no, ctx["quotation_no"])
-        try:
-            ctx["line_items"] = list(q.line_items or [])
-        except Exception:
-            ctx["line_items"] = []
+        ctx["quotation_title"] = _pick(q.title, '')
+        ctx["delivery_terms"] = _pick(q.delivery_terms, '')
+        ctx["agency_name"] = _pick(q.customer_name, ctx["agency_name"])
+        for attr, key in (("line_items", "line_items"), ("labor_details", "labor_details")):
+            try:
+                ctx[key] = list(getattr(q, attr) or [])
+            except Exception:
+                ctx[key] = []
+    m = _site_master(po, db)
+    if m:
+        ctx["site_address"] = _pick(ctx["site_address"], m.address)
+        ctx["site_tel"] = _pick(ctx["site_tel"], m.tel)
+        ctx["site_name"] = _pick(ctx["site_name"], m.company_factory_name, m.company_name)
     ctx.setdefault("creator_name", '')
     return ctx
+
+
+# 社内工数・見積明細から、クレーン/作業車の手配に該当する行を拾うための語
+CRANE_WORD_RE = re.compile(
+    r'クレーン|ｸﾚｰﾝ|ユニック|ﾕﾆｯｸ|レッカー|ﾚｯｶｰ|ラフター|ﾗﾌﾀｰ|高所|リフト|ﾘﾌﾄ|ゴンドラ')
+# 送り状に積まない（工事・役務）行
+SERVICE_WORD_RE = re.compile(
+    r'工事|据付|据え付け|試運転|調整|運搬|輸送|設計|製図|諸経費|出張|養生|撤去|工費|人件')
+
+
+def _dstr(d):
+    return d.isoformat() if hasattr(d, 'isoformat') else (d or '')
+
+
+def _qty(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return ''
+    return str(int(f)) if f == int(f) else ('%g' % f)
+
+
+def _crane_items_from_quotation(ctx):
+    """見積の社内工数（レッカー種別のある行）と明細から、依頼書の明細を作る。
+
+    工数マスタの「レッカー」「クレーン」等の行が手配対象。使用期間は出荷予定日を入れる。
+    読み取れない項目（時間・納品方法・返却方法）は空欄のまま画面で加筆してもらう。
+    """
+    ds = _dstr(ctx.get("ship_date"))
+    items = []
+    for l in ctx.get("labor_details") or []:
+        name = getattr(l, 'item_name', '') or ''
+        crane = getattr(l, 'crane_type', '') or ''
+        if not crane and not CRANE_WORD_RE.search(name):
+            continue
+        qty = _qty(getattr(l, 'quantity', None))
+        unit = getattr(l, 'unit', '') or ''
+        items.append({
+            "machine": crane or name,
+            "spec": ' '.join(x for x in [name if crane else '', (qty + unit) if qty else ''] if x),
+            "start_date": ds, "start_time": '', "end_date": ds, "end_time": '',
+            "delivery": '', "return_method": '', "note": '',
+        })
+    if not items:
+        for it in ctx.get("line_items") or []:
+            text = (getattr(it, 'item_name', '') or '')
+            if CRANE_WORD_RE.search(text):
+                items.append({
+                    "machine": text, "spec": getattr(it, 'spec_detail', '') or '',
+                    "start_date": ds, "start_time": '', "end_date": ds, "end_time": '',
+                    "delivery": '', "return_method": '', "note": '',
+                })
+    return items[:6]
+
+
+def _shipping_items_from_quotation(ctx):
+    """見積明細の機械本体（工事・役務を除く行）から、送り状の積込内容を作る。
+
+    原紙は1明細＝トラック1台のため、既定は1台分にまとめる。台数が増える場合は
+    画面の「明細を追加」で増やしてもらう。
+    """
+    names = []
+    for it in ctx.get("line_items") or []:
+        nm = (getattr(it, 'item_name', '') or '').strip()
+        if not nm or SERVICE_WORD_RE.search(nm):
+            continue
+        q = _qty(getattr(it, 'quantity', None))
+        unit = getattr(it, 'unit', '') or ''
+        names.append(nm + (f'　{q}{unit}' if q and q != '1' else ''))
+    if not names:
+        return []
+    return [{
+        "truck_type": '', "load_date": '', "arrive_date": _dstr(ctx.get("ship_date")),
+        "arrive_time": '', "cargo": '、'.join(names[:8]),
+        "load1_place": '', "load1_time": '', "load2_place": '', "load2_time": '',
+        "load3_place": '', "load3_time": '', "note": '',
+    }]
 
 
 # =============================================
@@ -392,7 +513,7 @@ def get_crane(order_id: str, db: Session = Depends(get_db)):
         "order_no": po.child_no or '',
         "issue_date": date.today().isoformat(),
         "staff_name": ctx["sales_person_name"], "creator_name": ctx["creator_name"],
-        "items_json": [], "notes": '',
+        "items_json": _crane_items_from_quotation(ctx), "notes": '',
         "_autofilled": True,
     }
 
@@ -537,7 +658,7 @@ def get_shipping(order_id: str, db: Session = Depends(get_db)):
         "order_no": po.child_no or '',
         "issue_date": date.today().isoformat(),
         "staff_name": ctx["sales_person_name"], "creator_name": ctx["creator_name"],
-        "items_json": [], "notes": '',
+        "items_json": _shipping_items_from_quotation(ctx), "notes": '',
         "_autofilled": True,
     }
 
@@ -692,6 +813,29 @@ def _fan_autofill(po, db):
     return ctx, model, kw, pole, dias
 
 
+def _fan_spec_from_quotation(ctx):
+    """見積明細の spec_json（BFQ/BFRパターンで保存される仕様）から、製品名・周波数・電圧を拾う。
+
+    パターン選択で作った明細には hz / voltage / fan_model が入っているため、
+    文字列の読み取りより確実に取れる。
+    """
+    out = {"product_name": 'プレートファン', "frequency": '', "voltage": '', "fan_model": ''}
+    for it in ctx.get("line_items") or []:
+        sj = getattr(it, 'spec_json', None) or {}
+        name = (getattr(it, 'item_name', '') or '') + ' ' + (getattr(it, 'spec_detail', '') or '')
+        if not out["frequency"] and sj.get('hz'):
+            out["frequency"] = '%sHz' % sj['hz']
+        if not out["voltage"] and sj.get('voltage'):
+            out["voltage"] = '%sV' % sj['voltage']
+        if not out["fan_model"] and sj.get('fan_model'):
+            out["fan_model"] = str(sj['fan_model'])
+        if 'ターボファン' in name or 'ﾀｰﾎﾞﾌｧﾝ' in name:
+            out["product_name"] = 'ターボファン'
+        elif 'プレートファン' in name or 'ﾌﾟﾚｰﾄﾌｧﾝ' in name:
+            out["product_name"] = 'プレートファン'
+    return out
+
+
 @router.get("/fan/{order_id}")
 def get_fan(order_id: str, db: Session = Depends(get_db)):
     po = find_order(order_id, db)
@@ -699,6 +843,7 @@ def get_fan(order_id: str, db: Session = Depends(get_db)):
     if f:
         return fan_to_dict(f)
     ctx, model, kw, pole, dias = _fan_autofill(po, db)
+    spec = _fan_spec_from_quotation(ctx)
     return {
         "id": None, "child_no": po.child_no, "order_no": po.child_no or '',
         "form_type": "PL",
@@ -711,10 +856,10 @@ def get_fan(order_id: str, db: Session = Depends(get_db)):
         "ship_to_contact": ctx["site_contact"],
         "ship_date": ctx["ship_date"].isoformat() if ctx["ship_date"] else None,
         "transport_method": '',
-        "product_name": 'プレートファン', "model": model,
+        "product_name": spec["product_name"], "model": _pick(model, spec["fan_model"]),
         "serial_no": '', "drive_type": '',
         "spec_json": {
-            "frequency": '', "voltage": '', "control_voltage": '',
+            "frequency": spec["frequency"], "voltage": spec["voltage"], "control_voltage": '',
             "motor_kw": kw, "motor_pole": pole, "motor_type": '',
             "motor_flange": '', "motor_maker": '', "motor_note": '',
             "spec_place": '', "intake_dia": dias[0] if dias else '',
@@ -724,7 +869,8 @@ def get_fan(order_id: str, db: Session = Depends(get_db)):
             "paint_color": '', "color_no": '',
         },
         "instruction_json": {
-            "order_customer": ctx["customer_name"], "usage_spec": '',
+            "order_customer": _pick(ctx["agency_name"], ctx["customer_name"]),
+            "usage_spec": _pick(ctx["quotation_title"], ctx["project_name"]),
             "bearing_fan": '', "bearing_pulley": '',
             "motor_pulley": '', "fan_pulley": '', "belt": '', "rpm": '',
             "cover": '', "inspection_port": '', "frame": '', "paint": '',
@@ -937,10 +1083,12 @@ def get_hotel(order_id: str, db: Session = Depends(get_db)):
     po = find_order(order_id, db)
     h = db.query(HotelArrangement).filter(HotelArrangement.project_order_id == po.id).first()
     if not h:
+        ctx = _order_context(po, db)
         return {
             "id": None, "child_no": po.child_no,
-            "site_name": po.customer_name or '', "site_address": '',
+            "site_name": ctx["site_name"], "site_address": ctx["site_address"],
             "items_json": [], "notes": '',
+            "_autofilled": True,
         }
     return hotel_to_dict(h)
 
