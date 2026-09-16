@@ -273,9 +273,11 @@ def list_projects(
             Project.sales_person_name.ilike(f"%{search}%"),
         ))
     total = q.count()
-    # 既定は「直近に動いた案件」が上。案件ID順にも切り替えられる
-    order = desc(Project.project_no) if sort == "project_no" else desc(Project.updated_at)
-    items = q.order_by(order).offset((page-1)*per_page).limit(per_page).all()
+    # 既定は「直近に動いた案件」が上。案件ID順にも切り替えられる。
+    # 更新日時が同じ案件（一括取込など）は案件IDの新しい順で並べ、表示順を一定にする
+    order = ([desc(Project.project_no)] if sort == "project_no"
+             else [desc(Project.updated_at), desc(Project.project_no)])
+    items = q.order_by(*order).offset((page-1)*per_page).limit(per_page).all()
     return {"total": total, "page": page, "per_page": per_page, "items": [project_to_dict(p) for p in items]}
 
 @router.post("/", status_code=201)
