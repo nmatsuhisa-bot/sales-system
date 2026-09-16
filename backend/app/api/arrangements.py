@@ -825,10 +825,11 @@ def _fan_spec_from_quotation(ctx):
     for it in ctx.get("line_items") or []:
         sj = getattr(it, 'spec_json', None) or {}
         name = (getattr(it, 'item_name', '') or '') + ' ' + (getattr(it, 'spec_detail', '') or '')
+        # 単位は帳票側に印字されているため、値だけを入れる
         if not out["frequency"] and sj.get('hz'):
-            out["frequency"] = '%sHz' % sj['hz']
+            out["frequency"] = str(sj['hz'])
         if not out["voltage"] and sj.get('voltage'):
-            out["voltage"] = '%sV' % sj['voltage']
+            out["voltage"] = str(sj['voltage'])
         if not out["fan_model"] and sj.get('fan_model'):
             out["fan_model"] = str(sj['fan_model'])
         if 'ターボファン' in name or 'ﾀｰﾎﾞﾌｧﾝ' in name:
