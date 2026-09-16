@@ -1287,6 +1287,9 @@ class TeamSchedule(Base):
     full_name = Column(String(100))         # 表示名
     date = Column(Date, nullable=False)
     slot = Column(String(10), nullable=False)  # am / pm
+    # 同じ予定として作られた行（複数参加者・終日）をまとめるID。
+    # 1件を直すと同じIDの行をまとめて直せる
+    group_id = Column(String(64))
     title = Column(String(500))
     color = Column(String(120))
     created_at = Column(DateTime, server_default=func.now())

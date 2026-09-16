@@ -5,6 +5,7 @@ import SearchSelect from '../components/common/SearchSelect';
 interface User { id: string; full_name: string; email: string; department?: string; role?: string; }
 interface ScheduleEntry {
   id: string; userId: string; date: string; slot: 'am' | 'pm'; title: string; color: string;
+  groupId?: string | null;   // 同じ予定として作られた行をまとめるID（複数参加者・終日）
 }
 
 // グリッド列幅（px）。sticky列（日付/時間）のleft値と一致させる必要があるため定数化
@@ -53,6 +54,8 @@ export default function SchedulePage() {
     date: '', slot: 'am' as 'am'|'pm'
   });
   const dragId = useRef<string | null>(null);
+  // 編集時に「参加者全員へ反映するか」。複数参加者の予定では既定でON
+  const [applyAll, setApplyAll] = useState(true);
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
   const weekDates = getWeekDates(base);
   const monthDates = getMonthDates(base);
@@ -88,6 +91,7 @@ export default function SchedulePage() {
     scheduleApi.list(dateKey(displayDates[0]), dateKey(displayDates[displayDates.length - 1]))
       .then(r => setSchedules((r.data || []).map((s: any) => ({
         id: s.id, userId: s.user_id, date: s.date, slot: s.slot, title: s.title, color: s.color,
+        groupId: s.group_id || null,
       }))))
       .catch(() => {});
   };
@@ -110,8 +114,22 @@ export default function SchedulePage() {
     setForm({ title: '', color: COLOR_OPTIONS[0].value, allDay: false, userIds, date, slot });
     setModal({ open: true, defaultUserIds: userIds, defaultDate: date, defaultSlot: slot });
   }
+  /** 同じ予定の行（複数参加者・終日）。group_id が無い古い予定は日付・時間帯・内容で束ねる */
+  function groupOf(entry: ScheduleEntry): ScheduleEntry[] {
+    if (entry.groupId) return schedules.filter(s => s.groupId === entry.groupId);
+    return schedules.filter(s => s.date === entry.date && s.slot === entry.slot && s.title === entry.title);
+  }
+
   function openEdit(entry: ScheduleEntry) {
-    setForm({ title: entry.title, color: entry.color, allDay: false, userIds: [entry.userId], date: entry.date, slot: entry.slot });
+    const g = groupOf(entry);
+    const slots = new Set(g.filter(s => s.userId === entry.userId).map(s => s.slot));
+    setForm({
+      title: entry.title, color: entry.color,
+      allDay: slots.has('am') && slots.has('pm'),
+      userIds: Array.from(new Set(g.map(s => s.userId))),
+      date: entry.date, slot: entry.slot,
+    });
+    setApplyAll(g.length > 1);
     setModal({ open: true, entry });
   }
   async function saveEntry() {
@@ -119,8 +137,14 @@ export default function SchedulePage() {
     if (!modal.entry && form.userIds.length === 0) { alert('対象者を選択してください'); return; }
     try {
       if (modal.entry) {
-        await scheduleApi.update(modal.entry.id, { title: form.title, color: form.color });
+        const scope = applyAll ? 'group' : 'one';
+        await scheduleApi.update(modal.entry.id, {
+          title: form.title, color: form.color, date: form.date,
+          slot: form.allDay ? 'all' : form.slot,
+        }, scope);
       } else {
+        // 同時に作る行（参加者×午前午後）へ同じIDを持たせ、あとでまとめて直せるようにする
+        const groupId = (crypto as any).randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random());
         const slots: ('am' | 'pm')[] = form.allDay ? ['am', 'pm'] : [form.slot];
         const reqs: Promise<any>[] = [];
         for (const uid of form.userIds) {
@@ -128,7 +152,7 @@ export default function SchedulePage() {
           for (const sl of slots) {
             reqs.push(scheduleApi.create({
               user_id: uid, full_name: u?.full_name, date: form.date, slot: sl,
-              title: form.title, color: form.color,
+              title: form.title, color: form.color, group_id: groupId,
             }));
           }
         }
@@ -141,7 +165,10 @@ export default function SchedulePage() {
     }
   }
   async function deleteEntry() {
-    try { await scheduleApi.delete(modal.entry!.id); } catch { /* ignore */ }
+    const g = modal.entry ? groupOf(modal.entry) : [];
+    const scope = applyAll && g.length > 1 ? 'group' : 'one';
+    if (scope === 'group' && !confirm(`この予定を参加者全員分（${g.length}件）削除します。よろしいですか？`)) return;
+    try { await scheduleApi.delete(modal.entry!.id, scope); } catch { /* ignore */ }
     setModal({ open: false });
     loadSchedules();
   }
@@ -289,6 +316,54 @@ export default function SchedulePage() {
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-bold mb-4">{modal.entry ? '予定を編集' : '予定を追加'}</h2>
+
+            {/* 編集時: この予定の参加者と、全員へ反映するかの指定 */}
+            {modal.entry && (() => {
+              const g = groupOf(modal.entry!);
+              const names = Array.from(new Set(g.map(s =>
+                users.find(u => u.id === s.userId)?.full_name || '—')));
+              return (
+                <div className="mb-3 bg-gray-50 border border-gray-200 rounded p-2">
+                  <div className="text-xs text-gray-500">参加者（{names.length}名）</div>
+                  <div className="text-sm text-gray-800">{names.join('、')}</div>
+                  {g.length > 1 && (
+                    <label className="flex items-center gap-1.5 mt-2 text-sm cursor-pointer">
+                      <input type="checkbox" checked={applyAll} onChange={e => setApplyAll(e.target.checked)} />
+                      参加者全員分に反映する（{g.length}件）
+                    </label>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* 日付・時間帯（編集時も変更できる） */}
+            {modal.entry && (
+              <>
+                <div className="mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">日付</label>
+                  <input type="date" value={form.date}
+                    onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                    className="border rounded w-full px-3 py-2 text-sm" />
+                </div>
+                <div className="mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">時間帯</label>
+                  <div className="flex gap-3">
+                    <label className="flex items-center gap-1 text-sm cursor-pointer">
+                      <input type="radio" name="eslot" checked={!form.allDay && form.slot === 'am'}
+                        onChange={() => setForm(f => ({ ...f, allDay: false, slot: 'am' }))} />午前
+                    </label>
+                    <label className="flex items-center gap-1 text-sm cursor-pointer">
+                      <input type="radio" name="eslot" checked={!form.allDay && form.slot === 'pm'}
+                        onChange={() => setForm(f => ({ ...f, allDay: false, slot: 'pm' }))} />午後
+                    </label>
+                    <label className="flex items-center gap-1 text-sm cursor-pointer">
+                      <input type="radio" name="eslot" checked={form.allDay}
+                        onChange={() => setForm(f => ({ ...f, allDay: true }))} />終日
+                    </label>
+                  </div>
+                </div>
+              </>
+            )}
 
             {!modal.entry && (
               <>

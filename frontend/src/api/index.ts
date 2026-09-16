@@ -404,8 +404,11 @@ export const costingApi = {
 export const scheduleApi = {
   list: (start?: string, end?: string) => api.get('/schedules', { params: { start, end } }),
   create: (data: any) => api.post('/schedules', data),
-  update: (id: string, data: any) => api.put(`/schedules/${id}`, data),
-  delete: (id: string) => api.delete(`/schedules/${id}`),
+  // scope='group' で、同じ予定の参加者全員分をまとめて変更・削除する
+  update: (id: string, data: any, scope: 'one' | 'group' = 'one') =>
+    api.put(`/schedules/${id}`, data, { params: { scope } }),
+  delete: (id: string, scope: 'one' | 'group' = 'one') =>
+    api.delete(`/schedules/${id}`, { params: { scope } }),
 };
 
 // =============================================
