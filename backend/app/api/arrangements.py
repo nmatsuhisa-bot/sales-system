@@ -23,8 +23,9 @@ from app.db.models import (
     FanArrangement,
 )
 from app.form_edit import (
-    ef, inject_edit, get_path, apply_fields, apply_row_op, parse_date,
+    ef, eftoggle, inject_edit, get_path, apply_fields, apply_row_op, parse_date,
 )
+import html as _h
 
 router = APIRouter()
 
@@ -837,6 +838,62 @@ def _fan_spec_from_quotation(ctx):
     return out
 
 
+# 注文確認書の様式（原紙「排風機2011年～.xlsx」の BFQ/FS/PL 注文確認書）
+FAN_FORMS = {
+    "PL": ("プレートファン", "プレートファン"),
+    "BFQ": ("小型ﾊﾞｸﾞﾌｨﾙﾀｰ集塵機", "小型バグフィルター集塵機"),
+    "FS": ("ファンシュレッダー", "ファンシュレッダー"),
+}
+BFQ_RE = re.compile(r'BFQ|小型ﾊﾞｸﾞ|小型バグ')
+FS_RE = re.compile(r'FS[DQ]?\d|ﾌｧﾝｼｭﾚｯﾀﾞ|ファンシュレッダ|粉砕機')
+
+
+def _fan_form_type(ctx):
+    """見積明細から注文確認書の様式を判定する（BFQ / FS / PL）。"""
+    text = ' '.join(_item_all_text(i) for i in ctx.get("line_items") or [])
+    if BFQ_RE.search(text):
+        return "BFQ"
+    if FS_RE.search(text):
+        return "FS"
+    return "PL"
+
+
+def _item_all_text(i):
+    return ((getattr(i, 'item_name', '') or '') + ' ' + (getattr(i, 'spec_detail', '') or ''))
+
+
+def _fan_bfq_spec(ctx):
+    """BFQ様式で使う項目を見積明細から拾う（読めないものは空欄）。"""
+    out = {"model": '', "fan_model": '', "fan_std": '', "shaker": '', "shaker_drive": '',
+           "shaker_pos": '', "rv_std": '', "control_panel": '', "switch_type": ''}
+    for i in ctx.get("line_items") or []:
+        sj = getattr(i, 'spec_json', None) or {}
+        text = _item_all_text(i)
+        if not out["model"]:
+            m = re.search(r'\b(BFQ[\w.\-×]*)', text)
+            if m:
+                out["model"] = m.group(1)
+            elif sj.get('model') and str(sj['model']).upper().startswith('BFQ'):
+                out["model"] = str(sj['model'])
+        if not out["fan_model"] and sj.get('fan_model'):
+            out["fan_model"] = str(sj['fan_model'])
+            out["fan_std"] = '標準'
+        if not out["shaker_pos"] and sj.get('shaker_position'):
+            out["shaker_pos"] = str(sj['shaker_position'])
+            out["shaker"] = '有'
+            out["shaker_drive"] = '電動' if '電動' in str(sj['shaker_position']) else ''
+        if not out["rv_std"]:
+            m = re.search(r'(RV[\d×xX\-]+)', text)
+            if m:
+                out["rv_std"] = m.group(1)
+        sw = str(sj.get('switch') or '')
+        if sw:
+            out["control_panel"] = '付' if '制御盤' in sw else '×'
+            if '押しﾎﾞﾀﾝ' in sw or '押しボタン' in sw:
+                out["switch_type"] = 'ﾓｰﾀﾌﾞﾚｰｶ'
+    return out
+
+
 @router.get("/fan/{order_id}")
 def get_fan(order_id: str, db: Session = Depends(get_db)):
     po = find_order(order_id, db)
@@ -845,9 +902,16 @@ def get_fan(order_id: str, db: Session = Depends(get_db)):
         return fan_to_dict(f)
     ctx, model, kw, pole, dias = _fan_autofill(po, db)
     spec = _fan_spec_from_quotation(ctx)
+    form_type = _fan_form_type(ctx)
+    bfq = _fan_bfq_spec(ctx) if form_type == "BFQ" else {}
+    if form_type == "BFQ":
+        model = _pick(bfq["model"], model)
+    elif form_type == "FS":
+        m = re.search(r'\b(FS[DQ]?[\w.\-]*)', ' '.join(_item_all_text(i) for i in ctx["line_items"]))
+        model = _pick(m.group(1) if m else '', model)
     return {
         "id": None, "child_no": po.child_no, "order_no": po.child_no or '',
-        "form_type": "PL",
+        "form_type": form_type,
         "vendor_name": '', "vendor_contact": '',
         "user_name": ctx["customer_name"], "user_plant": '',
         "user_address": ctx["site_address"], "user_tel": ctx["site_tel"],
@@ -857,17 +921,25 @@ def get_fan(order_id: str, db: Session = Depends(get_db)):
         "ship_to_contact": ctx["site_contact"],
         "ship_date": ctx["ship_date"].isoformat() if ctx["ship_date"] else None,
         "transport_method": '',
-        "product_name": spec["product_name"], "model": _pick(model, spec["fan_model"]),
-        "serial_no": '', "drive_type": '',
+        "product_name": FAN_FORMS[form_type][0] if form_type != "PL" else spec["product_name"],
+        "model": _pick(model, spec["fan_model"]),
+        "serial_no": '', "drive_type": '' if form_type == "BFQ" else 'ﾓｰﾀ直結',
         "spec_json": {
             "frequency": spec["frequency"], "voltage": spec["voltage"], "control_voltage": '',
             "motor_kw": kw, "motor_pole": pole, "motor_type": '',
-            "motor_flange": '', "motor_maker": '', "motor_note": '',
+            "motor_flange": '', "motor_maker": '', "motor_note": 'IE3',
             "spec_place": '', "intake_dia": dias[0] if dias else '',
             "exhaust_dia": dias[1] if len(dias) > 1 else '',
             "intake_flange": '', "exhaust_flange": '',
-            "switch_type": '', "control_panel": '',
-            "paint_color": '', "color_no": '',
+            "switch_type": bfq.get("switch_type", ''), "control_panel": bfq.get("control_panel", ''),
+            "paint_color": '', "color_no": '', "spec_note": '',
+            # BFQ様式で使う項目（他の様式では使わない）
+            "fan_std": bfq.get("fan_std", ''), "fan_model": _pick(bfq.get("fan_model"), spec["fan_model"]),
+            "shaker": bfq.get("shaker", ''), "shaker_drive": bfq.get("shaker_drive", ''),
+            "shaker_pos": bfq.get("shaker_pos", ''), "shaker_switch": '',
+            "bag_type": '', "bag_size": '', "air_send": '', "q_container": '',
+            "flexible_container": '', "rv_std": bfq.get("rv_std", ''), "rv_special": '',
+            "filter_size": '', "filter_count": '',
         },
         "instruction_json": {
             "order_customer": _pick(ctx["agency_name"], ctx["customer_name"]),
@@ -902,12 +974,71 @@ def _kv(label, value, lw='72px'):
 
 
 @router.get("/fan/{order_id}/pdf")
+def _fan_spec_rows(ftype, F, spec, spec_wide):
+    """注文確認書の仕様ブロック。原紙の様式（BFQ / FS / PL）ごとに項目が違う。"""
+    motor = (F('spec_json.motor_kw') + ' kW　' + F('spec_json.motor_pole') + ' P　'
+             + F('spec_json.motor_type') + '　' + F('spec_json.motor_flange') + ' 型')
+    small = '<br><span style="font-size:9px">%s</span>'
+    if ftype == "BFQ":
+        return (
+            spec('名称', F('product_name'), '型式', F('model'), '製造No.', F('serial_no'))
+            + spec('周波数', F('spec_json.frequency') + ' Hz', '動力', F('spec_json.voltage') + ' V',
+                   '制御', F('spec_json.control_voltage') + ' V')
+            + spec('排風機', F('spec_json.fan_std'), '型式', F('spec_json.fan_model'),
+                   'ﾒｰｶ', F('spec_json.motor_maker'))
+            + spec('ﾓｰﾀ', motor, '備考', F('spec_json.motor_note'), '&nbsp;', '&nbsp;')
+            + spec_wide('ｽｲｯﾁ',
+                        'ﾓｰﾀﾌﾞﾚｰｶ ' + F('spec_json.switch_type')
+                        + '　ｼｪｰｶｰ用押しﾎﾞﾀﾝ ' + F('spec_json.shaker_switch')
+                        + '　制御盤 ' + F('spec_json.control_panel')
+                        + small % '※必要の有無を記載願います。なお、電気配線工事は含んでいません。')
+            + spec_wide('ｼｪｰｶ',
+                        '有／無 ' + F('spec_json.shaker')
+                        + '　手動／電動 ' + F('spec_json.shaker_drive')
+                        + '　取付位置 ' + F('spec_json.shaker_pos')
+                        + small % '※有の場合は標準の取付位置です。勝手違いが必要な場合はご指示願います。')
+            + spec_wide('袋受／ﾎｯﾊﾟｰ',
+                        F('spec_json.bag_type') + '　' + F('spec_json.bag_size')
+                        + '　H：空送 ' + F('spec_json.air_send')
+                        + '　Qｺﾝﾃﾅ ' + F('spec_json.q_container')
+                        + '　ﾌﾚｺﾝ受け ' + F('spec_json.flexible_container'))
+            + spec_wide('ﾛｰﾀﾘｰﾊﾞﾙﾌﾞ',
+                        '標準 ' + F('spec_json.rv_std') + '　特殊 ' + F('spec_json.rv_special'))
+            + spec('ﾌｨﾙﾀｰ', F('spec_json.filter_size'), '本数', F('spec_json.filter_count') + ' 本',
+                   '&nbsp;', '&nbsp;')
+        )
+    # PL（プレートファン）と FS（ファンシュレッダー）は同じ様式
+    return (
+        spec('名称', F('product_name'), '駆動方式', F('drive_type'), '製造No.', F('serial_no'))
+        + spec('型式', F('model'), '仕様', F('spec_json.spec_note'),
+               'ﾒｰｶ', F('spec_json.motor_maker'))
+        + spec('周波数', F('spec_json.frequency') + ' Hz', '動力', F('spec_json.voltage') + ' V',
+               '制御', F('spec_json.control_voltage') + ' V')
+        + spec('ﾓｰﾀ', motor, '備考', F('spec_json.motor_note'), '&nbsp;', '&nbsp;')
+        + spec_wide('仕様', F('spec_json.spec_place') + '（屋内 / 屋外）※ご確認ください')
+        + spec_wide('吸排気口',
+                    '吸 φ' + F('spec_json.intake_dia') + '　' + F('spec_json.intake_flange')
+                    + '　／　排 φ' + F('spec_json.exhaust_dia') + '　'
+                    + F('spec_json.exhaust_flange')
+                    + small % '※合ﾌﾗﾝｼﾞの要否をご指示願います。')
+        + spec_wide('ｽｲｯﾁ',
+                    'ﾓｰﾀﾌﾞﾚｰｶ ' + F('spec_json.switch_type')
+                    + '　制御盤 ' + F('spec_json.control_panel')
+                    + small % '※必要の有無を記載願います。なお、電気配線工事は含んでいません。')
+    )
+
+
 def fan_order_pdf(order_id: str, format: str = "html", mode: str = "", db: Session = Depends(get_db)):
-    """排風機 注文確認書（発注先へ送り、捺印して返送してもらう書面）"""
+    """排風機 注文確認書（発注先へ送り、捺印して返送してもらう書面）
+
+    様式は原紙どおり3種類。PL（プレートファン）/ BFQ（小型バグフィルター集塵機）/
+    FS（ファンシュレッダー）。見積の明細から様式を判定し、画面で切り替えられる。
+    """
     po = find_order(order_id, db)
     f = db.query(FanArrangement).filter(FanArrangement.project_order_id == po.id).first()
     d = fan_to_dict(f) if f else get_fan(order_id, db)
     sp = d.get("spec_json") or {}
+    ftype = d.get("form_type") if d.get("form_type") in FAN_FORMS else "PL"
     M = _mode(format, mode)
     F = lambda k, v=None, block=False: ef(M, k, get_path(d, k) if v is None else v, block)
 
@@ -934,6 +1065,11 @@ def fan_order_pdf(order_id: str, format: str = "html", mode: str = "", db: Sessi
         + (PRINT_BAR if M != "edit" else '')
         + '<div style="font-size:17px;font-weight:bold;text-align:center;letter-spacing:6px;'
           'margin-bottom:8px">注 文 確 認 書</div>'
+        # 様式（PL/BFQ/FS）は編集画面でだけ出す。印刷・PDFには出さない
+        + (('<div class="ef-note">様式: ' + eftoggle(M, 'form_type', ftype, ("PL", "BFQ", "FS"))
+            + '　クリックで切り替え → 「保存して再表示」で様式が切り替わります'
+            + '（PL:プレートファン／BFQ:小型バグフィルター集塵機／FS:ファンシュレッダー）</div>')
+           if M == "edit" else '')
         + '<table style="margin-bottom:6px">'
         + '<tr><td width="316" rowspan="2" style="border:none;vertical-align:top">'
           + F('vendor_name') + ' 御中<br>' + F('vendor_contact') + ' 様</td>'
@@ -941,7 +1077,7 @@ def fan_order_pdf(order_id: str, format: str = "html", mode: str = "", db: Sessi
           '<td width="130" style="color:#c00;font-weight:bold">' + F('order_no') + '</td></tr>'
         + '<tr><td ' + L + '>御確認印</td><td style="height:38px">&nbsp;</td></tr></table>'
         + '<div style="font-size:10px;margin:6px 0">'
-          'このたびはご注文を頂きありがとうございます。<br>'
+          'このたびは' + _h.escape(FAN_FORMS[ftype][1]) + 'のご注文を頂きありがとうございます。<br>'
           '下記内容をご確認の上、捺印後折り返しFAXにてご返送下さいますようお願い致します。</div>'
         + '<table style="margin-bottom:6px">'
         + hdr('ユーザー名', F('user_name') + ' 様　' + F('user_plant'),
@@ -953,25 +1089,13 @@ def fan_order_pdf(order_id: str, format: str = "html", mode: str = "", db: Sessi
         + hdr('出荷日', F('ship_date'), '運送方法', F('transport_method'))
         + '</table>'
         + '<div style="font-size:9px;margin-bottom:6px">'
-          '【引取：貴社手配のトラックにてお引取／パレット：宅配にてパレット梱包出荷／工事：井上工事】</div>'
+          + ('【引取：貴社手配のﾄﾗｯｸにてお引取／井上手配：弊社にてﾄﾗｯｸ手配／'
+             'ﾊﾟﾚｯﾄ：井上納品／工事：井上工事】' if ftype == "BFQ" else
+             '【引取：貴社手配のトラックにてお引取／パレット：宅配にてパレット梱包出荷／'
+             '工事：井上工事】')
+        + '</div>'
         + '<table style="margin-bottom:6px">'
-        + spec('名称', F('product_name'), '駆動方式', F('drive_type'),
-               '製造No.', F('serial_no'))
-        + spec('型式', F('model'), '周波数', F('spec_json.frequency') + ' Hz',
-               '動力', F('spec_json.voltage') + ' V')
-        + spec('ﾓｰﾀ',
-               F('spec_json.motor_kw') + ' kW　' + F('spec_json.motor_pole') + ' P　'
-               + F('spec_json.motor_type'),
-               'ﾒｰｶ', F('spec_json.motor_maker'), '備考', F('spec_json.motor_note'))
-        + spec_wide('仕様', F('spec_json.spec_place') + '（屋内 / 屋外）※ご確認ください')
-        + spec_wide('吸排気口',
-                    '吸 φ' + F('spec_json.intake_dia') + '　' + F('spec_json.intake_flange')
-                    + '　／　排 φ' + F('spec_json.exhaust_dia') + '　'
-                    + F('spec_json.exhaust_flange'))
-        + spec_wide('ｽｲｯﾁ',
-                    F('spec_json.switch_type') + '　制御盤：' + F('spec_json.control_panel')
-                    + '<br><span style="font-size:9px">※必要の有無を記載願います。'
-                      'なお、電気配線工事は含んでいません。</span>')
+        + _fan_spec_rows(ftype, F, spec, spec_wide)
         + spec('指定色', F('spec_json.paint_color'), '色番号', F('spec_json.color_no'), '&nbsp;', '&nbsp;')
         + spec_wide('備考', F('notes', block=True))
         + '</table>'
@@ -984,9 +1108,11 @@ def fan_order_pdf(order_id: str, format: str = "html", mode: str = "", db: Sessi
           '<td width="66">' + F('creator_name') + '</td></tr></table>'
         + '</body></html>'
     )
+    title = "注文確認書（%s）" % FAN_FORMS[ftype][1]
     if M == "edit":
-        html = _inject(html, "fan", order_id, "排風機 注文確認書", db, pdf_path="pdf", rows=False, extra="")
-    return form_response(html, "%s_排風機注文確認書" % (d.get('order_no') or po.child_no),
+        html = _inject(html, "fan", order_id, title, db, pdf_path="pdf", rows=False,
+                       extra='<button class="w" onclick="efOp({})">保存して再表示</button>')
+    return form_response(html, "%s_注文確認書_%s" % (d.get('order_no') or po.child_no, ftype),
                          M == "pdf")
 
 
