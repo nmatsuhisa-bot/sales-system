@@ -2289,39 +2289,6 @@ FAN_INSPECTION_ITEMS = [
 ]
 
 
-def _fan_defaults(q):
-    """見積明細から型式・ファン出力を拾う（従来の帳票と同じ読み取り方）"""
-    import re as _re
-    bfr = next((i for i in q.line_items if i.product_type == 'BFR' and 'バグフィルター' in (i.item_name or '')), None)
-    fan = next((i for i in q.line_items if 'ターボファン' in (i.item_name or '') or 'ファン' in (i.item_name or '')), None)
-    model = (bfr.spec_json or {}).get('model', '') if bfr else ''
-    kw = ''
-    if fan and fan.item_name:
-        m = _re.search(r'(\d+\.?\d*)\s*kw', fan.item_name, _re.IGNORECASE)
-        if m:
-            kw = m.group(1)
-    # 極数・周波数・電圧は、パターン選択で保存された仕様(spec_json)と品名から拾う
-    pole = hz = volt = ''
-    for i in q.line_items:
-        sj = i.spec_json or {}
-        if not hz and sj.get('hz'):
-            hz = str(sj['hz'])
-        if not volt and sj.get('voltage'):
-            volt = str(sj['voltage'])
-        text = (i.item_name or '') + ' ' + (i.spec_detail or '')
-        if not pole:
-            m = _re.search(r'(\d+)\s*[pP]\b', text)
-            if m:
-                pole = m.group(1)
-    return {
-        "sales_person_name": q.sales_person_name or "", "model": model,
-        "customer_name": q.customer_name or "", "order_no": q.child_no or q.quotation_no or "",
-        "delivery_name": q.delivery_name or "", "usage_spec": _pick_s(q.title, model),
-        "motor_kw": kw, "motor_note": "IE3",
-        "motor_pole": pole, "motor_hz": hz, "motor_v": volt,
-    }
-
-
 def _pick_s(*vals):
     for v in vals:
         if v not in (None, ""):
@@ -2329,13 +2296,156 @@ def _pick_s(*vals):
     return ""
 
 
-def _cp_defaults(q):
-    d = {"order_no": q.child_no or q.quotation_no or "", "delivery_name": q.delivery_name or "",
-         "customer_name": q.customer_name or "", "sign_staff": q.sales_person_name or ""}
-    motors = [i for i in q.line_items if i.spec_json and 'kw' in i.spec_json][:15]
-    for n, i in enumerate(motors):
+KW_RE = re.compile(r'(\d+\.?\d*)\s*[kK][wW]')
+POLE_RE = re.compile(r'(\d+)\s*[pP]\b')
+DIA_RE = re.compile(r'[φΦ]\s*(\d{2,4})')
+# モータを持たない（制御盤の負荷にならない）品目
+NON_MOTOR_RE = re.compile(r'制御盤|ダクト|フード|サイレンサ|架台|配管|部品|工事|据付|試運転|'
+                          r'運搬|運送|交通|経費|値引|フィルター|点検|操作盤|開閉器')
+
+
+def _item_text(i):
+    return ((i.item_name or '') + ' ' + (i.spec_detail or '')).strip()
+
+
+def _item_kw(i):
+    """明細1行からモータ出力(kW)を読む。パターン選択の spec_json を優先し、無ければ品名から。"""
+    sj = i.spec_json or {}
+    if sj.get('kw') not in (None, ''):
+        return str(sj['kw'])
+    m = KW_RE.search(_item_text(i))
+    return m.group(1) if m else ''
+
+
+def _q_order(q, db):
+    """見積に紐づく案件（子ID）。出荷日・工場名など見積に無い情報の補完に使う。"""
+    if not q.project_order_id:
+        return None
+    from app.db.models import ProjectOrder
+    return db.query(ProjectOrder).filter(ProjectOrder.id == q.project_order_id).first()
+
+
+def _q_factory(q, db):
+    """納入先の工場名。案件の顧客IDから納入先マスタを引く。"""
+    from app.db.models import DeliveryDestination
+    po = _q_order(q, db)
+    if po and po.customer_code:
+        d = db.query(DeliveryDestination).filter(
+            DeliveryDestination.customer_id == po.customer_code).first()
+        if d:
+            return d.factory_name or ''
+    return ''
+
+
+def _fan_defaults(q, db=None):
+    """見積からファン作業指示書・検査記録書の初期値を作る。
+
+    型式はファンの明細（PL/RT/TVS 等）を優先し、無ければバグフィルター本体の型式を使う。
+    モータ仕様・口径・風量は、パターン選択で保存した spec_json と品名・仕様から読む。
+    読めない項目は空欄のままにして、帳票画面で加筆してもらう。
+    """
+    bfr = next((i for i in q.line_items
+                if i.product_type == 'BFR' and 'バグフィルター' in (i.item_name or '')), None)
+    fan = next((i for i in q.line_items
+                if 'ターボファン' in (i.item_name or '') or 'ファン' in (i.item_name or '')
+                or '排風機' in (i.item_name or '')), None)
+    fan_model = ''
+    if fan:
+        fan_model = str((fan.spec_json or {}).get('fan_model') or '')
+        if not fan_model:
+            m = re.search(r'\b((?:PL|RT|TVS)[A-Z]*[\d.]+[A-Z0-9\-]*)', _item_text(fan), re.IGNORECASE)
+            fan_model = m.group(1) if m else ''
+    model = _pick_s(fan_model, (bfr.spec_json or {}).get('model', '') if bfr else '')
+
+    kw = _item_kw(fan) if fan else ''
+    pole = hz = volt = flow = ''
+    dias = []
+    for i in q.line_items:
+        sj = i.spec_json or {}
+        text = _item_text(i)
+        if not hz and sj.get('hz'):
+            hz = str(sj['hz'])
+        if not volt and sj.get('voltage'):
+            volt = str(sj['voltage'])
+        if not flow and sj.get('airflow'):
+            flow = str(sj['airflow'])
+        if not pole:
+            m = POLE_RE.search(text)
+            if m:
+                pole = m.group(1)
+        if fan is not None and i is fan:
+            dias += DIA_RE.findall(text)
+    fan_text = _item_text(fan) if fan else ''
+    po = _q_order(q, db) if db is not None else None
+    ship = (po.shipment_date or po.expected_shipment_date) if po else None
+    return {
+        "issue_date": q.issue_date.isoformat() if q.issue_date else "",
+        "sales_person_name": q.sales_person_name or "",
+        "creator_name": q.created_by_name or "",
+        "model": model,
+        "customer_name": q.customer_name or "", "order_no": q.child_no or q.quotation_no or "",
+        "delivery_name": _pick_s(q.delivery_name, q.customer_name),
+        "usage_spec": _pick_s(q.title, model),
+        "ship_date": ship.isoformat() if ship else "",
+        "motor_kw": kw, "motor_note": "IE3",
+        "motor_pole": pole, "motor_hz": hz, "motor_v": volt,
+        "motor_place": '屋外' if '屋外' in fan_text else ('屋内' if '屋内' in fan_text else ''),
+        "motor_mount": 'フランジ' if 'フランジ' in fan_text else ('脚' if '脚取' in fan_text else ''),
+        "intake_taper": ('φ%s' % dias[0]) if dias else '',
+        "outlet": ('φ%s' % dias[1]) if len(dias) > 1 else '',
+        "perf_flow": flow,
+    }
+
+
+def _cp_defaults(q, db=None):
+    """見積から制御盤作業指示書の初期値を作る。
+
+    負荷一覧（名称・容量・台数）は、見積明細のうちモータを持つ品目から作る。
+    盤の仕様・電圧・周波数は、パターン選択で保存した spec_json から拾う。
+    """
+    panel = next((i for i in q.line_items if '制御盤' in (i.item_name or '')), None)
+    hz = volt = switch = ''
+    spark = patlite = ''
+    for i in q.line_items:
+        sj = i.spec_json or {}
+        text = _item_text(i)
+        if not hz and sj.get('hz'):
+            hz = str(sj['hz'])
+        if not volt and sj.get('voltage'):
+            volt = str(sj['voltage'])
+        # 操作SW欄はスイッチの種類を書く欄。パターン選択の「制御盤」は盤そのものなので入れない
+        if not switch and sj.get('switch') and '制御盤' not in str(sj['switch']):
+            switch = str(sj['switch'])
+        if not spark and ('火花探知' in text or '火粉' in text):
+            spark = i.item_name or '有'
+        if not patlite and 'パトライト' in text:
+            patlite = i.item_name or '有'
+    d = {
+        "order_no": q.child_no or q.quotation_no or "",
+        "delivery_name": _pick_s(q.delivery_name, q.customer_name),
+        "customer_name": q.customer_name or "",
+        "sign_staff": q.sales_person_name or "",
+        "plant": _q_factory(q, db) if db is not None else "",
+        "name": (panel.item_name if panel else "制御盤"),
+        "summary": q.title or "",
+        "spec": (panel.spec_detail or "") if panel else "",
+        "hz": hz,
+        "power_v": ('AC%sV' % volt) if volt in ('200', '380', '400', '415', '440') else '',
+        "op_sw": switch,
+        "spark": spark,
+        "patlite": patlite,
+        "quote_amount": str(int(panel.amount)) if panel and panel.amount else "",
+    }
+    motors = []
+    for i in q.line_items:
+        if NON_MOTOR_RE.search(i.item_name or ''):
+            continue
+        kw = _item_kw(i)
+        if kw:
+            motors.append((i, kw))
+    for n, (i, kw) in enumerate(motors[:15]):
         d["m_%d_name" % n] = i.item_name or ""
-        d["m_%d_kw" % n] = str(i.spec_json.get('kw', ''))
+        d["m_%d_kw" % n] = kw
         d["m_%d_count" % n] = str(int(i.quantity or 1))
     return d
 
@@ -2361,7 +2471,7 @@ def _form_doc(db, form_type, entity_id):
 
 def _form_ctx(form_type, q, mode, db):
     """(M, d, F, T) を返す。d は自動補完の値に、帳票画面で保存した値を上書きしたもの"""
-    d = dict(FORM_DEFAULTS[form_type](q))
+    d = dict(FORM_DEFAULTS[form_type](q, db))
     doc = _form_doc(db, form_type, q.id)
     if doc and doc.data_json:
         d.update(doc.data_json)
@@ -2579,7 +2689,7 @@ def save_form_document(quotation_id: str, form_type: str, body: dict, db: Sessio
     if form_type not in FORM_TITLES:
         raise HTTPException(404, "帳票の種類が正しくありません")
     q = _load_q(quotation_id, db)
-    defaults = FORM_DEFAULTS[form_type](q)
+    defaults = FORM_DEFAULTS[form_type](q, db)
     doc = _form_doc(db, form_type, q.id)
     over = dict((doc.data_json or {}) if doc else {})
     for k, v in ((body or {}).get("fields") or {}).items():
