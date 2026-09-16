@@ -973,7 +973,6 @@ def _kv(label, value, lw='72px'):
             '<td>' + esc(value) + '</td></tr>')
 
 
-@router.get("/fan/{order_id}/pdf")
 def _fan_spec_rows(ftype, F, spec, spec_wide):
     """注文確認書の仕様ブロック。原紙の様式（BFQ / FS / PL）ごとに項目が違う。"""
     motor = (F('spec_json.motor_kw') + ' kW　' + F('spec_json.motor_pole') + ' P　'
@@ -1028,6 +1027,7 @@ def _fan_spec_rows(ftype, F, spec, spec_wide):
     )
 
 
+@router.get("/fan/{order_id}/pdf")
 def fan_order_pdf(order_id: str, format: str = "html", mode: str = "", db: Session = Depends(get_db)):
     """排風機 注文確認書（発注先へ送り、捺印して返送してもらう書面）
 
