@@ -103,6 +103,8 @@ export default function ProjectsPage() {
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');            // 工番/単番（受注管理と同じ絞り込み）
+  const [sort, setSort] = useState('recent');                  // 既定は直近に更新した案件が上
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [projectModal, setProjectModal] = useState<any>(null);
   const [orderModal, setOrderModal] = useState<any>(null);
@@ -127,7 +129,10 @@ export default function ProjectsPage() {
   })), [employees]);
 
   const load = () => {
-    projectApi.list({ search: search || undefined, status: statusFilter || undefined, per_page: 50 })
+    projectApi.list({
+      search: search || undefined, status: statusFilter || undefined,
+      ticket_type: typeFilter || undefined, sort, per_page: 50,
+    })
       .then(r => { setItems(r.data.items || []); setTotal(r.data.total || 0); });
   };
 
@@ -136,7 +141,7 @@ export default function ProjectsPage() {
     mastersApi.listAgencies().then(r => setAgencies(r.data || []));
     mastersApi.listDeliveryDestinations().then(r => setDestinations(r.data || []));
     mastersApi.listEmployees().then(r => setEmployees(r.data || []));
-  }, [search, statusFilter]);
+  }, [search, statusFilter, typeFilter, sort]);
 
   // 詳細モーダルは Esc でも閉じられるようにする
   useEffect(() => {
@@ -285,10 +290,21 @@ export default function ProjectsPage() {
         <input placeholder="案件ID・案件名・顧客名で検索" value={search}
           onChange={e => setSearch(e.target.value)}
           className="flex-1 outline-none text-sm border border-gray-200 rounded-lg px-3 py-2" />
+        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm">
+          <option value="">全種別</option>
+          <option value="koban">工番</option>
+          <option value="tanban">単番</option>
+        </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
           className="border border-gray-200 rounded-lg px-3 py-2 text-sm">
           <option value="">全ステータス</option>
           {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select value={sort} onChange={e => setSort(e.target.value)}
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm">
+          <option value="recent">直近の更新順</option>
+          <option value="project_no">案件ID順</option>
         </select>
       </div>
 

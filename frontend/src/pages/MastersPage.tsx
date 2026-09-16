@@ -1,8 +1,33 @@
 import { useEffect, useState } from 'react';
-import { mastersApi, arrangementApi } from '../api';
-import { Plus, Edit2, Trash2, Search, Building2, MapPin, Users, Truck } from 'lucide-react';
+import { mastersApi, arrangementApi, estimateApi } from '../api';
+import { Plus, Edit2, Trash2, Search, Building2, MapPin, Users, Truck, FileText } from 'lucide-react';
 
-type Tab = 'agencies' | 'destinations' | 'employees' | 'vendors';
+type Tab = 'agencies' | 'destinations' | 'employees' | 'vendors' | 'texts';
+
+// 見積書の定型文。キーと画面に出す名前
+const TEXT_LABELS: [string, string][] = [
+  ['title', '表題'],
+  ['label_delivery_terms', '納入期限のラベル'],
+  ['label_delivery_place', '受渡場所のラベル'],
+  ['label_valid_until', '見積有効期限のラベル'],
+  ['label_payment_terms', '御支払条件のラベル'],
+  ['label_subtotal', '小計のラベル'],
+  ['label_discount', '値引のラベル'],
+  ['label_total', '合計のラベル'],
+  ['label_section_subtotal', '大分類の小計ラベル'],
+  ['th_no', '表の見出し: 番号'],
+  ['th_name', '表の見出し: 品名・仕様'],
+  ['th_qty', '表の見出し: 数量'],
+  ['th_price', '表の見出し: 単価'],
+  ['th_amount', '表の見出し: 金額'],
+  ['detail_suffix', '内訳ページの表題に付ける語'],
+  ['tax_note_excluded', '税抜表示のときの注記'],
+  ['exclusions_title', '除外事項の見出し'],
+  ['company_name', '会社名'],
+  ['company_address', '住所'],
+  ['company_tel', 'TEL・FAX'],
+  ['company_email', 'E-mail'],
+];
 const VENDOR_CATEGORIES = ['クレーン・作業車', '運送（トラック）', 'その他'];
 
 export default function MastersPage() {
@@ -14,6 +39,30 @@ export default function MastersPage() {
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState<any>(null);
   const [form, setForm] = useState<any>({});
+
+  // 見積書の定型文
+  const [texts, setTexts] = useState<Record<string, string>>({});
+  const [textDefaults, setTextDefaults] = useState<Record<string, string>>({});
+  const [savingTexts, setSavingTexts] = useState(false);
+  const [textMsg, setTextMsg] = useState('');
+
+  useEffect(() => {
+    estimateApi.getTexts()
+      .then(r => { setTextDefaults(r.data.defaults || {}); setTexts(r.data.values || {}); })
+      .catch(() => {});
+  }, []);
+
+  const saveTexts = async () => {
+    setSavingTexts(true); setTextMsg('');
+    try {
+      const r = await estimateApi.saveTexts(texts);
+      setTexts(r.data.values || texts);
+      setTextMsg('保存しました');
+      setTimeout(() => setTextMsg(''), 3000);
+    } catch (e: any) {
+      alert(e.response?.data?.detail || '保存に失敗しました');
+    } finally { setSavingTexts(false); }
+  };
 
   const loadAll = () => {
     mastersApi.listAgencies(search || undefined).then(r => setAgencies(r.data));
@@ -72,16 +121,19 @@ export default function MastersPage() {
     { key: 'destinations', label: '納入先マスタ', icon: MapPin, count: destinations.length },
     { key: 'employees', label: '従業員マスタ', icon: Users, count: employees.length },
     { key: 'vendors', label: '手配業者マスタ', icon: Truck, count: vendors.length },
+    { key: 'texts', label: '見積書の文言', icon: FileText, count: TEXT_LABELS.length },
   ];
 
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-800">マスタ管理</h1>
-        <button onClick={openNew}
-          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm">
-          <Plus size={16} /> 新規登録
-        </button>
+        {tab !== 'texts' && (
+          <button onClick={openNew}
+            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm">
+            <Plus size={16} /> 新規登録
+          </button>
+        )}
       </div>
 
       {/* タブ */}
@@ -99,12 +151,49 @@ export default function MastersPage() {
         ))}
       </div>
 
-      {/* 検索 */}
-      <div className="bg-white rounded-xl shadow-sm p-3 mb-4 flex items-center gap-2">
-        <Search size={15} className="text-gray-400" />
-        <input placeholder="名称・コードで検索" value={search}
-          onChange={e => setSearch(e.target.value)} className="flex-1 outline-none text-sm" />
-      </div>
+      {/* 検索（文言タブでは使わない） */}
+      {tab !== 'texts' && (
+        <div className="bg-white rounded-xl shadow-sm p-3 mb-4 flex items-center gap-2">
+          <Search size={15} className="text-gray-400" />
+          <input placeholder="名称・コードで検索" value={search}
+            onChange={e => setSearch(e.target.value)} className="flex-1 outline-none text-sm" />
+        </div>
+      )}
+
+      {/* 見積書の文言（全社共通。空欄にすると初期値に戻る） */}
+      {tab === 'texts' && (
+        <div className="bg-white rounded-xl shadow-sm p-4">
+          <p className="text-xs text-gray-500 mb-3">
+            見積書に印字される固定の文言です。変更すると、以後に作る見積書・印刷・PDFすべてに反映されます
+            （保存済みの見積の金額や明細は変わりません）。空欄にして保存すると初期値に戻ります。
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {TEXT_LABELS.map(([key, label]) => (
+              <div key={key}>
+                <label className="block text-xs text-gray-500 mb-1">
+                  {label}
+                  {texts[key] !== textDefaults[key] && <span className="ml-1 text-blue-500">（変更済み）</span>}
+                </label>
+                <input value={texts[key] ?? ''}
+                  onChange={e => setTexts(t => ({ ...t, [key]: e.target.value }))}
+                  placeholder={textDefaults[key]}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center gap-3 mt-4">
+            <button onClick={saveTexts} disabled={savingTexts}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">
+              {savingTexts ? '保存中…' : '文言を保存'}
+            </button>
+            <button onClick={() => setTexts({ ...textDefaults })}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 text-sm">
+              すべて初期値に戻す
+            </button>
+            {textMsg && <span className="text-sm text-green-600">{textMsg}</span>}
+          </div>
+        </div>
+      )}
 
       {/* 商社マスタ */}
       {tab === 'agencies' && (

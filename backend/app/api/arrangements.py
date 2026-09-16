@@ -1409,6 +1409,8 @@ def setup_arrangement_forms(db: Session = Depends(get_db)):
         "ALTER TABLE shipping_arrangements ADD COLUMN IF NOT EXISTS issue_date DATE",
         "ALTER TABLE shipping_arrangements ADD COLUMN IF NOT EXISTS staff_name VARCHAR(100)",
         "ALTER TABLE shipping_arrangements ADD COLUMN IF NOT EXISTS creator_name VARCHAR(100)",
+        # 見積書2ページ目以降（部品の内訳）に載せるかの行ごとの指定
+        "ALTER TABLE quotation_line_items ADD COLUMN IF NOT EXISTS show_in_detail BOOLEAN",
     ]
     done = []
     for sql in stmts:

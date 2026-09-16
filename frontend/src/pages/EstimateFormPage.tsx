@@ -1,10 +1,18 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { estimateApi, projectApi, mastersApi, authApi, API_BASE } from '../api';
-import { Plus, Trash2, Save, FileText, ArrowLeft, Calculator } from 'lucide-react';
+import { Plus, Trash2, Save, FileText, ArrowLeft, Calculator, GripVertical } from 'lucide-react';
 import OrderSearchInput from '../components/common/OrderSearchInput';
 import SearchSelect from '../components/common/SearchSelect';
 import { fuzzyFilter } from '../utils/fuzzy';
+
+/** 見積書の2ページ目以降（部品の内訳）に載るか。
+ *  未指定の行は「枝番が付く行（大分類に2行以上ある、または中分類がある）」だけ載る。 */
+function detailDefault(item: any, all: any[]): boolean {
+  if (item.show_in_detail != null) return !!item.show_in_detail;
+  const sameSection = all.filter(i => (i.section || '') === (item.section || ''));
+  return sameSection.length > 1 || !!item.sub_section;
+}
 
 // 1文字入力バグ防止のため関数外に定義（毎レンダーで再生成されると入力がリマウントされフォーカスを失う）
 function HeaderField({ label, name, header, setHeader, type = 'text', cols = 1 }: any) {
@@ -32,6 +40,7 @@ interface LineItem {
   unit_price: number;
   hide_amount?: boolean;      // 一式内訳: 金額欄を空欄で印字（合計には算入）
   amount_text?: string | null; // 「含まず」等の文字列表示（単価0で運用）
+  show_in_detail?: boolean | null; // 見積書2ページ目以降（内訳）に載せるか。null=自動判定
   product_type: string;
   spec_json?: any;
 }
@@ -71,6 +80,7 @@ export default function EstimateFormPage() {
   const [cyclones, setCyclones] = useState<any[]>([]);
   const [laborMaster, setLaborMaster] = useState<any[]>([]);
   const [laborQuery, setLaborQuery] = useState('');         // 工数マスタの絞り込み
+  const [dragSec, setDragSec] = useState<number | null>(null);  // 大分類の並べ替え中の位置
   const [employees, setEmployees] = useState<any[]>([]);
   const [teamUsers, setTeamUsers] = useState<any[]>([]);   // 作成者の選択肢（ログインユーザー）
 
@@ -372,6 +382,27 @@ export default function EstimateFormPage() {
     setShowScaPattern(false);
   };
 
+  // 大分類の並び順。見積書の番号（1,2,3…）はこの順で振られる
+  const sectionOrder = useMemo(() => {
+    const seen: string[] = [];
+    lineItems.forEach(i => { const s = i.section || ''; if (!seen.includes(s)) seen.push(s); });
+    return seen;
+  }, [lineItems]);
+
+  /** 大分類ごと明細をまとめて移動する（行の並びは大分類内の順序を保つ） */
+  const moveSection = (from: number | null, to: number) => {
+    setDragSec(null);
+    if (from == null || from === to) return;
+    const order = [...sectionOrder];
+    const [moved] = order.splice(from, 1);
+    order.splice(to, 0, moved);
+    setLineItems(prev => {
+      const next: LineItem[] = [];
+      order.forEach(sec => prev.forEach(i => { if ((i.section || '') === sec) next.push(i); }));
+      return next.map((i, n) => ({ ...i, line_no: n + 1 }));
+    });
+  };
+
   // 工数マスタから追加
   const addLaborFromMaster = (item: any) => {
     setLaborDetails(prev => [...prev, {
@@ -669,6 +700,33 @@ export default function EstimateFormPage() {
             </button>
           </div>
 
+          {/* 大分類の並べ替え（ドラッグ＆ドロップ）。見積書の番号 1,2,3… の順になる */}
+          {sectionOrder.length > 1 && (
+            <div className="mb-3 p-2 bg-gray-50 rounded-lg">
+              <div className="text-[11px] text-gray-500 mb-1.5">
+                大分類の順番（ドラッグして入れ替え）：見積書の番号と並び順に反映されます
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {sectionOrder.map((sec: string, i: number) => (
+                  <div key={sec || `__${i}`} draggable
+                    onDragStart={() => setDragSec(i)}
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={() => moveSection(dragSec, i)}
+                    onDragEnd={() => setDragSec(null)}
+                    className={`flex items-center gap-1.5 px-2 py-1 bg-white border rounded-lg text-xs cursor-move select-none ${
+                      dragSec === i ? 'border-blue-400 opacity-50' : 'border-gray-200 hover:border-blue-300'}`}>
+                    <GripVertical size={12} className="text-gray-400" />
+                    <span className="font-bold text-gray-500">{i + 1}</span>
+                    <span className="text-gray-800">{sec || '（未分類）'}</span>
+                    <span className="text-gray-400">
+                      {lineItems.filter(it => (it.section || '') === sec).length}行
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* 明細テーブル */}
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
@@ -682,6 +740,7 @@ export default function EstimateFormPage() {
                   <th className="px-2 py-2 text-center font-medium text-gray-500 w-12">単位</th>
                   <th className="px-2 py-2 text-right font-medium text-gray-500 w-28">単価</th>
                   <th className="px-2 py-2 text-right font-medium text-gray-500 w-32">金額 / 表示</th>
+                  <th className="px-2 py-2 text-center font-medium text-gray-500 w-14" title="見積書の2ページ目以降（部品の内訳）に載せるか">内訳</th>
                   <th className="px-2 py-2 w-6"></th>
                 </tr>
               </thead>
@@ -735,6 +794,12 @@ export default function EstimateFormPage() {
                         <option value="hidden">非表示（一式内訳）</option>
                         <option value="not_included">「含まず」</option>
                       </select>
+                    </td>
+                    <td className="px-2 py-1.5 text-center">
+                      <input type="checkbox" checked={detailDefault(item, lineItems)}
+                        onChange={e => setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, show_in_detail: e.target.checked } : i))}
+                        title="見積書の2ページ目以降（部品の内訳）に載せる" />
+                      {item.show_in_detail == null && <div className="text-[9px] text-gray-400">自動</div>}
                     </td>
                     <td className="px-2 py-1.5">
                       <button onClick={() => setLineItems(prev => prev.filter((_, j) => j !== idx))} className="text-red-300 hover:text-red-500">

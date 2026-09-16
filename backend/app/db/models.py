@@ -689,6 +689,8 @@ class QuotationLineItem(Base):
     amount = Column(Numeric(15, 0), default=0)
     # 一式品の金額表示制御（会議2026-07-17: 構成部品は項目名のみ・金額非表示）
     hide_amount = Column(Boolean, default=False)   # True=金額欄を空欄で印字（合計には算入）
+    # 見積書2ページ目以降（部品の内訳）に載せるか。未設定(None)は自動判定＝枝番のある行だけ載せる
+    show_in_detail = Column(Boolean)
     amount_text = Column(String(50))               # 「含まず」等の文字列表示（設定時は単価0で運用）
     product_type = Column(String(50))
     spec_json = Column(JSON)

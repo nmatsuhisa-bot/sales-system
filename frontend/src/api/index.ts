@@ -154,6 +154,10 @@ export const arrangementApi = {
 };
 
 export const estimateApi = {
+  // 見積書の定型文（全社共通）
+  getTexts: () => api.get('/estimate-quotations/settings/texts'),
+  saveTexts: (fields: Record<string, string>) =>
+    api.put('/estimate-quotations/settings/texts', { fields }),
   // パターンマスタ
   getBfrBodies: () => api.get('/estimate-quotations/patterns/bfr-bodies'),
   getBfrFans: (model: string) => api.get(`/estimate-quotations/patterns/bfr-fans/${model}`),

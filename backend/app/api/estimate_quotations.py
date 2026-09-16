@@ -564,6 +564,8 @@ class LineItemIn(BaseModel):
     unit: str = '式'
     unit_price: int = 0
     hide_amount: bool = False          # True=見積書で金額欄を空欄（一式内訳の構成部品）
+    # 見積書2ページ目以降（部品の内訳）に載せるか。未指定は自動判定（枝番のある行だけ載せる）
+    show_in_detail: Optional[bool] = None
     amount_text: Optional[str] = None  # 「含まず」等の文字列表示（単価0で運用）
     product_type: Optional[str] = None
     spec_json: Optional[dict] = None
@@ -651,6 +653,7 @@ def _q_to_dict(q: QuotationHeader) -> dict:
             "unit": i.unit, "unit_price": int(i.unit_price or 0),
             "amount": int(i.amount or 0),
             "hide_amount": bool(i.hide_amount), "amount_text": i.amount_text,
+            "show_in_detail": i.show_in_detail,
             "product_type": i.product_type,
             "spec_json": i.spec_json
         } for i in q.line_items], key=lambda x: x["line_no"]),
@@ -728,6 +731,7 @@ def create_quotation(data: QuotationHeaderCreate, db: Session = Depends(get_db))
             spec_detail=nfkc(item.spec_detail), quantity=item.quantity, unit=item.unit,
             unit_price=item.unit_price, amount=int(item.unit_price * item.quantity),
             hide_amount=item.hide_amount, amount_text=nfkc(item.amount_text),
+            show_in_detail=item.show_in_detail,
             product_type=item.product_type, spec_json=item.spec_json
         ))
 
@@ -787,6 +791,7 @@ def duplicate_quotation(quotation_id: str, data: dict, db: Session = Depends(get
             sub_section=it.sub_section, item_name=it.item_name, spec_detail=it.spec_detail,
             quantity=it.quantity, unit=it.unit, unit_price=it.unit_price, amount=it.amount,
             hide_amount=it.hide_amount, amount_text=it.amount_text,
+            show_in_detail=it.show_in_detail,
             product_type=it.product_type, spec_json=it.spec_json,
         ))
     for l in src.labor_details:
@@ -953,6 +958,7 @@ def update_quotation(quotation_id: str, data: QuotationHeaderCreate, db: Session
             spec_detail=nfkc(item.spec_detail), quantity=item.quantity, unit=item.unit,
             unit_price=item.unit_price, amount=int(item.unit_price * item.quantity),
             hide_amount=item.hide_amount, amount_text=nfkc(item.amount_text),
+            show_in_detail=item.show_in_detail,
             product_type=item.product_type, spec_json=item.spec_json
         ))
     for labor in data.labor_details:
@@ -1115,7 +1121,7 @@ def _send_approval_mail(q: QuotationHeader, approver: str, token: str, db: Sessi
     # PDFを作れない環境ではHTMLで個別に添付する。
     from app.pdf import merge_pdfs
     attachments = []
-    q_html = _build_quotation_html(q, is_draft=True, for_pdf=True)
+    q_html = _build_quotation_html(q, is_draft=True, for_pdf=True, db=db)
     l_html = _build_labor_html(q, db)
     q_pdf = html_to_pdf(q_html, watermark="draft", stamps=_stamp_map(q))
     l_pdf = html_to_pdf(l_html)
@@ -1173,7 +1179,7 @@ def export_pdf(quotation_id: str, format: str = "html", mode: str = "", db: Sess
     _is_draft = (q.approval_status or 'none') != 'approved'
     if format == "pdf":
         from app.pdf import html_to_pdf
-        blob = html_to_pdf(_build_quotation_html(q, is_draft=_is_draft, for_pdf=True),
+        blob = html_to_pdf(_build_quotation_html(q, is_draft=_is_draft, for_pdf=True, db=db),
                            watermark="draft" if _is_draft else None,
                            stamps=_stamp_map(q))
         if blob:
@@ -1181,7 +1187,7 @@ def export_pdf(quotation_id: str, format: str = "html", mode: str = "", db: Sess
                 io.BytesIO(blob), media_type="application/pdf",
                 headers={"Content-Disposition": f"inline; filename={q.quotation_no}.pdf"})
     if mode == "edit":
-        html = strip_first_no_print(_build_quotation_html(q, is_draft=_is_draft, edit=True))
+        html = strip_first_no_print(_build_quotation_html(q, is_draft=_is_draft, edit=True, db=db))
         notes = ["この画面では 宛先・件名・納入先・納入期限・受渡場所・見積有効期限・御支払条件・除外事項 を編集できます。"
                  "金額・明細は見積の編集画面で変更してください。"]
         st = q.approval_status or "none"
@@ -1192,7 +1198,7 @@ def export_pdf(quotation_id: str, format: str = "html", mode: str = "", db: Sess
                            save_url="/api/estimate-quotations/%s/edit-header" % q.id,
                            pdf_url="/api/estimate-quotations/%s/pdf?format=pdf" % q.id)
         return StreamingResponse(io.BytesIO(html.encode("utf-8")), media_type="text/html")
-    html = _build_quotation_html(q, is_draft=_is_draft)
+    html = _build_quotation_html(q, is_draft=_is_draft, db=db)
     return StreamingResponse(
         io.BytesIO(html.encode("utf-8")),
         media_type="text/html",
@@ -1252,8 +1258,75 @@ def _stamp_map(q: QuotationHeader) -> dict:
     }
 
 
+# =============================================
+# 見積書の定型文（全社共通。マスタ管理 > 見積書の文言 で変更する）
+# =============================================
+QUOTE_TEXT_DEFAULTS = {
+    "title": "御 見 積 書",
+    "label_delivery_terms": "納入期限",
+    "label_delivery_place": "受渡場所",
+    "label_valid_until": "見積有効期限",
+    "label_payment_terms": "御支払条件",
+    "label_subtotal": "小計金額",
+    "label_discount": "出精値引",
+    "label_total": "合計金額",
+    "label_section_subtotal": "小計金額",
+    "th_no": "番 号",
+    "th_name": "品 名 ・ 仕 様",
+    "th_qty": "数 量",
+    "th_price": "単 価",
+    "th_amount": "金 額",
+    "detail_suffix": "（内訳）",
+    "tax_note_excluded": "※上記金額には消費税は含まれておりません。",
+    "exclusions_title": "※ 御見積除外事項",
+    "company_name": "井上電設株式会社",
+    "company_address": "〒460-0022 名古屋市中区金山四丁目3番17号",
+    "company_tel": "TEL (052) 322-5271　FAX (052) 332-5273",
+    "company_email": "E-mail tech@inoue-d.co.jp",
+}
+
+
+def quote_texts(db: Optional[Session] = None) -> dict:
+    """定型文（既定値に、保存された文言を上書きしたもの）"""
+    t = dict(QUOTE_TEXT_DEFAULTS)
+    if db is None:
+        return t
+    doc = _form_doc(db, "quotation-texts", "global")
+    if doc and doc.data_json:
+        t.update({k: v for k, v in doc.data_json.items() if k in QUOTE_TEXT_DEFAULTS and v})
+    return t
+
+
+@router.get("/settings/texts")
+def get_quote_texts(db: Session = Depends(get_db)):
+    """見積書の定型文。既定値と現在値を返す"""
+    return {"defaults": QUOTE_TEXT_DEFAULTS, "values": quote_texts(db)}
+
+
+@router.put("/settings/texts")
+def save_quote_texts(body: dict, db: Session = Depends(get_db)):
+    """見積書の定型文を保存する。既定値と同じ項目は保存しない（既定に追従させるため）"""
+    from app.db.models import FormDocument
+    fields = (body or {}).get("fields") or {}
+    over = {}
+    for k, v in fields.items():
+        if k not in QUOTE_TEXT_DEFAULTS:
+            continue
+        v = nfkc(str(v or "")).strip()
+        if v and v != QUOTE_TEXT_DEFAULTS[k]:
+            over[k] = v
+    doc = _form_doc(db, "quotation-texts", "global")
+    if not doc:
+        doc = FormDocument(form_type="quotation-texts", entity_id="global")
+        db.add(doc)
+    doc.data_json = over
+    db.commit()
+    return {"ok": True, "changed": len(over), "values": quote_texts(db)}
+
+
 def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: bool = False,
-                          edit: bool = False) -> str:
+                          edit: bool = False, db: Optional[Session] = None) -> str:
+    T = quote_texts(db)
     # 「draft」透かし（position:fixedで印刷全ページに出る。承認後は消える）
     # 画面(HTML)は斜めの透かし。PDF変換では position:fixed / transform が効かず
     # 巨大な文字が本文を押し下げてしまうため、上部の帯に切り替える。
@@ -1328,16 +1401,25 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
             sections[sec] = []
         sections[sec].append(item)
 
+    def _in_detail(item, has_branch: bool) -> bool:
+        """2ページ目以降（部品の内訳）に載せるか。
+
+        既定は「枝番のある行だけ載せる」。頭紙に出ている大区分だけの行は内訳に出さない。
+        見積編集画面のチェックで行ごとに上書きできる。
+        """
+        if item.show_in_detail is None:
+            return has_branch
+        return bool(item.show_in_detail)
+
     for sec_no, (sec, items) in enumerate(sections.items(), 1):
         sec_total = sum(int(i.amount or 0) for i in items)
-        # 内訳を持たない大項目（明細1行・中分類なし）は、見出し行と小計行を出さず
-        # 大項目番号のまま1行で表示する。原本（ケイテック様 大項目2・5〜10）の様式。
-        # これをしないと「見出し＋子行1つ＋小計」で同じ金額が3行並んでしまう。
+        # 内訳を持たない大項目（明細1行・中分類なし）は枝番が付かない。
+        # 既定では内訳ページに出さない（頭紙の大区分行と同じ内容になるため）
         if len(items) == 1 and not items[0].sub_section:
-            items_html += _item_row(str(sec_no), items[0])
+            if _in_detail(items[0], False):
+                items_html += _item_row(str(sec_no), items[0])
             continue
-        # 大分類の見出し行（番号付き）
-        items_html += f"""
+        sec_html = f"""
             <tr style="background:#e8eef5;font-weight:bold">
                 <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{sec_no}</td>
                 <td colspan="{_span}" style="border:1px solid #ccc;padding:4px 8px">{sec or '（未分類）'}</td>
@@ -1353,24 +1435,31 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
             else:
                 groups.append([key, [item]])
         item_no = 1  # 大分類ごとに 1〜 で付番
+        rows_html = ""
         for key, gitems in groups:
             if key is not None and len(gitems) > 1:
-                # 中分類の見出し行（金額なし）
-                items_html += f"""
+                shown = [(f"{sec_no}-{item_no}-{sub_no}", it)
+                         for sub_no, it in enumerate(gitems, 1) if _in_detail(it, True)]
+                if shown:
+                    # 中分類の見出し行（金額なし）
+                    rows_html += f"""
             <tr style="background:#f3f6fa;font-weight:bold">
                 <td style="text-align:center;border:1px solid #ccc;padding:4px 8px">{sec_no}-{item_no}</td>
                 <td colspan="{_span}" style="border:1px solid #ccc;padding:4px 8px">{key}</td>
             </tr>"""
-                for sub_no, item in enumerate(gitems, 1):
-                    items_html += _item_row(f"{sec_no}-{item_no}-{sub_no}", item, indent=1)
+                    for num, item in shown:
+                        rows_html += _item_row(num, item, indent=1)
                 item_no += 1
             else:
                 for item in gitems:
-                    items_html += _item_row(f"{sec_no}-{item_no}", item)
+                    if _in_detail(item, True):
+                        rows_html += _item_row(f"{sec_no}-{item_no}", item)
                     item_no += 1
-        items_html += f"""
+        # 内訳に出す行が1つも無い大区分は、見出しと小計ごと出さない
+        if rows_html:
+            items_html += sec_html + rows_html + f"""
             <tr style="background:#f5f5f5;font-weight:bold">
-                <td colspan="{_span}" style="text-align:right;border:1px solid #ccc;padding:4px 8px">【{sec_no}】{sec or '（未分類）'} 小計金額</td>
+                <td colspan="{_span}" style="text-align:right;border:1px solid #ccc;padding:4px 8px">【{sec_no}】{sec or '（未分類）'} {T["label_section_subtotal"]}</td>
                 <td style="text-align:right;border:1px solid #ccc;padding:4px 8px">¥{sec_total:,}</td>
             </tr>"""
 
@@ -1396,12 +1485,12 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     _net_total = _subtotal_all - _discount                          # 値引後（税抜）
     grand_total = _net_total if _tax_excluded else int(q.total_amount or 0)
     tax_label = "(税抜)" if _tax_excluded else "(消費税込み)"
-    tax_note = ('<div style="margin-top:8px;font-size:11px">※上記金額には消費税は含まれておりません。</div>'
+    tax_note = (f'<div style="margin-top:8px;font-size:11px">{T["tax_note_excluded"]}</div>'
                 if _tax_excluded else '')
     # 出精値引行（原本様式: 小計金額 → 出精値引 → 合計金額）
     discount_row = f'''
     <tr>
-      <td colspan="3" style="border:1px solid #999;padding:5px 8px;text-align:right">出精値引</td>
+      <td colspan="3" style="border:1px solid #999;padding:5px 8px;text-align:right">{T["label_discount"]}</td>
       <td style="border:1px solid #999;padding:5px 8px;text-align:right;color:#c0392b">-¥{_discount:,}</td></tr>''' if _discount else ''
     # 税抜表示のときは消費税行を出さない（合計＝税抜金額）。頭紙と明細でcolspanが異なる
     tax_row = '' if _tax_excluded else f'''
@@ -1409,17 +1498,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
       <td colspan="3" style="border:1px solid #999;padding:5px 8px;text-align:right">消費税({int(q.tax_rate or 10)}%)</td>
       <td style="border:1px solid #999;padding:5px 8px;text-align:right">¥{int(q.tax_amount or 0):,}</td></tr>'''
     # 社内工数は見積書に出さない（社内工数試算シートで確認する）
-    labor_row_detail = ''
-    discount_row_detail = f'''
-  <tr style="font-weight:bold">
-    <td colspan="{_span}" style="text-align:right;border:1px solid #ccc;padding:5px 8px">出精値引</td>
-    <td style="text-align:right;border:1px solid #ccc;padding:5px 8px;color:#c0392b">-¥{_discount:,}</td>
-  </tr>''' if _discount else ''
-    tax_row_detail = '' if _tax_excluded else f'''
-  <tr style="font-weight:bold">
-    <td colspan="{_span}" style="text-align:right;border:1px solid #ccc;padding:5px 8px">消費税({int(q.tax_rate or 10)}%)</td>
-    <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.tax_amount or 0):,}</td>
-  </tr>'''
+    # 小計・値引・消費税・合計は頭紙にだけ出す（2ページ目以降は部品の内訳のみ）
     # 検印・担当・作成の3枠（原本様式。頭紙右上）
     # 押印（丸印）の対象者。PDFでは目印の位置に朱色の丸を描く（app/pdf.py）。
     # 苗字だけを丸に入れる（「井上 嗣夫」→「井上」）。
@@ -1451,11 +1530,11 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     # PDFは品名と詳細を1列にまとめるので6列、画面は7列。
     if for_pdf:
         _thead_cells = (
-            '<th width="14mm" style="border:1px solid #999;padding:5px 6px;text-align:center">番 号</th>'
-            '<th width="82mm" style="border:1px solid #999;padding:5px 6px;text-align:center">品 名 ・ 仕 様</th>'
-            '<th width="16mm" style="border:1px solid #999;padding:5px 4px;text-align:center">数 量</th>'
-            '<th width="30mm" style="border:1px solid #999;padding:5px 6px;text-align:center">単 価</th>'
-            '<th width="30mm" style="border:1px solid #999;padding:5px 6px;text-align:center">金 額</th>')
+            f'<th width="14mm" style="border:1px solid #999;padding:5px 6px;text-align:center">{T["th_no"]}</th>'
+            f'<th width="82mm" style="border:1px solid #999;padding:5px 6px;text-align:center">{T["th_name"]}</th>'
+            f'<th width="16mm" style="border:1px solid #999;padding:5px 4px;text-align:center">{T["th_qty"]}</th>'
+            f'<th width="30mm" style="border:1px solid #999;padding:5px 6px;text-align:center">{T["th_price"]}</th>'
+            f'<th width="30mm" style="border:1px solid #999;padding:5px 6px;text-align:center">{T["th_amount"]}</th>')
     else:
         _thead_cells = (
             '<th style="border:1px solid #ccc;padding:5px 8px;text-align:center;width:40px">番号</th>'
@@ -1476,7 +1555,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
         _rows = "<br>".join(_exc)
         exclusions_html = f'''
   <div style="margin-top:10px;font-size:10px">
-    <div style="font-weight:bold;margin-bottom:3px">※ 御見積除外事項</div>
+    <div style="font-weight:bold;margin-bottom:3px">{T["exclusions_title"]}</div>
     <table style="width:100%;border:1px solid #999;border-collapse:collapse">
       <tr><td style="padding:7px 10px;font-size:9.5px;line-height:1.9">{_rows}</td></tr>
     </table>
@@ -1485,7 +1564,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
     if edit:
         exclusions_html = (
             '<div style="margin-top:10px;font-size:10px">'
-            '<div style="font-weight:bold;margin-bottom:3px">※ 御見積除外事項（1行に1項目）</div>'
+            f'<div style="font-weight:bold;margin-bottom:3px">{T["exclusions_title"]}（1行に1項目）</div>'
             '<div style="border:1px solid #999;padding:7px 10px;font-size:9.5px;line-height:1.9">'
             + ef("edit", "exclusions", q.exclusions, block=True, placeholder="例）基礎工事:アンカーボルト並施工")
             + '</div></div>')
@@ -1540,7 +1619,7 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
       </td>
     </tr>
   </table>
-  <h1 style="text-align:center;font-size:22px;margin:2px 0 10px;letter-spacing:8px">御 見 積 書</h1>
+  <h1 style="text-align:center;font-size:22px;margin:2px 0 10px;letter-spacing:8px">{T["title"]}</h1>
 
   <table style="width:100%;border-collapse:collapse;margin-bottom:2px">
     <tr>
@@ -1549,25 +1628,25 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
           {addressee}　　殿
         </div>
         <div style="margin-top:8px;margin-bottom:8px;font-size:15px;font-weight:bold">
-          合計金額 ￥<span style="font-size:19px;border-bottom:2px double #000;padding:0 4px">{grand_total:,}-</span>
+          {T["label_total"]} ￥<span style="font-size:19px;border-bottom:2px double #000;padding:0 4px">{grand_total:,}-</span>
           <span style="font-size:10px;color:#666">{tax_label}</span>
         </div>
         <table style="border-collapse:collapse;font-size:10px;width:100%">
-          <tr><td width="26mm" style="border:1px solid #999;padding:3px 6px;background:#f5f5f5">納入期限</td>
+          <tr><td width="26mm" style="border:1px solid #999;padding:3px 6px;background:#f5f5f5">{T["label_delivery_terms"]}</td>
               <td style="border:1px solid #999;padding:3px 8px">{_delivery_terms}</td></tr>
-          <tr><td style="border:1px solid #999;padding:3px 6px;background:#f5f5f5">受渡場所</td>
+          <tr><td style="border:1px solid #999;padding:3px 6px;background:#f5f5f5">{T["label_delivery_place"]}</td>
               <td style="border:1px solid #999;padding:3px 8px">{delivery_place}</td></tr>
-          <tr><td style="border:1px solid #999;padding:3px 6px;background:#f5f5f5">見積有効期限</td>
+          <tr><td style="border:1px solid #999;padding:3px 6px;background:#f5f5f5">{T["label_valid_until"]}</td>
               <td style="border:1px solid #999;padding:3px 8px">{valid_until_disp}</td></tr>
-          <tr><td style="border:1px solid #999;padding:3px 6px;background:#f5f5f5">御支払条件</td>
+          <tr><td style="border:1px solid #999;padding:3px 6px;background:#f5f5f5">{T["label_payment_terms"]}</td>
               <td style="border:1px solid #999;padding:3px 8px">{_payment_terms}</td></tr>
         </table>
       </td>
       <td width="76mm" style="border:none;vertical-align:top;font-size:9.5px;line-height:1.45;text-align:right">
-        <div style="font-weight:bold;font-size:13px">井上電設株式会社</div>
-        〒460-0022 名古屋市中区金山四丁目3番17号<br>
-        TEL (052) 322-5271　FAX (052) 332-5273<br>
-        E-mail tech@inoue-d.co.jp
+        <div style="font-weight:bold;font-size:13px">{T["company_name"]}</div>
+        {T["company_address"]}<br>
+        {T["company_tel"]}<br>
+        {T["company_email"]}
         {stamp_box}
       </td>
     </tr>
@@ -1577,26 +1656,46 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
 
   <table style="width:100%;border-collapse:collapse;font-size:11px">
     <tr style="background:#2c3e50;color:#fff">
-      <th width="14mm" style="border:1px solid #999;padding:5px 6px;text-align:center">番 号</th>
-      <th width="112mm" style="border:1px solid #999;padding:5px 6px;text-align:center">品 名 ・ 仕 様</th>
-      <th width="16mm" style="border:1px solid #999;padding:5px 4px;text-align:center">数 量</th>
-      <th width="44mm" style="border:1px solid #999;padding:5px 6px;text-align:center">金 額</th>
+      <th width="14mm" style="border:1px solid #999;padding:5px 6px;text-align:center">{T["th_no"]}</th>
+      <th width="112mm" style="border:1px solid #999;padding:5px 6px;text-align:center">{T["th_name"]}</th>
+      <th width="16mm" style="border:1px solid #999;padding:5px 4px;text-align:center">{T["th_qty"]}</th>
+      <th width="44mm" style="border:1px solid #999;padding:5px 6px;text-align:center">{T["th_amount"]}</th>
     </tr>
     {section_rows}
     <tr style="font-weight:bold;background:#f5f5f5">
-      <td colspan="3" style="border:1px solid #999;padding:5px 8px;text-align:right">小計金額</td>
+      <td colspan="3" style="border:1px solid #999;padding:5px 8px;text-align:right">{T["label_subtotal"]}</td>
       <td style="border:1px solid #999;padding:5px 8px;text-align:right">¥{_subtotal_all:,}</td></tr>
     {discount_row}
     {tax_row}
     <tr style="font-weight:bold;background:#fff9c4;font-size:13px">
-      <td colspan="3" style="border:2px solid #000;padding:6px 8px;text-align:right">合計金額{tax_label}</td>
+      <td colspan="3" style="border:2px solid #000;padding:6px 8px;text-align:right">{T["label_total"]}{tax_label}</td>
       <td style="border:2px solid #000;padding:6px 8px;text-align:right">¥{grand_total:,}</td></tr>
   </table>
   {tax_note}
   {exclusions_html}
 </div>
-<div style="page-break-before:always"></div>
 '''
+    # 2ページ目以降は「部品の内訳」だけを載せる。内訳に出す行が無ければページ自体を作らない
+    detail_html = ''
+    if items_html.strip():
+        detail_html = f'''
+<div style="page-break-before:always"></div>
+<table repeat="2" style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px">
+<thead>
+  <tr><td colspan="{_ncols}" style="border:none;padding:0 0 4px;font-size:10px">
+    <table style="width:100%;border-collapse:collapse">
+      <tr>
+        <td width="80mm" style="border:none;font-size:11px;font-weight:bold">{_hdr_title}{T["detail_suffix"]}</td>
+        <td width="106mm" style="border:none;text-align:right;font-size:9.5px">{_hdr_meta}</td>
+      </tr>
+    </table>
+  </td></tr>
+  <tr style="background:#2c3e50;color:#fff">{_thead_cells}</tr>
+</thead>
+<tbody>
+{items_html}
+</tbody>
+</table>'''
 
     return f"""<!DOCTYPE html>
 <html lang="ja"><head><meta charset="UTF-8">
@@ -1618,57 +1717,9 @@ def _build_quotation_html(q: QuotationHeader, is_draft: bool = False, for_pdf: b
 <!-- 頭紙: 大分類別 内訳サマリー -->
 {cover_html}
 
-<!-- 内訳明細ページのヘッダーは明細表の thead に入れてある（ページ跨ぎで繰り返すため） -->
+<!-- 2ページ目以降: 部品の内訳。合計は頭紙にのみ出す（ページ跨ぎの見出しは thead で繰り返す） -->
+{detail_html}
 
-
-<!-- 金額サマリ(1枚目) -->
-<table repeat="2" style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px">
-<thead>
-  <tr><td colspan="{_ncols}" style="border:none;padding:0 0 4px;font-size:10px">
-    <table style="width:100%;border-collapse:collapse">
-      <tr>
-        <td width="80mm" style="border:none;font-size:11px;font-weight:bold">{_hdr_title}</td>
-        <td width="106mm" style="border:none;text-align:right;font-size:9.5px">{_hdr_meta}</td>
-      </tr>
-    </table>
-  </td></tr>
-  <tr style="background:#2c3e50;color:#fff">{_thead_cells}</tr>
-</thead>
-<tbody>
-{items_html}
-</tbody>
-<tfoot>
-  <tr style="font-weight:bold">
-    <td colspan="{_span}" style="text-align:right;border:1px solid #ccc;padding:5px 8px">小計金額</td>
-    <td style="text-align:right;border:1px solid #ccc;padding:5px 8px">¥{int(q.subtotal or 0):,}</td>
-  </tr>
-  {labor_row_detail}
-  {discount_row_detail}
-  {tax_row_detail}
-  <tr style="font-weight:bold;background:#fff9c4;font-size:14px">
-    <td colspan="{_span}" style="text-align:right;border:2px solid #000;padding:6px 8px">合計金額{tax_label}</td>
-    <td style="text-align:right;border:2px solid #000;padding:6px 8px">¥{grand_total:,}</td>
-  </tr>
-</tfoot>
-</table>
-{tax_note}
-
-<!-- 会社情報フッター -->
-<table style="margin-top:30px;border:2px solid #000;width:100%;border-collapse:collapse">
-  <tr>
-    <td style="font-size:20px;font-weight:bold;padding:10px;width:32%">井上電設株式会社</td>
-    <td style="font-size:11px;color:#333;padding:10px;width:44%">
-      〒460-0022 名古屋市中区金山四丁目3番17号<br>
-      TEL (052) 322-5271 FAX (052) 332-5273<br>
-      E-mail: tech@inoue-d.co.jp
-    </td>
-    <td style="font-size:11px;padding:10px;width:24%">
-      担当: {q.sales_person_name or '　　　'}<br>
-      作成: {q.created_by_name or '　　　'}<br>
-      検印: {q.approver_name or '　　　'}
-    </td>
-  </tr>
-</table>
 </body></html>"""
 
 
@@ -2021,8 +2072,10 @@ def order_ticket_pdf(ticket_id: str, with_quotation: int = 0, mode: str = "", db
     html = f"""<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
 <title>{t.ticket_no} {title}</title>
 <style>
-  body{{font-family:'Hiragino Sans','Yu Gothic',sans-serif;font-size:11px;margin:15mm}}
-  @media print{{.no-print{{display:none}}}}
+  /* 受注票はA4横。項目が横に広く、縦だと右端が切れるため */
+  @page{{size:A4 landscape;margin:10mm}}
+  body{{font-family:'Hiragino Sans','Yu Gothic',sans-serif;font-size:11px;margin:10mm}}
+  @media print{{.no-print{{display:none}}body{{margin:0}}}}
   table{{border-collapse:collapse;width:100%}}
   th{{background:#eee;border:1px solid #999;padding:4px 6px}}
 </style></head><body>
@@ -2163,7 +2216,7 @@ def order_ticket_pdf(ticket_id: str, with_quotation: int = 0, mode: str = "", db
 
     # 見積書も同時印刷（会議2026-07-17: 二度手間を省く）。?with_quotation=1 で受注票の後ろに見積書を連結
     if with_quotation and q:
-        q_html = _build_quotation_html(q, is_draft=((q.approval_status or 'none') != 'approved'))
+        q_html = _build_quotation_html(q, is_draft=((q.approval_status or 'none') != 'approved'), db=db)
         # 見積書HTMLのbody部分を抜き出して改ページ付きで連結
         _qs = q_html.find("<body>")
         _qe = q_html.rfind("</body>")

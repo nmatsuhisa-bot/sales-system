@@ -255,12 +255,17 @@ def list_projects(
     page: int = Query(1, ge=1), per_page: int = Query(20, ge=1, le=100),
     status: Optional[str] = None, sales_person_code: Optional[str] = None,
     distribution_type: Optional[str] = None, search: Optional[str] = None,
+    ticket_type: Optional[str] = None,          # koban / tanban（子IDの区分で絞り込む）
+    sort: str = "recent",                       # recent=更新の新しい順 / project_no=案件ID順
     db: Session = Depends(get_db)
 ):
     q = db.query(Project).options(joinedload(Project.project_orders).joinedload(ProjectOrder.linked_quotations))
     if status: q = q.filter(Project.status == status)
     if sales_person_code: q = q.filter(Project.sales_person_code == sales_person_code)
     if distribution_type: q = q.filter(Project.distribution_type == distribution_type)
+    if ticket_type:
+        # 子IDに該当する区分があれば表示（親案件には区分が無いため）
+        q = q.filter(Project.project_orders.any(ProjectOrder.ticket_type == ticket_type))
     if search:
         q = q.filter(or_(
             Project.project_no.ilike(f"%{search}%"), Project.project_name.ilike(f"%{search}%"),
@@ -268,7 +273,9 @@ def list_projects(
             Project.sales_person_name.ilike(f"%{search}%"),
         ))
     total = q.count()
-    items = q.order_by(desc(Project.project_no)).offset((page-1)*per_page).limit(per_page).all()
+    # 既定は「直近に動いた案件」が上。案件ID順にも切り替えられる
+    order = desc(Project.project_no) if sort == "project_no" else desc(Project.updated_at)
+    items = q.order_by(order).offset((page-1)*per_page).limit(per_page).all()
     return {"total": total, "page": page, "per_page": per_page, "items": [project_to_dict(p) for p in items]}
 
 @router.post("/", status_code=201)
