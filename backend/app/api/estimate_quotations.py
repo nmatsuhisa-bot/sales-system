@@ -2308,13 +2308,26 @@ def _item_text(i):
     return ((i.item_name or '') + ' ' + (i.spec_detail or '')).strip()
 
 
+FAN_MODEL_KW_RE = re.compile(r'\b(?:PL|RT|TVS)[A-Z]*(\d+\.?\d*)', re.IGNORECASE)
+
+
 def _item_kw(i):
-    """明細1行からモータ出力(kW)を読む。パターン選択の spec_json を優先し、無ければ品名から。"""
+    """明細1行からモータ出力(kW)を読む。
+
+    パターン選択の spec_json → 品名の「15kw」→ ファンの型式（PLD7.5 の 7.5＝出力）の順。
+    """
     sj = i.spec_json or {}
     if sj.get('kw') not in (None, ''):
         return str(sj['kw'])
-    m = KW_RE.search(_item_text(i))
-    return m.group(1) if m else ''
+    text = _item_text(i)
+    m = KW_RE.search(text)
+    if m:
+        return m.group(1)
+    if '排風機' in text or 'ファン' in text or 'ﾌｧﾝ' in text:
+        m = FAN_MODEL_KW_RE.search(text)
+        if m:
+            return m.group(1)
+    return ''
 
 
 def _q_order(q, db):

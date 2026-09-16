@@ -75,6 +75,28 @@ function SelectField({ label, name, options, form, setForm }: any) {
   );
 }
 
+const yen = (v: any) => (v == null || v === '' ? '—' : `¥${Number(v).toLocaleString()}`);
+const val = (v: any) => (v == null || v === '' ? '—' : String(v));
+
+/** 詳細モーダルの1項目（読み取り専用） */
+function DetailRow({ label, value, wide = false, mono = false }: any) {
+  return (
+    <div className={wide ? 'md:col-span-2' : ''}>
+      <div className="text-[11px] text-gray-400">{label}</div>
+      <div className={`text-sm text-gray-800 break-words whitespace-pre-wrap ${mono ? 'font-mono' : ''}`}>{value}</div>
+    </div>
+  );
+}
+
+function DetailSection({ title, children }: any) {
+  return (
+    <div>
+      <div className="text-xs font-semibold text-gray-500 border-b border-gray-100 pb-1 mb-2">{title}</div>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2.5">{children}</div>
+    </div>
+  );
+}
+
 export default function ProjectsPage() {
   const navigate = useNavigate();
   const [items, setItems] = useState<any[]>([]);
@@ -84,6 +106,8 @@ export default function ProjectsPage() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [projectModal, setProjectModal] = useState<any>(null);
   const [orderModal, setOrderModal] = useState<any>(null);
+  // 案件ID・子IDのクリックで開く詳細表示（読み取り専用。ここから編集へ進める）
+  const [detail, setDetail] = useState<{ project: any; order: any | null } | null>(null);
   const [form, setForm] = useState<any>({});
   const [orderForm, setOrderForm] = useState<any>({});
   const [agencies, setAgencies] = useState<any[]>([]);
@@ -113,6 +137,14 @@ export default function ProjectsPage() {
     mastersApi.listDeliveryDestinations().then(r => setDestinations(r.data || []));
     mastersApi.listEmployees().then(r => setEmployees(r.data || []));
   }, [search, statusFilter]);
+
+  // 詳細モーダルは Esc でも閉じられるようにする
+  useEffect(() => {
+    if (!detail) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDetail(null); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [detail]);
 
   const generateNextProjectNo = (existingItems: any[]) => {
     const year = new Date().getFullYear();
@@ -268,7 +300,12 @@ export default function ProjectsPage() {
               <div className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 border-b border-gray-50"
                 onClick={() => toggleExpand(p.id)}>
                 <span className="text-gray-400 shrink-0">{expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span>
-                <span className="font-bold text-blue-700 w-32 shrink-0 text-sm font-mono">{p.project_no}</span>
+                <button
+                  onClick={e => { e.stopPropagation(); setDetail({ project: p, order: null }); }}
+                  title="クリックで詳細を表示"
+                  className="font-bold text-blue-700 w-32 shrink-0 text-sm font-mono text-left hover:underline hover:text-blue-900">
+                  {p.project_no}
+                </button>
                 <span className="flex-1 font-medium text-gray-800 text-sm truncate">{p.project_name || '（案件名未設定）'}</span>
                 <span className="text-xs text-gray-500 w-40 truncate hidden md:block">{p.customer_name_2 || p.customer_name_1 || '—'}</span>
                 <span className="text-xs text-gray-500 w-20 hidden lg:block">{p.sales_person_name || '—'}</span>
@@ -312,7 +349,11 @@ export default function ProjectsPage() {
                     <div key={o.id}
                       className="grid items-center px-10 py-2 text-sm border-b border-gray-100 hover:bg-blue-50"
                       style={{ gridTemplateColumns: '140px 1fr 150px 56px 90px 100px 100px 100px 110px 170px 130px' }}>
-                      <span className="font-mono text-xs text-blue-600 font-bold">{o.child_no}</span>
+                      <button onClick={() => setDetail({ project: p, order: o })}
+                        title="クリックで詳細を表示"
+                        className="font-mono text-xs text-blue-600 font-bold text-left hover:underline hover:text-blue-800">
+                        {o.child_no}
+                      </button>
                       <span className="truncate text-gray-700 text-xs">{o.project_name || p.project_name || '—'}</span>
                       <span className="truncate text-gray-500 text-xs">{o.customer_name || o.agency_name || '—'}</span>
                       <span>
@@ -391,6 +432,155 @@ export default function ProjectsPage() {
           </div>
         )}
       </div>
+
+      {/* ===== 詳細モーダル（案件ID・子IDのクリックで開く。編集は「編集する」から） ===== */}
+      {detail && (() => {
+        const p = detail.project;
+        const o = detail.order;
+        return (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+            onClick={() => setDetail(null)}>
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col"
+              onClick={e => e.stopPropagation()}>
+              <div className="p-5 border-b border-gray-100 flex items-start gap-3">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono font-bold text-blue-700">{o ? o.child_no : p.project_no}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[(o ? o.status : p.status)] || 'bg-gray-100'}`}>
+                      {val(o ? o.status : p.status)}
+                    </span>
+                    {o && o.ticket_type && (
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${TICKET_TYPE_COLORS[o.ticket_type]}`}>
+                        {TICKET_TYPE_LABELS[o.ticket_type]}
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-400">{o ? '子ID の詳細' : '案件（親）の詳細'}</span>
+                  </div>
+                  <h2 className="text-lg font-bold text-gray-800 mt-1">
+                    {(o ? o.project_name : p.project_name) || '（案件名未設定）'}
+                  </h2>
+                  {o && <p className="text-xs text-gray-500 mt-0.5">親案件: <span className="font-mono">{p.project_no}</span></p>}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => { setDetail(null); o ? openOrderEdit(p, o) : openProjectEdit(p); }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+                    <Edit2 size={14} />編集する
+                  </button>
+                  <button onClick={() => setDetail(null)}
+                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-gray-700 text-sm">閉じる</button>
+                </div>
+              </div>
+
+              <div className="overflow-y-auto flex-1 p-5 space-y-5">
+                {o ? (<>
+                  <DetailSection title="基本情報">
+                    <DetailRow label="子ID" value={val(o.child_no)} mono />
+                    <DetailRow label="案件ID（親）" value={val(o.project_no)} mono />
+                    <DetailRow label="工番/単番" value={o.ticket_type ? TICKET_TYPE_LABELS[o.ticket_type] : '未設定'} />
+                    <DetailRow label="ステータス" value={val(o.status)} />
+                    <DetailRow label="自社営業担当" value={val(o.sales_person_name)} />
+                    <DetailRow label="案件名" value={val(o.project_name)} wide />
+                    <DetailRow label="案件概要" value={val(o.project_summary)} wide />
+                  </DetailSection>
+                  <DetailSection title="取引先">
+                    <DetailRow label="納入先" value={val(o.customer_name)} />
+                    <DetailRow label="納入先ID" value={val(o.customer_code)} mono />
+                    <DetailRow label="商社（代理店）" value={val(o.agency_name)} />
+                    <DetailRow label="商社ID" value={val(o.agency_code)} mono />
+                  </DetailSection>
+                  <DetailSection title="金額">
+                    <DetailRow label="見積金額" value={yen(o.quotation_amount)} />
+                    <DetailRow label="予算金額" value={yen(o.budget_amount)} />
+                    <DetailRow label="採用見積" value={o.quotation_no ? `${o.quotation_no}（${yen(o.quotation_total)}）` : '未採用'} />
+                    <DetailRow label="見積発行日" value={val(o.quotation_issue_date)} />
+                  </DetailSection>
+                  <DetailSection title="日程">
+                    <DetailRow label="引き合い日" value={val(o.inquiry_date)} />
+                    <DetailRow label="受注予定日" value={val(o.expected_order_date)} />
+                    <DetailRow label="受注日" value={val(o.order_date)} />
+                    <DetailRow label="出荷予定日" value={val(o.expected_shipment_date)} />
+                    <DetailRow label="出荷日" value={val(o.shipment_date)} />
+                    <DetailRow label="売上予定日" value={val(o.sales_date)} />
+                    <DetailRow label="顧客納期" value={val(o.customer_delivery_date)} />
+                  </DetailSection>
+                  {(o.linked_quotations || []).length > 0 && (
+                    <DetailSection title="紐付いている見積">
+                      {(o.linked_quotations || []).map((lq: any) => (
+                        <DetailRow key={lq.id} label={val(lq.quotation_issue_date)}
+                          value={`${val(lq.quotation_no)}　${yen(lq.quotation_total)}`} />
+                      ))}
+                    </DetailSection>
+                  )}
+                  <DetailSection title="その他">
+                    <DetailRow label="備考" value={val(o.notes)} wide />
+                    <DetailRow label="登録日時" value={val((o.created_at || '').replace('T', ' ').slice(0, 16))} />
+                    <DetailRow label="更新日時" value={val((o.updated_at || '').replace('T', ' ').slice(0, 16))} />
+                  </DetailSection>
+                </>) : (<>
+                  <DetailSection title="基本情報">
+                    <DetailRow label="案件ID" value={val(p.project_no)} mono />
+                    <DetailRow label="ステータス" value={val(p.status)} />
+                    <DetailRow label="確度" value={val(p.probability)} />
+                    <DetailRow label="商流判定" value={val(p.distribution_type)} />
+                    <DetailRow label="自社営業担当" value={val(p.sales_person_name)} />
+                    <DetailRow label="子IDの件数" value={`${p.order_count || (p.orders || []).length}件`} />
+                    <DetailRow label="案件名" value={val(p.project_name)} wide />
+                    <DetailRow label="案件概要" value={val(p.project_summary)} wide />
+                  </DetailSection>
+                  <DetailSection title="取引先">
+                    <DetailRow label="商社（代理店）" value={val(p.customer_name_1)} />
+                    <DetailRow label="商社ID" value={val(p.customer_code_1)} mono />
+                    <DetailRow label="納入先" value={val(p.customer_name_2)} />
+                    <DetailRow label="納入先ID" value={val(p.customer_code_2)} mono />
+                  </DetailSection>
+                  <DetailSection title="金額">
+                    <DetailRow label="予算金額" value={yen(p.budget_amount)} />
+                    <DetailRow label="見込売上合計" value={yen(p.estimated_sales_total)} />
+                    <DetailRow label="最終受注金額" value={yen(p.final_order_amount)} />
+                    <DetailRow label="子IDの見積金額合計" value={yen(p.total_quotation_amount)} />
+                    <DetailRow label="案件原価" value={yen(p.cost_price)} />
+                    <DetailRow label="利益額" value={yen(p.profit_amount)} />
+                    <DetailRow label="利益率" value={p.profit_rate != null ? `${p.profit_rate}%` : '—'} />
+                  </DetailSection>
+                  <DetailSection title="日程">
+                    <DetailRow label="引き合い日" value={val(p.inquiry_date)} />
+                    <DetailRow label="受注予定日" value={val(p.expected_order_date)} />
+                    <DetailRow label="受注日" value={val(p.order_date)} />
+                    <DetailRow label="社内出図希望日" value={val(p.drawing_request_date)} />
+                    <DetailRow label="出荷予定日" value={val(p.expected_shipment_date)} />
+                    <DetailRow label="売上予定日" value={val(p.sales_date)} />
+                    <DetailRow label="作成日" value={val(p.created_date)} />
+                  </DetailSection>
+                  <div>
+                    <div className="text-xs font-semibold text-gray-500 border-b border-gray-100 pb-1 mb-2">子ID一覧</div>
+                    {(p.orders || []).length === 0 ? (
+                      <p className="text-sm text-gray-400">子IDがありません</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {(p.orders || []).map((c: any) => (
+                          <button key={c.id} onClick={() => setDetail({ project: p, order: c })}
+                            className="w-full flex items-center gap-3 text-left px-2 py-1.5 rounded hover:bg-blue-50 border border-gray-100">
+                            <span className="font-mono text-xs text-blue-600 font-bold w-28 shrink-0">{c.child_no}</span>
+                            <span className="text-sm text-gray-700 truncate flex-1">{c.project_name || '—'}</span>
+                            <span className="text-xs text-gray-500 w-24 text-right shrink-0">{yen(c.quotation_amount)}</span>
+                            <span className="text-xs text-gray-400 w-16 text-right shrink-0">{val(c.sales_date)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <DetailSection title="その他">
+                    <DetailRow label="備考" value={val(p.notes)} wide />
+                    <DetailRow label="登録日時" value={val((p.created_at || '').replace('T', ' ').slice(0, 16))} />
+                    <DetailRow label="更新日時" value={val((p.updated_at || '').replace('T', ' ').slice(0, 16))} />
+                  </DetailSection>
+                </>)}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ===== 親案件モーダル ===== */}
       {projectModal && (
