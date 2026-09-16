@@ -20,7 +20,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func as sqlfunc
 
@@ -191,7 +191,8 @@ def _drawing_dict(d: EqDrawing) -> dict:
     return {
         "id": str(d.id), "site_id": str(d.site_id), "site_name": d.site.name if d.site else None, "name": d.name,
         "version_no": d.version_no, "width_px": d.width_px, "height_px": d.height_px,
-        "has_original": d.original is not None, "source_filename": d.source_filename, "scale_note": d.scale_note,
+        # original 列は deferred なので触らず、登録時に一緒に入る original_type で判定する
+        "has_original": d.original_type is not None, "source_filename": d.source_filename, "scale_note": d.scale_note,
         "valid_from": d.valid_from.isoformat() if d.valid_from else None, "is_active": d.is_active, "notes": d.notes,
         "updated_at": _iso(d.updated_at),
     }
@@ -378,12 +379,13 @@ def drawing_image(drawing_id: str, original: bool = False, db: Session = Depends
     d = db.query(EqDrawing).filter(EqDrawing.id == _uuid(drawing_id)).first()
     if not d:
         raise HTTPException(404, "図面が見つかりません")
+    # psycopg2 は bytea を memoryview で返すので bytes に揃える
     if original:
         if d.original is None:
             raise HTTPException(404, "元図面は登録されていません")
-        return Response(content=d.original, media_type=d.original_type or "image/png",
+        return Response(content=bytes(d.original), media_type=d.original_type or "image/png",
                         headers={"Cache-Control": "private, max-age=3600"})
-    return Response(content=d.image, media_type=d.image_type or "image/png",
+    return Response(content=bytes(d.image), media_type=d.image_type or "image/png",
                     headers={"Cache-Control": "private, max-age=3600"})
 
 
@@ -975,7 +977,18 @@ def _effective_state(db: Session, drawing_id) -> dict:
 
 @router.get("/drawings/{drawing_id}/board")
 def drawing_board(drawing_id: str, as_of: Optional[str] = None, db: Session = Depends(get_db)):
-    """図面画面のデータ一式。as_of 指定時はその時点の確定配置のみ（下書き・未配置リストは付けない）"""
+    """図面画面のデータ一式。as_of 指定時はその時点の確定配置のみ（下書き・未配置リストは付けない）。
+    値はすべて JSON にそのまま出せる型にしてあるので JSONResponse で直接返す（FastAPI の再帰エンコードは 200KB 級だと遅い）。
+    サーバ側の例外は CORS ヘッダ付きの 500 にして画面に内容を出す（素の 500 はブラウザで Network Error になり原因が分からない）"""
+    try:
+        return JSONResponse(_drawing_board(drawing_id, as_of, db))
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"図面データの作成でエラー: {type(e).__name__}: {e}")
+
+
+def _drawing_board(drawing_id: str, as_of: Optional[str], db: Session) -> dict:
     d = db.query(EqDrawing).filter(EqDrawing.id == _uuid(drawing_id)).first()
     if not d:
         raise HTTPException(404, "図面が見つかりません")
@@ -1021,8 +1034,10 @@ def drawing_board(drawing_id: str, as_of: Optional[str] = None, db: Session = De
     def same_site(m):
         ls = (m.list_site or "").replace("？", "")
         return bool(ls) and (site_name.startswith(ls) or ls.startswith(site_name[:2]))
-    unplaced = [dict(md(m.id), same_site=same_site(m),
-                     placed_elsewhere=[p["drawing_name"] for p in elsewhere.get(m.id, []) if p["drawing_id"] != str(d.id)]) for m in
+    # 未配置リストは一覧表示に必要な列だけ（台帳紐付けは選択時に機械詳細 API で取る）。応答を軽くするため
+    unplaced = [{"id": str(m.id), "code": m.code, "name": m.name, "model": m.model, "maker": m.maker, "made_year": m.made_year,
+                 "list_site": m.list_site, "status": m.status, "same_site": same_site(m),
+                 "placed_elsewhere": [p["drawing_name"] for p in elsewhere.get(m.id, []) if p["drawing_id"] != str(d.id)]} for m in
                 sorted(machines.values(), key=lambda m: (not same_site(m), m.sort_order or 0, m.code))
                 if m.id not in state and m.status == "active"]
     out.update({"placements": placements, "removed_in_draft": removed,

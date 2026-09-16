@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine, Column, String, Boolean, DateTime, Date, Numeric, Integer, Text, ForeignKey, JSON, UniqueConstraint, or_, LargeBinary
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.orm import sessionmaker, relationship, deferred
 from sqlalchemy.sql import func
 import uuid
 import os
@@ -1454,9 +1454,11 @@ class EqDrawing(Base):
     version_no = Column(Integer, default=1)
     width_px = Column(Integer, nullable=False)
     height_px = Column(Integer, nullable=False)
-    image = Column(LargeBinary, nullable=False)
+    # 画像バイナリ（1 枚 1MB 前後）は deferred にして、画像 API で触ったときだけ読む。
+    # これが無いと図面を結合する問い合わせ（配置一覧など）が行ごとに画像を運んでしまい、本番 DB で数百 MB の転送になる
+    image = deferred(Column(LargeBinary, nullable=False))
     image_type = Column(String(50), default="image/png")
-    original = Column(LargeBinary)                # 番号入りの元図面（任意）
+    original = deferred(Column(LargeBinary))      # 番号入りの元図面（任意）
     original_type = Column(String(50))
     source_filename = Column(String(300))
     scale_note = Column(String(100))              # 1/200 など

@@ -15,6 +15,16 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-09-16 — Claude — 工場機械管理: 本番で図面（配置）が Network Error になる問題を修正
+**触ったファイル**: `backend/app/db/models.py`（EqDrawing.image / original を deferred に）, `backend/app/api/equipment.py`（board を JSONResponse で直接返す・未配置リストを軽量化・例外を 500+detail で返す・画像を bytes() で返す・has_original を original_type で判定）,
+`frontend/src/pages/EquipmentPage.tsx`（未配置の機械を選択したとき機械詳細 API で台帳紐付けを補う）
+**原因**: 配置一覧の問い合わせ `_current_placements` が図面テーブルを結合しており、配置 1 件ごとに図面の画像バイナリ（1MB 前後×2 列）まで読み込んでいた。
+配置 300 件で数百 MB の転送になり、本番（Render 無料枠・512MB）では応答できず、ブラウザ側は CORS ヘッダの無い失敗として Network Error になる。
+ローカルでは PostgreSQL 16（Homebrew）を立てて実データ＋図面 10 枚＋配置 318 件で再現・計測: board 0.86 秒のうち 0.83 秒が画像の読み込み。
+**修正後**: board 0.015 秒、応答 226KB → 71〜141KB。`list_drawings` / `list_machines` / `machine_history` / `list_moves` も同じ列を読まなくなる。
+**確認**: SQLite 通しテスト全項目通過、PostgreSQL 16 でも通しテスト通過、tsc / vite build OK、ローカル画面で図面表示・未配置選択時の台帳表示を確認。
+**運用**: 本番は push → Render 再デプロイ後にブラウザを再読み込みするだけ（DB の変更なし）。
+
 ### 2026-09-15 — Claude — 工場機械管理: 図面ごとの独立配置・初期配置 CSV 取込・図面 10 枚の初期配置データ
 **触ったファイル**: `backend/app/api/equipment.py`（配置を図面ごとに独立に変更、`POST /import/placements` 追加）, `backend/tests/test_equipment_api_sqlite.py`,
 `frontend/src/pages/EquipmentPage.tsx`（⑦初期配置の取込、機械一覧の「現在の図面」複数表示、未配置リストの並び）, `frontend/src/api/index.ts`,

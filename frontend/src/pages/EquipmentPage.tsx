@@ -239,7 +239,16 @@ function BoardTab({ reloadKey, onChanged }: { reloadKey: number; onChanged: () =
   };
   const openMachineHistory = (id: string) => equipmentApi.machineHistory(id).then(r => setMachineHistory(r.data)).catch(e => setErr(errMsg(e)));
 
-  const selectedP = board?.placements?.find((x: any) => x.id === selected) || board?.unplaced?.find((x: any) => x.id === selected) || null;
+  // 未配置リストの項目は軽量（台帳紐付けを持たない）ので、選択時に機械詳細を取って補う
+  const [selectedDetail, setSelectedDetail] = useState<any>(null);
+  useEffect(() => {
+    setSelectedDetail(null);
+    if (!selected || board?.placements?.some((x: any) => x.id === selected)) return;
+    equipmentApi.machine(selected).then(r => setSelectedDetail(r.data)).catch(() => {});
+  }, [selected]);
+  const selectedP = board?.placements?.find((x: any) => x.id === selected)
+    || (selectedDetail && selectedDetail.id === selected ? selectedDetail : null)
+    || board?.unplaced?.find((x: any) => x.id === selected) || null;
   const unplaced: any[] = useMemo(() => {
     const s = search.trim().toLowerCase();
     return (board?.unplaced || []).filter((m: any) => !s || `${m.code} ${m.name} ${m.model || ''} ${m.list_site || ''}`.toLowerCase().includes(s));
