@@ -90,8 +90,19 @@ function PurchaseOrdersTab({ initialOrder }: { initialOrder?: any }) {
     } catch (e: any) { setImportMsg(`❌ ${e.response?.data?.detail || 'エラー'}`); }
   };
 
-  const setPoStatus = async (id: string, status: string) => { await procurementApi.updatePoStatus(id, status); load(); };
-  const delPo = async (id: string) => { if (confirm('この発注書を削除しますか？')) { await procurementApi.deletePurchaseOrder(id); load(); } };
+  const setPoStatus = async (id: string, status: string) => {
+    setLoadError('');
+    try { await procurementApi.updatePoStatus(id, status); }
+    catch (e: any) { setLoadError(e?.response?.data?.detail || 'ステータスの変更に失敗しました。'); }
+    load();
+  };
+  const delPo = async (id: string) => {
+    if (!confirm('この発注書を削除しますか？')) return;
+    setLoadError('');
+    try { await procurementApi.deletePurchaseOrder(id); }
+    catch (e: any) { setLoadError(e?.response?.data?.detail || '発注書の削除に失敗しました。'); }
+    load();
+  };
   const receivePo = async (id: string) => {
     if (!confirm('この発注書を入荷登録します（在庫引当の明細を除き、各明細を在庫に加算）。よろしいですか？')) return;
     try { const r = await procurementApi.receivePoStock(id); alert(r.data.message); load(); }
@@ -101,9 +112,12 @@ function PurchaseOrdersTab({ initialOrder }: { initialOrder?: any }) {
     setExpanded(e => { const n = { ...e }; if (n[po.id]) delete n[po.id]; else n[po.id] = true; return n; });
   };
   const createBlankPo = async () => {
-    const r = await procurementApi.createPurchaseOrder({});
-    load();
-    setExpanded(e => ({ ...e, [r.data.id]: true }));
+    setLoadError('');
+    try {
+      const r = await procurementApi.createPurchaseOrder({});
+      load();
+      setExpanded(e => ({ ...e, [r.data.id]: true }));
+    } catch (e: any) { setLoadError(e?.response?.data?.detail || '発注書の新規作成に失敗しました。'); }
   };
   const selectedCount = bdRows.filter(r => selected[r.breakdown_no] && !r.existing_po_no).length;
 
@@ -244,6 +258,8 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
   const [matQuery, setMatQuery] = useState('');
   const [matResults, setMatResults] = useState<any[]>([]);
   const [newLine, setNewLine] = useState<any>({ order_qty: 1 });
+  const [err, setErr] = useState('');
+  const fail = (e: any, fallback: string) => setErr(e?.response?.data?.detail || fallback);
 
   const reload = () => procurementApi.getPurchaseOrder(poId).then(r => {
     setPo(r.data);
@@ -253,11 +269,24 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
     });
     setHdrDirty(false);
   });
-  useEffect(() => { reload(); procurementApi.listSuppliers().then(r => setSuppliers(r.data)).catch(() => {}); }, [poId]);
+  useEffect(() => {
+    reload();
+    procurementApi.listSuppliers()
+      .then(r => setSuppliers(r.data))
+      .catch(() => setErr('発注先の一覧を取得できませんでした。'));
+  }, [poId]);
 
   const saveHdr = async () => {
-    await procurementApi.updatePurchaseOrder(poId, { ...hdr, supplier_id: hdr.supplier_id || null });
-    setHdrDirty(false); reload(); onChange();
+    setErr('');
+    try {
+      // 空文字列は日付・参照列でエラーになるので null にする
+      await procurementApi.updatePurchaseOrder(poId, {
+        ...hdr,
+        supplier_id: hdr.supplier_id || null,
+        order_date: hdr.order_date || null,
+      });
+      setHdrDirty(false); reload(); onChange();
+    } catch (e: any) { fail(e, 'ヘッダーの保存に失敗しました。'); }
   };
   const searchMat = (q: string) => {
     setMatQuery(q); setNewLine((n: any) => ({ ...n, material_id: undefined, material_name: undefined }));
@@ -269,34 +298,51 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
     setMatQuery(`${m.material_code} ${m.material_name}`); setMatResults([]);
   };
   const addLine = async () => {
-    if (!newLine.material_id) { alert('部材を選択してください'); return; }
-    await procurementApi.createMaterialOrder({
-      purchase_order_id: poId, material_id: newLine.material_id,
-      order_qty: Number(newLine.order_qty) || 1,
-      unit_price: newLine.unit_price ? Number(newLine.unit_price) : null,
-      due_date: newLine.due_date || null,
-    });
-    setNewLine({ order_qty: 1 }); setMatQuery(''); setMatResults([]); reload(); onChange();
+    setErr('');
+    if (!newLine.material_id) { setErr('部材を選択してください。'); return; }
+    const qty = Number(newLine.order_qty);
+    if (!Number.isFinite(qty) || qty <= 0) { setErr('数量に 0 より大きい数を入力してください。'); return; }
+    const price = newLine.unit_price === '' || newLine.unit_price == null ? null : Number(newLine.unit_price);
+    if (price != null && (!Number.isFinite(price) || price < 0)) { setErr('単価は 0 以上の数で入力してください。'); return; }
+    try {
+      await procurementApi.createMaterialOrder({
+        purchase_order_id: poId, material_id: newLine.material_id,
+        order_qty: qty, unit_price: price,
+        due_date: newLine.due_date || null,
+      });
+      setNewLine({ order_qty: 1 }); setMatQuery(''); setMatResults([]); reload(); onChange();
+    } catch (e: any) { fail(e, '明細の追加に失敗しました。'); }
   };
   const saveLine = async (l: any) => {
-    await procurementApi.updateMaterialOrder(l.id, {
-      order_qty: Number(l.order_qty) || 0, unit_price: l.unit_price === '' || l.unit_price == null ? null : Number(l.unit_price), due_date: l.due_date || null,
-    });
-    reload(); onChange();
+    setErr('');
+    const qty = Number(l.order_qty);
+    if (!Number.isFinite(qty) || qty <= 0) { setErr('数量に 0 より大きい数を入力してください。'); reload(); return; }
+    const price = l.unit_price === '' || l.unit_price == null ? null : Number(l.unit_price);
+    if (price != null && (!Number.isFinite(price) || price < 0)) { setErr('単価は 0 以上の数で入力してください。'); reload(); return; }
+    try {
+      await procurementApi.updateMaterialOrder(l.id, { order_qty: qty, unit_price: price, due_date: l.due_date || null });
+      reload(); onChange();
+    } catch (e: any) { fail(e, '明細の保存に失敗しました。'); }
   };
-  const delLine = async (id: string) => { await procurementApi.deleteMaterialOrder(id); reload(); onChange(); };
+  const delLine = async (id: string) => {
+    setErr('');
+    try { await procurementApi.deleteMaterialOrder(id); reload(); onChange(); }
+    catch (e: any) { fail(e, '明細の削除に失敗しました。'); }
+  };
   const allocate = async (l: any) => {
     if (!confirm(`「${l.material_name}」を在庫から引き当てます（数量 ${l.order_qty}）。よろしいですか？`)) return;
+    setErr('');
     try { await procurementApi.allocateFromStock(l.id); reload(); onChange(); }
-    catch (e: any) { alert(e.response?.data?.detail || 'エラー'); }
+    catch (e: any) { fail(e, '在庫引当に失敗しました。'); }
   };
   const receiveLine = async (l: any) => {
     const input = window.prompt(`「${l.material_name}」の入荷数量を入力（在庫に加算）`, String(l.order_qty ?? ''));
     if (input == null) return;
     const qty = Number(input);
     if (!qty || qty <= 0) { alert('数量を正しく入力してください'); return; }
+    setErr('');
     try { await procurementApi.receiveLine(l.id, qty); reload(); onChange(); }
-    catch (e: any) { alert(e.response?.data?.detail || 'エラー'); }
+    catch (e: any) { fail(e, '入荷登録に失敗しました。'); }
   };
   const updLineLocal = (id: string, patch: any) =>
     setPo((p: any) => ({ ...p, lines: p.lines.map((l: any) => l.id === id ? { ...l, ...patch } : l) }));
@@ -307,6 +353,12 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
 
   return (
     <div>
+      {err && (
+        <div className="mb-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1 flex items-start gap-2">
+          <span className="flex-1">{err}</span>
+          <button onClick={() => setErr('')} className="text-red-400"><X size={12} /></button>
+        </div>
+      )}
       {!editable && (
         <div className="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
           ステータスが「{po.status}」のため編集できません。編集するにはステータスを「作成中」に戻してください。

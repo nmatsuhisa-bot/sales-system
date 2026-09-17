@@ -15,6 +15,20 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-09-18 — Claude (Cowork) — 仕入（発注）管理 /procurement の定期検証と修正
+**触ったファイル**: `backend/app/api/materials.py`, `frontend/src/pages/ProcurementPage.tsx`, `WORKLOG.md`
+**ライブ検証**: 本番 API `/api/procurement/` の suppliers / materials / bom / material-orders / purchase-orders と発注書 PDF を確認。すべて 200で 500 なし。
+検証項目 (a) material_orders の列不足による 500 は本番で再現せず（列は既にあり、発注タブはデータあり）。検証項目 (d) 「0 値が—表示」は現行の ProcurementPage に該当箇所なし（— は文字列列のみ）。
+**修正 1（P-11 中）**: 発注書ヘッダーの「注文日」を空にして保存すると 500。フロントが `order_date: ""` を送り、`update_purchase_order` がそのまま Date 列に代入していた（SQLAlchemy の ORM 層でエラー。SQLite/PostgreSQL とも）。
+→ materials.py に `_nullify_blanks()` を追加し、purchase-orders / material-orders の create/update で order_date・due_date・received_date・supplier_id・project_order_id・material_id の空文字列を None に揃える。フロントも `order_date: hdr.order_date || null` で送る。
+**修正 2（P-12 中）**: 明細編集時の失敗が無言。`saveHdr` / `addLine` / `saveLine` / `delLine` / `createBlankPo` / `setPoStatus` / `delPo` に try/catch が無く、API が 4xx/5xx を返しても画面に何も出ず保存されたように見えていた（unhandled rejection）。
+→ PoDetail に赤バナー（`err`）を追加し、上記全ハンドラを try/catch で包んで detail を表示。発注先一覧の `.catch(() => {})` 握りつぶしもメッセージ化。一覧タブの赤バナー（loadError）は退行なしを確認。
+**修正 3（P-13 低）**: 明細追加・保存の数量バリデーション欠落。`Number(x) || 1` のため負の数量がそのまま通り、数量を空にしてフォーカスを外すと 0 で保存されていた。→ 数量は 0 超、単価は 0 以上を必須にし、不正値は赤バナーで引き返す。
+**提案（push していない — P-14 中・機能欠落）**: `suppliers` テーブルに対する登録・編集 API がバックエンドに一つも無く（read のみ）、画面も無い。
+本番 `/api/procurement/suppliers` は `[]` を返すので、発注書の「発注先」は永久に「（未指定）」のままで、発注書 PDF の宛先も空になる。対応には仕入先マスタの CRUD（API + マスタ管理タブ）が必要で、軽微なバグ修正の範囲を超えるため今回は手を付けず提案のみ。暂定対応は DB に直接 INSERT。
+**確認**: materials.py は py_compile 通過、`_nullify_blanks` の単体確認済み。空文字列を Date 列に代入すると ORM が落ちることを再現スクリプトで確認。ProcurementPage.tsx は esbuild 構文チェック通過。全角スペースの追加なし。main.py 未変更。DB スキーマ変更なし。
+**未検証**: 本番画面での保存操作（本番データを書き換えるため GET のみで検証）。
+**運用**: push → Render 再デプロイだけ。DB 変更なし。
 ### 2026-09-18 — Claude (Cowork) — ヘルプ（アプリ内マニュアル）を最新機能へ同期
 **触ったファイル**: `frontend/src/pages/HelpPage.tsx`, `WORKLOG.md`
 **基準**: 前回ヘルプを同期した `a252039`（2026-09-17）〜 `7f7c859` の feat を実コードで確認して反映。

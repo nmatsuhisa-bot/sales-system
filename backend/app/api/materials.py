@@ -14,6 +14,20 @@ router = APIRouter()
 
 PO_STATUS = ["作成中", "発注済", "一部入荷", "入荷済", "キャンセル"]
 
+# 空文字列は日付列・UUID列ではエラーになるので None に揃える
+_BLANKABLE = (
+    "supplier_id", "project_order_id", "material_id",
+    "order_date", "due_date", "received_date",
+)
+
+def _nullify_blanks(data: dict) -> dict:
+    out = dict(data or {})
+    for k in _BLANKABLE:
+        v = out.get(k)
+        if isinstance(v, str) and not v.strip():
+            out[k] = None
+    return out
+
 # ---- 部材マスタ ----
 
 @router.get("/materials")
@@ -177,6 +191,7 @@ def list_material_orders(order_id: str = Query(None), status: str = Query(None),
 
 @router.post("/material-orders")
 def create_material_order(data: dict, db: Session = Depends(get_db)):
+    data = _nullify_blanks(data)
     po_id = data.get("purchase_order_id") or None
     project_order_id = data.get("project_order_id")
     supplier_id = data.get("supplier_id")
@@ -364,6 +379,7 @@ def create_orders_from_unit(data: dict, db: Session = Depends(get_db)):
 def update_material_order(mo_id: str, data: dict, db: Session = Depends(get_db)):
     mo = db.query(MaterialOrder).filter(MaterialOrder.id == mo_id).first()
     if not mo: raise HTTPException(404)
+    data = _nullify_blanks(data)
     for k in ["supplier_id","order_qty","unit_price","order_date","due_date","received_date","status","notes"]:
         if k in data: setattr(mo, k, data[k])
     db.commit(); db.refresh(mo)
@@ -561,6 +577,7 @@ def _po_dict(po: MaterialPurchaseOrder, with_lines: bool = False):
 @router.post("/purchase-orders")
 def create_purchase_order(data: dict, db: Session = Depends(get_db)):
     """発注書を手動で新規作成（発番）。明細は別途 material-orders で追加。"""
+    data = _nullify_blanks(data)
     header = MaterialPurchaseOrder(
         po_no=_gen_po_no(db),
         project_order_id=data.get("project_order_id") or None,
@@ -663,6 +680,7 @@ def get_purchase_order(po_id: str, db: Session = Depends(get_db)):
 def update_purchase_order(po_id: str, data: dict, db: Session = Depends(get_db)):
     po = db.query(MaterialPurchaseOrder).filter(MaterialPurchaseOrder.id == po_id).first()
     if not po: raise HTTPException(404)
+    data = _nullify_blanks(data)
     for k in ["supplier_id", "order_date", "delivery_place", "seiban", "title", "status", "notes"]:
         if k in data: setattr(po, k, data[k])
     db.commit(); db.refresh(po)
