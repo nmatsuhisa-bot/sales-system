@@ -18,6 +18,11 @@ FUNCTION_ROLES = [
         "label": "検印承認者",
         "description": "見積の承認依頼を受け取り、検印（承認）できる。見積書の検印欄に表示される",
     },
+    {
+        "key": "sales_person",
+        "label": "営業担当",
+        "description": "見積・案件の「営業担当」として選択できる（旧・従業員マスタに登録されていた人に相当）",
+    },
     # 例）今後の追加はここへ:
     # {"key": "estimate_creator", "label": "見積作成者", "description": "..."},
     # {"key": "purchaser",        "label": "発注担当",   "description": "..."},

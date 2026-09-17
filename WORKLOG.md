@@ -15,6 +15,22 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-09-17 — Claude — 従業員マスタをユーザーマスタへ統合し、マスタ管理「従業員・ユーザー」タブに集約
+**触ったファイル**: `backend/app/db/models.py`（User.employee_code 追加、Employee は旧マスタとして残置）, `backend/app/roles.py`（機能権限「営業担当」sales_person 追加）,
+`backend/app/api/auth.py`（employee_code の登録・更新・重複チェック、/team に function_roles と employee_code、`POST /users/merge-employees` 取込、ID を UUID に揃えて不正 ID は 404）,
+`backend/app/api/masters.py`（従業員 API を削除）, `backend/app/main.py`（起動時に users.employee_code 列を冪等に追加するフック）, `backend/tests/test_users_merge_sqlite.py`（新規）,
+`frontend/src/pages/UsersPage.tsx`（マスタ管理のタブとして埋め込む形に。従業員ID列・取込ボタン）, `frontend/src/pages/MastersPage.tsx`（従業員マスタタブ→従業員・ユーザー、?tab= で開くタブ指定）,
+`frontend/src/App.tsx`（/users → /masters?tab=users へ転送）, `frontend/src/components/common/Layout.tsx`（「ユーザー管理」メニュー削除）, `frontend/src/api/index.ts`（employee API 削除、listSalesPersons / mergeEmployees 追加）,
+`frontend/src/pages/EstimateFormPage.tsx` / `ProjectsPage.tsx`（営業担当の候補を機能権限「営業担当」のユーザーに）, `frontend/src/pages/SchedulePage.tsx`（従業員マスタへのフォールバック削除）, `frontend/src/pages/HelpPage.tsx`
+**方針**: 従業員マスタだけで制御していた「見積・案件の営業担当の候補」は、ユーザーマスタの機能権限「営業担当」（検印承認者と同じ仕組み）で管理する。
+案件の sales_person_code には従来どおり従業員IDが入る（ユーザーに従業員IDが無い場合はユーザーID）。既存データの営業担当名は名前で保持しているので影響なし。
+**本番手順**: ①push → Render 再デプロイ（起動時に employee_code 列が自動追加される）②管理者でマスタ管理「従業員・ユーザー」→「旧・従業員マスタから取込」でプレビュー→実行
+（氏名一致のユーザーに従業員ID・部門・営業担当を設定、一致しない従業員は emp-<従業員ID>@noreply.local の仮ユーザーとして追加。ログインさせるならメールとパスワードを設定）
+③営業担当に出したくない人は「営業担当」のチェックを外す。旧 employees テーブルは残す（消す場合は別途）。
+**確認**: SQLite 通しテスト（作成・更新・重複 400・/team・取込プレビュー→実行→再実行の冪等）全項目通過。PostgreSQL 16 で「列が無い状態→起動フックで列追加→取込」を確認。tsc / vite build OK。
+ローカル画面で /users からの転送、従業員・ユーザータブ、取込の実行を確認。
+**未検証**: 本番での取込（管理者ログインが必要）。見積・案件画面の営業担当選択は build のみ（ローカルに見積 DB が無い）。
+
 ### 2026-09-17 — Claude — 工場機械管理: チップをドラッグすると位置がずれる問題を修正
 **触ったファイル**: `frontend/src/pages/EquipmentPage.tsx` のみ
 **原因**: ①ドラッグ終了時にチップの中央寄せ transform を `''` で消していた。React は style prop が前回と同じだと再適用しないため、以後そのチップは左上基準になり、チップの半分（約 20×10px）ずれて描かれる。

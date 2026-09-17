@@ -1,7 +1,7 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, FileText, ShoppingCart,
-  BarChart3, LogOut, Menu, X, Boxes, Briefcase, Database, UserCog, Calendar,
+  BarChart3, LogOut, Menu, X, Boxes, Briefcase, Database, Calendar,
   ShoppingBag, Factory, ClipboardList, GitBranch, HelpCircle, Calculator, Wrench
 } from 'lucide-react';
 import { useState } from 'react';
@@ -24,7 +24,6 @@ const navItems: NavEntry[] = [
   { to: '/bom-master', icon: GitBranch, label: '製品BOMマスタ' },
   { to: '/masters', icon: Database, label: 'マスタ管理' },
   { to: '/schedule', icon: Calendar, label: 'スケジュール' },
-  { to: '/users', icon: UserCog, label: 'ユーザー管理' },
   { to: '/help', icon: HelpCircle, label: 'ヘルプ' },
   // 管理者だけに表示（一般ユーザーには存在自体を見せない）
   { to: '/costing', icon: Calculator, label: '製品原価検証', adminOnly: true },

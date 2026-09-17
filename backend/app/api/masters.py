@@ -1,10 +1,10 @@
-"""マスタ管理 API（商社・納入先・従業員）"""
+"""マスタ管理 API（商社・納入先）。従業員はユーザーマスタ（auth.py）に統合済み"""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from typing import Optional
 from pydantic import BaseModel
-from app.db.models import get_db, pk_or_code, Agency, DeliveryDestination, Employee
+from app.db.models import get_db, pk_or_code, Agency, DeliveryDestination
 
 router = APIRouter()
 
@@ -102,42 +102,4 @@ def delete_delivery_destination(dest_id: str, db: Session = Depends(get_db)):
     if not d: raise HTTPException(404)
     d.is_active = False; db.commit()
 
-# =============================================
-# 従業員マスタ
-# =============================================
-class EmployeeIn(BaseModel):
-    employee_code: str
-    employee_name: str
-    department: Optional[str] = None
-    role: str = "staff"
-
-@router.get("/employees")
-def list_employees(search: Optional[str] = None, db: Session = Depends(get_db)):
-    q = db.query(Employee).filter(Employee.is_active == True)
-    if search:
-        q = q.filter(or_(Employee.employee_name.ilike(f"%{search}%"), Employee.employee_code.ilike(f"%{search}%")))
-    return [to_dict(e) for e in q.order_by(Employee.employee_code).all()]
-
-@router.post("/employees", status_code=201)
-def create_employee(data: EmployeeIn, db: Session = Depends(get_db)):
-    e = Employee(**data.dict())
-    db.add(e); db.commit(); db.refresh(e)
-    return to_dict(e)
-
-@router.put("/employees/{emp_id}")
-def update_employee(emp_id: str, data: EmployeeIn, db: Session = Depends(get_db)):
-    e = db.query(Employee).filter(
-        pk_or_code(Employee.id, Employee.employee_code, emp_id)
-    ).first()
-    if not e: raise HTTPException(404)
-    for k, v in data.dict().items(): setattr(e, k, v)
-    db.commit(); db.refresh(e)
-    return to_dict(e)
-
-@router.delete("/employees/{emp_id}", status_code=204)
-def delete_employee(emp_id: str, db: Session = Depends(get_db)):
-    e = db.query(Employee).filter(
-        pk_or_code(Employee.id, Employee.employee_code, emp_id)
-    ).first()
-    if not e: raise HTTPException(404)
-    e.is_active = False; db.commit()
+# 従業員マスタは 2026-09-17 にユーザーマスタ（/api/auth/users）へ統合した。営業担当の候補は機能権限「営業担当」で管理する

@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { mastersApi, arrangementApi, estimateApi } from '../api';
+import UsersPage from './UsersPage';
 import { Plus, Edit2, Trash2, Search, Building2, MapPin, Users, Truck, FileText } from 'lucide-react';
 
-type Tab = 'agencies' | 'destinations' | 'employees' | 'vendors' | 'texts';
+type Tab = 'agencies' | 'destinations' | 'users' | 'vendors' | 'texts';
+const TAB_KEYS: Tab[] = ['agencies', 'destinations', 'users', 'vendors', 'texts'];
 
 // 見積書の定型文。キーと画面に出す名前
 const TEXT_LABELS: [string, string][] = [
@@ -31,10 +34,13 @@ const TEXT_LABELS: [string, string][] = [
 const VENDOR_CATEGORIES = ['クレーン・作業車', '運送（トラック）', 'その他'];
 
 export default function MastersPage() {
-  const [tab, setTab] = useState<Tab>('agencies');
+  // ?tab=users のように URL で開くタブを指定できる（旧「ユーザー管理」メニューからの移動先）
+  const [params] = useSearchParams();
+  const initialTab = params.get('tab') as Tab | null;
+  const [tab, setTab] = useState<Tab>(initialTab && TAB_KEYS.includes(initialTab) ? initialTab : 'agencies');
+  const [usersOpenSignal, setUsersOpenSignal] = useState(0);
   const [agencies, setAgencies] = useState<any[]>([]);
   const [destinations, setDestinations] = useState<any[]>([]);
-  const [employees, setEmployees] = useState<any[]>([]);
   const [vendors, setVendors] = useState<any[]>([]);
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState<any>(null);
@@ -67,7 +73,6 @@ export default function MastersPage() {
   const loadAll = () => {
     mastersApi.listAgencies(search || undefined).then(r => setAgencies(r.data));
     mastersApi.listDeliveryDestinations(search || undefined).then(r => setDestinations(r.data));
-    mastersApi.listEmployees(search || undefined).then(r => setEmployees(r.data));
     arrangementApi.listVendors(undefined, search || undefined).then(r => setVendors(r.data));
   };
 
@@ -90,9 +95,6 @@ export default function MastersPage() {
       } else if (tab === 'destinations') {
         if (modal.id) await mastersApi.updateDeliveryDestination(modal.id, form);
         else await mastersApi.createDeliveryDestination(form);
-      } else if (tab === 'employees') {
-        if (modal.id) await mastersApi.updateEmployee(modal.id, form);
-        else await mastersApi.createEmployee(form);
       } else {
         if (modal.id) await arrangementApi.updateVendor(modal.id, form);
         else await arrangementApi.createVendor(form);
@@ -108,18 +110,17 @@ export default function MastersPage() {
     if (!confirm('削除しますか？')) return;
     if (tab === 'agencies') await mastersApi.deleteAgency(item.id);
     else if (tab === 'destinations') await mastersApi.deleteDeliveryDestination(item.id);
-    else if (tab === 'employees') await mastersApi.deleteEmployee(item.id);
     else await arrangementApi.deleteVendor(item.id);
     loadAll();
   };
 
-  const openNew = () => { setForm({}); setModal({}); };
+  const openNew = () => { if (tab === 'users') { setUsersOpenSignal(n => n + 1); return; } setForm({}); setModal({}); };
   const openEdit = (item: any) => { setForm({ ...item }); setModal(item); };
 
   const tabs = [
     { key: 'agencies', label: '商社マスタ', icon: Building2, count: agencies.length },
     { key: 'destinations', label: '納入先マスタ', icon: MapPin, count: destinations.length },
-    { key: 'employees', label: '従業員マスタ', icon: Users, count: employees.length },
+    { key: 'users', label: '従業員・ユーザー', icon: Users, count: null },
     { key: 'vendors', label: '手配業者マスタ', icon: Truck, count: vendors.length },
     { key: 'texts', label: '見積書の文言', icon: FileText, count: TEXT_LABELS.length },
   ];
@@ -144,9 +145,9 @@ export default function MastersPage() {
               tab === key ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
             }`}>
             <Icon size={15} /> {label}
-            <span className={`px-1.5 py-0.5 rounded-full text-xs ${tab === key ? 'bg-blue-500' : 'bg-gray-100 text-gray-500'}`}>
+            {count !== null && <span className={`px-1.5 py-0.5 rounded-full text-xs ${tab === key ? 'bg-blue-500' : 'bg-gray-100 text-gray-500'}`}>
               {count}
-            </span>
+            </span>}
           </button>
         ))}
       </div>
@@ -267,36 +268,8 @@ export default function MastersPage() {
         </div>
       )}
 
-      {/* 従業員マスタ */}
-      {tab === 'employees' && (
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-100">
-              <tr>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">従業員ID</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">従業員名</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">部署</th>
-                <th className="px-4 py-3 text-center font-medium text-gray-600">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {employees.map(e => (
-                <tr key={e.id} className="hover:bg-blue-50">
-                  <td className="px-4 py-3 font-medium text-blue-600">{e.employee_code}</td>
-                  <td className="px-4 py-3 font-medium text-gray-800">{e.employee_name}</td>
-                  <td className="px-4 py-3 text-gray-500">{e.department || '—'}</td>
-                  <td className="px-4 py-3 text-center flex items-center justify-center gap-2">
-                    <button onClick={() => openEdit(e)} className="text-blue-400 hover:text-blue-600"><Edit2 size={14} /></button>
-                    <button onClick={() => handleDelete(e)} className="text-red-300 hover:text-red-500"><Trash2 size={14} /></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {employees.length === 0 && <div className="text-center py-10 text-gray-400">データがありません</div>}
-        </div>
-      )}
-
+      {/* 従業員・ユーザー（旧・従業員マスタとユーザー管理を統合） */}
+      {tab === 'users' && <UsersPage search={search} openSignal={usersOpenSignal} />}
       {/* 手配業者マスタ */}
       {tab === 'vendors' && (
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -368,11 +341,6 @@ export default function MastersPage() {
                     onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
                 </div>
-              </>)}
-              {tab === 'employees' && (<>
-                <F label="従業員ID *" name="employee_code" />
-                <F label="従業員名 *" name="employee_name" />
-                <F label="部署" name="department" />
               </>)}
               {tab === 'vendors' && (<>
                 <div>

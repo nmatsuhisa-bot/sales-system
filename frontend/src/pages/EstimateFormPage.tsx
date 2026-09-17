@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { estimateApi, projectApi, mastersApi, authApi, API_BASE } from '../api';
+import { estimateApi, projectApi, mastersApi, authApi, API_BASE, listSalesPersons } from '../api';
 import { Plus, Trash2, Save, FileText, ArrowLeft, Calculator, GripVertical } from 'lucide-react';
 import OrderSearchInput from '../components/common/OrderSearchInput';
 import SearchSelect from '../components/common/SearchSelect';
@@ -81,7 +81,7 @@ export default function EstimateFormPage() {
   const [laborMaster, setLaborMaster] = useState<any[]>([]);
   const [laborQuery, setLaborQuery] = useState('');         // 工数マスタの絞り込み
   const [dragSec, setDragSec] = useState<number | null>(null);  // 大分類の並べ替え中の位置
-  const [employees, setEmployees] = useState<any[]>([]);
+  const [salesPersons, setSalesPersons] = useState<any[]>([]);   // 営業担当の候補（機能権限「営業担当」のユーザー）
   const [teamUsers, setTeamUsers] = useState<any[]>([]);   // 作成者の選択肢（ログインユーザー）
 
   // フォーム
@@ -139,7 +139,7 @@ export default function EstimateFormPage() {
     estimateApi.getCyclones().then(r => setCyclones(r.data));
     estimateApi.getLaborItems().then(r => setLaborMaster(r.data));
     estimateApi.getApprovers().then(r => setApprovers(r.data.approvers || [])).catch(() => {});
-    mastersApi.listEmployees().then(r => setEmployees(r.data));
+    listSalesPersons().then(setSalesPersons).catch(() => {});
     authApi.listTeam().then(r => setTeamUsers(r.data || [])).catch(() => {});
 
     // 新規作成時、案件の子受注情報から顧客名（売上先）・納入先を自動補完
@@ -549,7 +549,14 @@ export default function EstimateFormPage() {
             <label className="block text-xs text-gray-500 mb-1">営業担当</label>
             <SearchSelect value={header.sales_person_name} emptyLabel="選択"
               onChange={v => setHeader(h => ({ ...h, sales_person_name: v }))}
-              options={employees.map(e => ({ value: e.employee_name, label: e.employee_name, sub: e.employee_code }))} />
+              options={[
+                ...salesPersons.map(u => ({ value: u.full_name, label: u.full_name, sub: u.employee_code || u.department || undefined })),
+                ...(header.sales_person_name && !salesPersons.some(u => u.full_name === header.sales_person_name)
+                  ? [{ value: header.sales_person_name, label: `${header.sales_person_name}（営業担当権限なし）` }] : []),
+              ]} />
+            {salesPersons.length === 0 && (
+              <p className="text-[11px] text-amber-700 mt-1">営業担当の候補がありません。マスタ管理「従業員・ユーザー」で機能権限「営業担当」を付与してください</p>
+            )}
           </div>
           <HeaderField header={header} setHeader={setHeader} label="注文主" name="customer_name" />
           <HeaderField header={header} setHeader={setHeader} label="注文主 御担当者" name="customer_contact" />

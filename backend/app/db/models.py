@@ -50,6 +50,9 @@ class User(Base):
     # 定義は app/roles.py の FUNCTION_ROLES を参照
     function_roles = Column(JSON, default=list)
     department = Column(String(50))            # 所属部門（営業/施工 等）。スケジュール絞込・権限用
+    # 従業員ID（旧・従業員マスタの employee_code）。案件の sales_person_code にはこの値が入る。
+    # 2026-09-17 に従業員マスタをユーザーマスタへ統合した際に追加（本番は /api/auth/users/merge-employees で列追加＋取込）
+    employee_code = Column(String(50), unique=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -463,7 +466,9 @@ class DeliveryDestination(Base):
 
 
 # =============================================
-# 従業員マスタ
+# 従業員マスタ（旧）
+#   2026-09-17 にユーザーマスタ（users）へ統合。画面・API からは使わない。
+#   テーブルは /api/auth/users/merge-employees の取込元として残している
 # =============================================
 class Employee(Base):
     __tablename__ = "employees"

@@ -39,6 +39,24 @@ app.include_router(costing.router, prefix="/api/costing", tags=["製品原価検
 app.include_router(equipment.router, prefix="/api/equipment", tags=["工場機械管理"])
 
 
+@app.on_event("startup")
+def ensure_users_employee_code():
+    """users.employee_code 列を起動時に保証する（2026-09-17 従業員マスタ統合）。
+
+    User モデルがこの列を読むため、列が無いと認証を含む全 API が落ちる。
+    setup エンドポイントを手で叩くまでの空白を作らないよう、起動時に冪等に追加する（PostgreSQL のみ）。"""
+    from app.db.models import engine
+    from sqlalchemy import text
+    if engine.dialect.name != "postgresql":
+        return
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_code VARCHAR(50)"))
+            conn.commit()
+    except Exception as e:  # noqa: BLE001  起動を止めない（DB 未接続時など）。ログに残す
+        print(f"[startup] users.employee_code の確認に失敗: {e}")
+
+
 @app.get("/seed-users")
 def seed_users():
     """初期ユーザーを投入（後藤・國立・井上）"""

@@ -217,12 +217,12 @@ export const mastersApi = {
   createDeliveryDestination: (data: any) => api.post('/masters/delivery-destinations', data),
   updateDeliveryDestination: (id: string, data: any) => api.put(`/masters/delivery-destinations/${id}`, data),
   deleteDeliveryDestination: (id: string) => api.delete(`/masters/delivery-destinations/${id}`),
-  // 従業員
-  listEmployees: (search?: string) => api.get('/masters/employees', { params: { search } }),
-  createEmployee: (data: any) => api.post('/masters/employees', data),
-  updateEmployee: (id: string, data: any) => api.put(`/masters/employees/${id}`, data),
-  deleteEmployee: (id: string) => api.delete(`/masters/employees/${id}`),
+  // 従業員マスタは 2026-09-17 にユーザーマスタ（authApi）へ統合。営業担当の候補は listTeam() の function_roles に 'sales_person' を持つ人
 };
+
+/** 営業担当の候補（機能権限「営業担当」を持つユーザー）。/auth/team は非admin でも呼べる */
+export const listSalesPersons = () =>
+  authApi.listTeam().then(r => (r.data || []).filter((u: any) => (u.function_roles || []).includes('sales_person')));
 
 // =============================================
 // 仕入（発注）管理API
@@ -422,6 +422,8 @@ export const authApi = {
   createUser: (data: any) => api.post('/auth/users', data),
   updateUser: (id: string, data: any) => api.put(`/auth/users/${id}`, data),
   deleteUser: (id: string) => api.delete(`/auth/users/${id}`),
+  // 旧・従業員マスタをユーザーマスタへ取り込む（管理者。apply=false はプレビュー）
+  mergeEmployees: (apply: boolean) => api.post('/auth/users/merge-employees', null, { params: { apply } }),
   login: (email: string, password: string) => {
     const form = new URLSearchParams();
     form.append('username', email);

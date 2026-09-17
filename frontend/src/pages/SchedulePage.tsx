@@ -73,18 +73,11 @@ export default function SchedulePage() {
   const displayUsers = userFilter ? deptUsers.filter(u => u.id === userFilter) : deptUsers;
 
   useEffect(() => {
-    // 全ユーザーを表示（/auth/team は非admin可）。旧listUsersはadmin限定で3名しか出ない不具合の原因
+    // 全ユーザーを表示（/auth/team は非admin可）。旧listUsersはadmin限定で3名しか出ない不具合の原因。
+    // 従業員マスタはユーザーマスタへ統合したため（2026-09-17）、フォールバックは無い
     authApi.listTeam()
-      .then(r => {
-        if (Array.isArray(r.data) && r.data.length) setUsers(r.data);
-        else throw new Error('empty');
-      })
-      .catch(() => {
-        mastersApi.listEmployees()
-          .then(r => setUsers((r.data.items || r.data).map((e: any) => ({
-            id: e.id, full_name: e.employee_name, email: ''
-          })))).catch(() => {});
-      });
+      .then(r => { if (Array.isArray(r.data)) setUsers(r.data); })
+      .catch(() => {});
   }, []);
 
   const loadSchedules = () => {

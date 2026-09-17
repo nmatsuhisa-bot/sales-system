@@ -14,7 +14,6 @@ import ProjectsPage from './pages/ProjectsPage';
 import MastersPage from './pages/MastersPage';
 import EstimateListPage from './pages/EstimateListPage';
 import EstimateFormPage from './pages/EstimateFormPage';
-import UsersPage from './pages/UsersPage';
 import SchedulePage from './pages/SchedulePage';
 import SalesPlanPage from './pages/SalesPlanPage';
 import ProcurementPage from './pages/ProcurementPage';
@@ -54,7 +53,8 @@ export default function App() {
           <Route path="inventory" element={<InventoryPage />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="masters" element={<MastersPage />} />
-          <Route path="users" element={<UsersPage />} />
+          {/* ユーザー管理はマスタ管理「従業員・ユーザー」タブへ統合（2026-09-17）。旧URLは転送 */}
+          <Route path="users" element={<Navigate to="/masters?tab=users" replace />} />
           <Route path="estimates" element={<EstimateListPage />} />
           <Route path="estimates/new" element={<EstimateFormPage />} />
           <Route path="estimates/:id/edit" element={<EstimateFormPage />} />

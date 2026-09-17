@@ -181,6 +181,33 @@ class UserCreate(BaseModel):
     role: str = "staff"
     function_roles: List[str] = []
     department: Optional[str] = None
+    employee_code: Optional[str] = None   # 従業員ID（案件の営業担当コードに使う）
+
+
+def _user_uuid(user_id: str):
+    """パスの ID を UUID に揃える（不正な文字列で 500 にせず 404。SQLite でも動く）"""
+    import uuid as _uuid
+    try:
+        return _uuid.UUID(str(user_id))
+    except (ValueError, TypeError):
+        raise HTTPException(404)
+
+
+def _user_out(u: User) -> dict:
+    return {"id": str(u.id), "email": u.email, "full_name": u.full_name, "role": u.role,
+            "function_roles": u.function_roles or [], "department": u.department,
+            "employee_code": u.employee_code}
+
+
+def _check_employee_code(db: Session, code: Optional[str], exclude_id=None) -> Optional[str]:
+    code = (code or "").strip() or None
+    if code:
+        q = db.query(User).filter(User.employee_code == code)
+        if exclude_id is not None:
+            q = q.filter(User.id != exclude_id)
+        if q.first():
+            raise HTTPException(400, f"従業員ID {code} は既に他のユーザーに設定されています")
+    return code
 
 def require_admin(current_user: User = Depends(get_current_user)):
     """管理者権限チェック"""
@@ -195,31 +222,32 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), _: User = Depen
         raise HTTPException(400, "このメールアドレスは既に使用されています")
     hashed = bcrypt.hashpw(data.password.encode(), bcrypt.gensalt()).decode()
     user = User(email=data.email, hashed_password=hashed, full_name=data.full_name, role=data.role,
-                function_roles=normalize_roles(data.function_roles), department=data.department)
+                function_roles=normalize_roles(data.function_roles), department=data.department,
+                employee_code=_check_employee_code(db, data.employee_code))
     db.add(user)
     db.commit()
     db.refresh(user)
-    return {"id": str(user.id), "email": user.email, "full_name": user.full_name, "role": user.role,
-            "function_roles": user.function_roles or [], "department": user.department}
+    return _user_out(user)
 
 
 # =============================================
 # ユーザー一覧・管理（管理者用）
+#   2026-09-17 従業員マスタを統合。従業員ID（employee_code）と機能権限「営業担当」で、
+#   旧・従業員マスタが担っていた「営業担当の候補」を管理する
 # =============================================
 @router.get("/users")
 def list_users(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     users = db.query(User).filter(User.is_active == True).order_by(User.created_at).all()
-    return [{"id": str(u.id), "email": u.email, "full_name": u.full_name, "role": u.role,
-             "function_roles": u.function_roles or [],
-             "department": u.department,
-             "is_active": u.is_active, "created_at": u.created_at.isoformat() if u.created_at else None}
+    return [dict(_user_out(u), is_active=u.is_active, created_at=u.created_at.isoformat() if u.created_at else None)
             for u in users]
 
 @router.get("/team")
 def list_team(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    """スケジュール等で使う全ユーザー一覧（非admin可・最小情報）。3名しか表示されない不具合の修正。"""
+    """スケジュール・営業担当の選択肢などで使う全ユーザー一覧（非admin可・最小情報）。
+    function_roles を含むので、画面側は「営業担当」権限のある人だけに絞れる。"""
     users = db.query(User).filter(User.is_active == True).order_by(User.full_name).all()
-    return [{"id": str(u.id), "full_name": u.full_name, "role": u.role, "department": u.department} for u in users]
+    return [{"id": str(u.id), "full_name": u.full_name, "role": u.role, "department": u.department,
+             "function_roles": u.function_roles or [], "employee_code": u.employee_code} for u in users]
 
 class UserUpdate(BaseModel):
     email: Optional[str] = None
@@ -227,11 +255,12 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None
     function_roles: Optional[List[str]] = None   # 空配列＝全解除。Noneなら変更しない
     department: Optional[str] = None
+    employee_code: Optional[str] = None          # 空文字＝解除。Noneなら変更しない
     password: Optional[str] = None
 
 @router.put("/users/{user_id}")
 def update_user(user_id: str, data: UserUpdate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    u = db.query(User).filter(User.id == user_id).first()
+    u = db.query(User).filter(User.id == _user_uuid(user_id)).first()
     if not u: raise HTTPException(404)
     if data.email: u.email = data.email
     if data.full_name: u.full_name = data.full_name
@@ -239,15 +268,73 @@ def update_user(user_id: str, data: UserUpdate, db: Session = Depends(get_db), _
     if data.function_roles is not None:
         u.function_roles = normalize_roles(data.function_roles)
     if data.department is not None: u.department = data.department or None
+    if data.employee_code is not None:
+        u.employee_code = _check_employee_code(db, data.employee_code, exclude_id=u.id)
     if data.password:
         u.hashed_password = bcrypt.hashpw(data.password.encode(), bcrypt.gensalt()).decode()
     db.commit()
-    return {"id": str(u.id), "email": u.email, "full_name": u.full_name, "role": u.role,
-            "function_roles": u.function_roles or [], "department": u.department}
+    return _user_out(u)
+
+
+@router.post("/users/merge-employees")
+def merge_employees(apply: bool = False, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """旧・従業員マスタ（employees）をユーザーマスタへ取り込む（冪等。apply=false はプレビュー）。
+
+    - users に employee_code 列が無ければ追加する
+    - 従業員は氏名の完全一致でユーザーと照合し、従業員ID・部門（未設定なら）を写し、機能権限「営業担当」を付与
+    - 一致するユーザーが無い従業員は、ログインできない仮ユーザー（メール emp-<従業員ID>@noreply.local、
+      ランダムなパスワード）として作る。後で管理者がメールとパスワードを設定すればログインできる
+    - 旧マスタの行は消さない（取込元として残す）"""
+    import secrets
+    from sqlalchemy import text
+    from app.db.models import engine, Employee
+    if engine.dialect.name == "postgresql":   # 本番。SQLite（テスト）は create_all で列が入るので不要
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_code VARCHAR(50)"))
+            conn.commit()
+    users = db.query(User).filter(User.is_active == True).all()
+    by_name = {(u.full_name or "").strip(): u for u in users}
+    by_code = {u.employee_code: u for u in users if u.employee_code}
+    matched, created, skipped = [], [], []
+    for e in db.query(Employee).filter(Employee.is_active == True).order_by(Employee.employee_code).all():
+        name = (e.employee_name or "").strip(); code = (e.employee_code or "").strip()
+        u = by_name.get(name) or by_code.get(code)
+        if u:
+            note = []
+            if not u.employee_code and code and code not in by_code:
+                if apply: u.employee_code = code
+                by_code[code] = u; note.append(f"従業員ID {code} を設定")
+            elif u.employee_code and u.employee_code != code:
+                note.append(f"従業員IDは既存の {u.employee_code} を維持（旧マスタは {code}）")
+            if not u.department and e.department:
+                if apply: u.department = e.department
+                note.append(f"部門 {e.department} を設定")
+            if "sales_person" not in (u.function_roles or []):
+                if apply: u.function_roles = (u.function_roles or []) + ["sales_person"]
+                note.append("営業担当を付与")
+            matched.append({"employee_code": code, "name": name, "user": u.email, "changes": note or ["変更なし"]})
+            continue
+        if code in by_code:
+            skipped.append({"employee_code": code, "name": name, "reason": f"従業員ID {code} は別のユーザー（{by_code[code].full_name}）に設定済み"})
+            continue
+        email = f"emp-{code or secrets.token_hex(3)}@noreply.local"
+        if db.query(User).filter(User.email == email).first():
+            skipped.append({"employee_code": code, "name": name, "reason": f"仮メール {email} が既に存在"})
+            continue
+        if apply:
+            nu = User(email=email, hashed_password=bcrypt.hashpw(secrets.token_urlsafe(24).encode(), bcrypt.gensalt()).decode(),
+                      full_name=name, role="staff", function_roles=["sales_person"], department=e.department or None,
+                      employee_code=code or None)
+            db.add(nu); by_code[code] = nu; by_name[name] = nu
+        created.append({"employee_code": code, "name": name, "email": email, "department": e.department})
+    if apply:
+        db.commit()
+    return {"applied": apply, "matched": matched, "created": created, "skipped": skipped,
+            "summary": {"matched": len(matched), "created": len(created), "skipped": len(skipped)}}
 
 @router.delete("/users/{user_id}", status_code=204)
 def delete_user(user_id: str, db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    u = db.query(User).filter(User.id == user_id).first()
+    u = db.query(User).filter(User.id == _user_uuid(user_id)).first()
     if not u: raise HTTPException(404)
     u.is_active = False
     db.commit()

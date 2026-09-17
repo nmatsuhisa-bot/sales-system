@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { projectApi, mastersApi, API_BASE } from '../api';
+import { projectApi, mastersApi, API_BASE, listSalesPersons } from '../api';
 import SearchSelect from '../components/common/SearchSelect';
 import { Plus, ChevronDown, ChevronRight, Edit2, Trash2, FileText, Copy } from 'lucide-react';
 
@@ -114,7 +114,7 @@ export default function ProjectsPage() {
   const [orderForm, setOrderForm] = useState<any>({});
   const [agencies, setAgencies] = useState<any[]>([]);
   const [destinations, setDestinations] = useState<any[]>([]);
-  const [employees, setEmployees] = useState<any[]>([]);
+  const [salesPersons, setSalesPersons] = useState<any[]>([]);   // 営業担当の候補（機能権限「営業担当」のユーザー）
 
   // 選択欄の候補（入力で曖昧検索）
   const agencyOptions = useMemo(() => agencies.map(a => ({
@@ -124,9 +124,11 @@ export default function ProjectsPage() {
     value: d.customer_id, label: `${d.company_name}${d.factory_name ? ` ${d.factory_name}` : ''}`,
     sub: [d.customer_id, d.address].filter(Boolean).join('　'),
   })), [destinations]);
-  const employeeOptions = useMemo(() => employees.map(e => ({
-    value: e.employee_code, label: e.employee_name, sub: e.employee_code,
-  })), [employees]);
+  // 値は従業員ID（無ければユーザーID）。既存データの sales_person_code は旧・従業員マスタの従業員ID
+  const salesKey = (u: any) => u.employee_code || u.id;
+  const employeeOptions = useMemo(() => salesPersons.map(u => ({
+    value: salesKey(u), label: u.full_name, sub: u.employee_code || u.department || undefined,
+  })), [salesPersons]);
 
   const load = () => {
     projectApi.list({
@@ -140,7 +142,7 @@ export default function ProjectsPage() {
     load();
     mastersApi.listAgencies().then(r => setAgencies(r.data || []));
     mastersApi.listDeliveryDestinations().then(r => setDestinations(r.data || []));
-    mastersApi.listEmployees().then(r => setEmployees(r.data || []));
+    listSalesPersons().then(setSalesPersons).catch(() => {});
   }, [search, statusFilter, typeFilter, sort]);
 
   // 詳細モーダルは Esc でも閉じられるようにする
@@ -670,7 +672,7 @@ export default function ProjectsPage() {
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">自社営業担当</label>
                   <SearchSelect value={form.sales_person_code} emptyLabel="選択" options={employeeOptions}
-                    onChange={v => { const emp = employees.find(emp => emp.employee_code === v); setForm((f: any) => ({ ...f, sales_person_code: v, sales_person_name: emp?.employee_name || '' })); }} />
+                    onChange={v => { const u = salesPersons.find(u => salesKey(u) === v); setForm((f: any) => ({ ...f, sales_person_code: v, sales_person_name: u?.full_name || '' })); }} />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">担当者名</label>
@@ -771,7 +773,7 @@ export default function ProjectsPage() {
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">自社営業担当</label>
                   <SearchSelect value={orderForm.sales_person_code} emptyLabel="選択" options={employeeOptions}
-                    onChange={v => { const emp = employees.find(emp => emp.employee_code === v); setOrderForm((f: any) => ({ ...f, sales_person_code: v, sales_person_name: emp?.employee_name || '' })); }} />
+                    onChange={v => { const u = salesPersons.find(u => salesKey(u) === v); setOrderForm((f: any) => ({ ...f, sales_person_code: v, sales_person_name: u?.full_name || '' })); }} />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">担当者名</label>
