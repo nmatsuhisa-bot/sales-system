@@ -330,6 +330,8 @@ class Project(Base):
 
     sales_person_name = Column(String(100))                         # 自社営業担当
     sales_person_code = Column(String(50))                          # 自社営業担当者ID
+    created_by_name = Column(String(100))                           # 作成者（登録した人）
+    updated_by_name = Column(String(100))                           # 更新者（最後に直した人）
 
     status = Column(String(50), default="営業中")                  # 案件ステータス
     probability = Column(String(20))                                # 確度（高/中/低。見込み数字を入れる案件の管理用）
@@ -378,6 +380,8 @@ class ProjectOrder(Base):
 
     sales_person_name = Column(String(100))                         # 自社営業担当
     sales_person_code = Column(String(50))                          # 自社営業担当ID
+    created_by_name = Column(String(100))                           # 作成者
+    updated_by_name = Column(String(100))                           # 更新者
 
     # 工番/単番の区分（koban/tanban）。2026-07-18より登録時の必須選択とし、金額による
     # 自動判定は廃止。受注票発行時はこの値を引き継ぐ

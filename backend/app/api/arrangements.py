@@ -1411,6 +1411,11 @@ def setup_arrangement_forms(db: Session = Depends(get_db)):
         "ALTER TABLE shipping_arrangements ADD COLUMN IF NOT EXISTS creator_name VARCHAR(100)",
         # 見積書2ページ目以降（部品の内訳）に載せるかの行ごとの指定
         "ALTER TABLE quotation_line_items ADD COLUMN IF NOT EXISTS show_in_detail BOOLEAN",
+        # 案件の作成者・更新者（案件管理の絞り込みに使う）
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS created_by_name VARCHAR(100)",
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS updated_by_name VARCHAR(100)",
+        "ALTER TABLE project_orders ADD COLUMN IF NOT EXISTS created_by_name VARCHAR(100)",
+        "ALTER TABLE project_orders ADD COLUMN IF NOT EXISTS updated_by_name VARCHAR(100)",
     ]
     done = []
     for sql in stmts:

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { projectApi, mastersApi, API_BASE, listSalesPersons } from '../api';
+import { projectApi, mastersApi, authApi, API_BASE, listSalesPersons } from '../api';
 import SearchSelect from '../components/common/SearchSelect';
 import { Plus, ChevronDown, ChevronRight, Edit2, Trash2, FileText, Copy } from 'lucide-react';
 
@@ -104,6 +104,9 @@ export default function ProjectsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');            // 工番/単番（受注管理と同じ絞り込み）
+  const [personFilter, setPersonFilter] = useState('');        // 営業担当
+  const [createdByFilter, setCreatedByFilter] = useState('');  // 作成者
+  const [updatedByFilter, setUpdatedByFilter] = useState('');  // 更新者
   const [sort, setSort] = useState('recent');                  // 既定は直近に更新した案件が上
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [projectModal, setProjectModal] = useState<any>(null);
@@ -115,6 +118,7 @@ export default function ProjectsPage() {
   const [agencies, setAgencies] = useState<any[]>([]);
   const [destinations, setDestinations] = useState<any[]>([]);
   const [salesPersons, setSalesPersons] = useState<any[]>([]);   // 営業担当の候補（機能権限「営業担当」のユーザー）
+  const [teamUsers, setTeamUsers] = useState<any[]>([]);         // 作成者・更新者の候補（全ユーザー）
 
   // 選択欄の候補（入力で曖昧検索）
   const agencyOptions = useMemo(() => agencies.map(a => ({
@@ -126,6 +130,16 @@ export default function ProjectsPage() {
   })), [destinations]);
   // 値は従業員ID（無ければユーザーID）。既存データの sales_person_code は旧・従業員マスタの従業員ID
   const salesKey = (u: any) => u.employee_code || u.id;
+  // 作成者・更新者の候補（全ユーザー＋実際に記録のある名前）
+  const personOptions = useMemo(() => {
+    const names = new Set<string>(teamUsers.map((u: any) => u.full_name).filter(Boolean));
+    items.forEach((p: any) => {
+      if (p.created_by_name) names.add(p.created_by_name);
+      if (p.updated_by_name) names.add(p.updated_by_name);
+    });
+    return Array.from(names).map(n => ({ value: n, label: n }));
+  }, [teamUsers, items]);
+
   const employeeOptions = useMemo(() => salesPersons.map(u => ({
     value: salesKey(u), label: u.full_name, sub: u.employee_code || u.department || undefined,
   })), [salesPersons]);
@@ -134,6 +148,9 @@ export default function ProjectsPage() {
     projectApi.list({
       search: search || undefined, status: statusFilter || undefined,
       ticket_type: typeFilter || undefined, sort, per_page: 50,
+      sales_person_name: personFilter || undefined,
+      created_by_name: createdByFilter || undefined,
+      updated_by_name: updatedByFilter || undefined,
     })
       .then(r => { setItems(r.data.items || []); setTotal(r.data.total || 0); });
   };
@@ -143,7 +160,8 @@ export default function ProjectsPage() {
     mastersApi.listAgencies().then(r => setAgencies(r.data || []));
     mastersApi.listDeliveryDestinations().then(r => setDestinations(r.data || []));
     listSalesPersons().then(setSalesPersons).catch(() => {});
-  }, [search, statusFilter, typeFilter, sort]);
+    authApi.listTeam().then(r => setTeamUsers(r.data || [])).catch(() => {});
+  }, [search, statusFilter, typeFilter, sort, personFilter, createdByFilter, updatedByFilter]);
 
   // 詳細モーダルは Esc でも閉じられるようにする
   useEffect(() => {
@@ -303,9 +321,15 @@ export default function ProjectsPage() {
           <option value="">全ステータス</option>
           {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
+        <SearchSelect value={personFilter} onChange={setPersonFilter} emptyLabel="全担当" className="w-36"
+          options={employeeOptions.map(o => ({ value: o.label, label: o.label }))} />
+        <SearchSelect value={createdByFilter} onChange={setCreatedByFilter} emptyLabel="全作成者" className="w-36"
+          options={personOptions} />
+        <SearchSelect value={updatedByFilter} onChange={setUpdatedByFilter} emptyLabel="全更新者" className="w-36"
+          options={personOptions} />
         <select value={sort} onChange={e => setSort(e.target.value)}
           className="border border-gray-200 rounded-lg px-3 py-2 text-sm">
-          <option value="recent">直近の更新順</option>
+          <option value="recent">直近の動き順</option>
           <option value="project_no">案件ID順</option>
         </select>
       </div>
@@ -532,6 +556,8 @@ export default function ProjectsPage() {
                   )}
                   <DetailSection title="その他">
                     <DetailRow label="備考" value={val(o.notes)} wide />
+                    <DetailRow label="作成者" value={val(o.created_by_name)} />
+                    <DetailRow label="更新者" value={val(o.updated_by_name)} />
                     <DetailRow label="登録日時" value={val((o.created_at || '').replace('T', ' ').slice(0, 16))} />
                     <DetailRow label="更新日時" value={val((o.updated_at || '').replace('T', ' ').slice(0, 16))} />
                   </DetailSection>
@@ -590,8 +616,12 @@ export default function ProjectsPage() {
                   </div>
                   <DetailSection title="その他">
                     <DetailRow label="備考" value={val(p.notes)} wide />
+                    <DetailRow label="作成者" value={val(p.created_by_name)} />
+                    <DetailRow label="更新者" value={val(p.updated_by_name)} />
                     <DetailRow label="登録日時" value={val((p.created_at || '').replace('T', ' ').slice(0, 16))} />
                     <DetailRow label="更新日時" value={val((p.updated_at || '').replace('T', ' ').slice(0, 16))} />
+                    <DetailRow label="最終の動き（見積・帳票を含む）"
+                      value={val((p.last_activity_at || '').replace('T', ' ').slice(0, 16))} />
                   </DetailSection>
                 </>)}
               </div>

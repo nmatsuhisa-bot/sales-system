@@ -2,16 +2,37 @@
 親ID: 案件ID_親（例: 260010）
 子ID: 案件ID_子（例: 260010_02）
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc, or_, func
 from typing import Optional, List
 from pydantic import BaseModel
 from datetime import date
+import datetime as _dt
 from app.db.models import get_db, pk_or_code, Project, ProjectOrder, ProjectOrderQuotation
 from app.normalize import nfkc, nfkc_fields
 
 router = APIRouter()
+
+
+def actor_name(request: Request, db: Session) -> Optional[str]:
+    """操作した人の名前。Authorization があればそこから取る（無ければ None）。
+
+    案件APIは社内ツールとして認証必須にしていないため、トークンが無い呼び出しでも
+    落とさない。画面からは常にトークンが付く。
+    """
+    auth = request.headers.get("authorization") or ""
+    if not auth.lower().startswith("bearer "):
+        return None
+    try:
+        import jwt
+        from app.api.auth import SECRET_KEY, ALGORITHM
+        from app.db.models import User
+        payload = jwt.decode(auth.split(" ", 1)[1], SECRET_KEY, algorithms=[ALGORITHM])
+        u = db.query(User).filter(User.id == payload.get("sub")).first()
+        return u.full_name if u else None
+    except Exception:  # noqa: BLE001  記録用の項目なので、取れなくても処理は続ける
+        return None
 
 class ProjectOrderQuotationIn(BaseModel):
     quotation_no: Optional[str] = None
@@ -29,6 +50,8 @@ class ProjectOrderCreate(BaseModel):
     agency_name: Optional[str] = None
     sales_person_name: Optional[str] = None
     sales_person_code: Optional[str] = None
+    created_by_name: Optional[str] = None   # 作成者（ログインユーザーから自動で入る）
+    updated_by_name: Optional[str] = None   # 更新者（同上）
     ticket_type: Optional[str] = None       # koban / tanban（登録時の必須選択）
     status: Optional[str] = None
     quotation_amount: Optional[int] = None
@@ -58,6 +81,8 @@ class ProjectCreate(BaseModel):
     customer_name_2: Optional[str] = None
     sales_person_name: Optional[str] = None
     sales_person_code: Optional[str] = None
+    created_by_name: Optional[str] = None
+    updated_by_name: Optional[str] = None
     status: str = "営業中"
     ticket_type: Optional[str] = None           # 工番/単番。自動作成される子IDへ引き継ぐ
     probability: Optional[str] = None           # 確度（高/中/低）会議2026-07-17
@@ -87,6 +112,7 @@ class ProjectUpdate(BaseModel):
     customer_name_2: Optional[str] = None
     sales_person_name: Optional[str] = None
     sales_person_code: Optional[str] = None
+    updated_by_name: Optional[str] = None
     status: Optional[str] = None
     probability: Optional[str] = None           # 確度（高/中/低）
     distribution_type: Optional[str] = None
@@ -129,6 +155,7 @@ def order_to_dict(o: ProjectOrder) -> dict:
         "customer_code": o.customer_code, "customer_name": o.customer_name,
         "agency_code": o.agency_code, "agency_name": o.agency_name,
         "sales_person_name": o.sales_person_name, "sales_person_code": o.sales_person_code,
+        "created_by_name": o.created_by_name, "updated_by_name": o.updated_by_name,
         "ticket_type": o.ticket_type,
         "status": o.status,
         "quotation_amount": _i(o.quotation_amount), "budget_amount": _i(o.budget_amount),
@@ -157,6 +184,7 @@ def project_to_dict(p: Project, include_orders: bool = True) -> dict:
         "customer_code_1": p.customer_code_1, "customer_name_1": p.customer_name_1,
         "customer_code_2": p.customer_code_2, "customer_name_2": p.customer_name_2,
         "sales_person_name": p.sales_person_name, "sales_person_code": p.sales_person_code,
+        "created_by_name": p.created_by_name, "updated_by_name": p.updated_by_name,
         "status": p.status, "probability": p.probability, "distribution_type": p.distribution_type,
         "budget_amount": _i(p.budget_amount), "estimated_sales_total": _i(p.estimated_sales_total),
         "final_order_amount": _i(p.final_order_amount), "cost_price": _i(p.cost_price),
@@ -176,6 +204,55 @@ def project_to_dict(p: Project, include_orders: bool = True) -> dict:
         d["order_count"] = len(orders)
         d["total_quotation_amount"] = sum(_i(o.quotation_amount) or 0 for o in orders)
     return d
+
+_EPOCH = _dt.datetime(1970, 1, 1)
+
+
+def last_activity_map(db: Session, project_ids) -> dict:
+    """案件ごとの「最後に動いた日時」。
+
+    案件本体・子ID・見積・受注票・手配書（クレーン/送り状/排風機/宿泊）の
+    作成・更新のうち、いちばん新しいものを返す。
+    """
+    from app.db.models import (QuotationHeader, OrderTicket, CraneArrangement,
+                               ShippingArrangement, FanArrangement, HotelArrangement)
+    if not project_ids:
+        return {}
+    acts: dict = {}
+
+    def put(pid, ts):
+        if pid is None or ts is None:
+            return
+        cur = acts.get(pid)
+        if cur is None or ts > cur:
+            acts[pid] = ts
+
+    for pid, ts in db.query(Project.id, Project.updated_at).filter(Project.id.in_(project_ids)).all():
+        put(pid, ts)
+    # 子IDと、子IDにぶら下がる帳票類
+    child_owner = {}
+    for oid, pid, up, cr in db.query(
+            ProjectOrder.id, ProjectOrder.project_id,
+            ProjectOrder.updated_at, ProjectOrder.created_at
+    ).filter(ProjectOrder.project_id.in_(project_ids)).all():
+        child_owner[oid] = pid
+        put(pid, up or cr)
+    if child_owner:
+        oids = list(child_owner.keys())
+        for Model in (QuotationHeader, OrderTicket, CraneArrangement, ShippingArrangement,
+                      FanArrangement, HotelArrangement):
+            up_col = getattr(Model, "updated_at", None)
+            cr_col = getattr(Model, "created_at", None)
+            cols = [c for c in (up_col, cr_col) if c is not None]
+            if not cols:
+                continue
+            for row in db.query(Model.project_order_id, *cols).filter(
+                    Model.project_order_id.in_(oids)).all():
+                pid = child_owner.get(row[0])
+                for ts in row[1:]:
+                    put(pid, ts)
+    return acts
+
 
 def generate_project_no(db: Session) -> str:
     """当年プレフィックス（YYYY-）で未使用の連番を採番。重複しない案件IDを返す。"""
@@ -256,7 +333,10 @@ def list_projects(
     status: Optional[str] = None, sales_person_code: Optional[str] = None,
     distribution_type: Optional[str] = None, search: Optional[str] = None,
     ticket_type: Optional[str] = None,          # koban / tanban（子IDの区分で絞り込む）
-    sort: str = "recent",                       # recent=更新の新しい順 / project_no=案件ID順
+    sales_person_name: Optional[str] = None,    # 営業担当
+    created_by_name: Optional[str] = None,      # 作成者
+    updated_by_name: Optional[str] = None,      # 更新者
+    sort: str = "recent",                       # recent=直近の動き順 / project_no=案件ID順
     db: Session = Depends(get_db)
 ):
     q = db.query(Project).options(joinedload(Project.project_orders).joinedload(ProjectOrder.linked_quotations))
@@ -266,6 +346,16 @@ def list_projects(
     if ticket_type:
         # 子IDに該当する区分があれば表示（親案件には区分が無いため）
         q = q.filter(Project.project_orders.any(ProjectOrder.ticket_type == ticket_type))
+    if sales_person_name:
+        # 親または子のどちらかの担当が一致すれば表示（子ごとに担当が違う案件があるため）
+        q = q.filter(or_(
+            Project.sales_person_name == sales_person_name,
+            Project.project_orders.any(ProjectOrder.sales_person_name == sales_person_name),
+        ))
+    if created_by_name:
+        q = q.filter(Project.created_by_name == created_by_name)
+    if updated_by_name:
+        q = q.filter(Project.updated_by_name == updated_by_name)
     if search:
         q = q.filter(or_(
             Project.project_no.ilike(f"%{search}%"), Project.project_name.ilike(f"%{search}%"),
@@ -273,15 +363,27 @@ def list_projects(
             Project.sales_person_name.ilike(f"%{search}%"),
         ))
     total = q.count()
-    # 既定は「直近に動いた案件」が上。案件ID順にも切り替えられる。
-    # 更新日時が同じ案件（一括取込など）は案件IDの新しい順で並べ、表示順を一定にする
-    order = ([desc(Project.project_no)] if sort == "project_no"
-             else [desc(Project.updated_at), desc(Project.project_no)])
-    items = q.order_by(*order).offset((page-1)*per_page).limit(per_page).all()
-    return {"total": total, "page": page, "per_page": per_page, "items": [project_to_dict(p) for p in items]}
+    if sort == "project_no":
+        items = q.order_by(desc(Project.project_no)).offset((page-1)*per_page).limit(per_page).all()
+        acts = {}
+    else:
+        # 「直近の動き順」。案件そのものの更新だけでなく、子ID・見積・受注票・手配書の
+        # 作成/更新も“動き”として見る。件数が多くないため全件で最終更新を求めてから並べる
+        rows = q.order_by(desc(Project.project_no)).all()
+        acts = last_activity_map(db, [r.id for r in rows])
+        rows.sort(key=lambda p: (acts.get(p.id) or p.updated_at or p.created_at or _EPOCH,
+                                 p.project_no or ""), reverse=True)
+        items = rows[(page-1)*per_page: (page-1)*per_page + per_page]
+    out = []
+    for p in items:
+        d = project_to_dict(p)
+        a = acts.get(p.id) or p.updated_at
+        d["last_activity_at"] = a.isoformat() if a else None
+        out.append(d)
+    return {"total": total, "page": page, "per_page": per_page, "items": out}
 
 @router.post("/", status_code=201)
-def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
+def create_project(data: ProjectCreate, request: Request, db: Session = Depends(get_db)):
     from sqlalchemy import text as sa_text
     db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext('project_no_lock'))"))
     # 案件IDは未指定または重複時にサーバ側で採番（重複防止＝保存失敗を回避）
@@ -291,6 +393,10 @@ def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
     # ticket_type(工番/単番)は子ID側の項目のため、親のフィールドからは除外する
     fields = nfkc_fields(data.dict(exclude={"orders", "ticket_type"}))
     fields["project_no"] = pno
+    who = actor_name(request, db) or data.created_by_name
+    if who:
+        fields["created_by_name"] = who
+        fields["updated_by_name"] = who
     p = Project(**fields)
     db.add(p)
     db.flush()
@@ -330,12 +436,15 @@ def get_project(project_id: str, db: Session = Depends(get_db)):
     return project_to_dict(p)
 
 @router.put("/{project_id}")
-def update_project(project_id: str, data: ProjectUpdate, db: Session = Depends(get_db)):
+def update_project(project_id: str, data: ProjectUpdate, request: Request, db: Session = Depends(get_db)):
     p = db.query(Project).filter(pk_or_code(Project.id, Project.project_no, project_id)).first()
     if not p: raise HTTPException(404)
     _check_version(p.updated_at, data.expected_updated_at)
     for k, v in data.dict(exclude={"expected_updated_at"}, exclude_none=True).items():
         setattr(p, k, nfkc(v))
+    who = actor_name(request, db) or data.updated_by_name
+    if who:
+        p.updated_by_name = who
     db.commit()
     return project_to_dict(p, include_orders=False)
 
@@ -346,9 +455,14 @@ def delete_project(project_id: str, db: Session = Depends(get_db)):
     db.delete(p); db.commit()
 
 @router.post("/{project_id}/orders", status_code=201)
-def add_project_order(project_id: str, data: ProjectOrderCreate, db: Session = Depends(get_db)):
+def add_project_order(project_id: str, data: ProjectOrderCreate, request: Request, db: Session = Depends(get_db)):
     p = db.query(Project).filter(pk_or_code(Project.id, Project.project_no, project_id)).first()
     if not p: raise HTTPException(404)
+    who = actor_name(request, db) or data.created_by_name
+    if who:
+        data.created_by_name = who
+        data.updated_by_name = who
+        p.updated_by_name = who
     o = _make_order(data, p.id, p.project_no, db)
     db.commit(); db.refresh(o)
     return order_to_dict(o)
@@ -392,12 +506,18 @@ def get_project_order(order_id: str, db: Session = Depends(get_db)):
     return order_to_dict(o)
 
 @router.put("/orders/{order_id}")
-def update_project_order(order_id: str, data: ProjectOrderCreate, db: Session = Depends(get_db)):
+def update_project_order(order_id: str, data: ProjectOrderCreate, request: Request, db: Session = Depends(get_db)):
     o = db.query(ProjectOrder).filter(pk_or_code(ProjectOrder.id, ProjectOrder.child_no, order_id)).first()
     if not o: raise HTTPException(404)
     _check_version(o.updated_at, data.expected_updated_at)
     for k, v in data.dict(exclude={"child_no", "linked_quotations", "expected_updated_at"}, exclude_none=True).items():
         setattr(o, k, nfkc(v))
+    who = actor_name(request, db) or data.updated_by_name
+    if who:
+        o.updated_by_name = who
+        parent = db.query(Project).filter(Project.id == o.project_id).first()
+        if parent:
+            parent.updated_by_name = who
     if data.linked_quotations is not None:
         for lq in o.linked_quotations: db.delete(lq)
         db.flush()
