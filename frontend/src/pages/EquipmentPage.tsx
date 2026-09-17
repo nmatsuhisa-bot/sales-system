@@ -20,6 +20,8 @@ const fmtDT = (s?: string | null) => (s ? new Date(s).toLocaleString('ja-JP', { 
 const STATUS_LABEL: Record<string, string> = { active: '稼働', removed: '除去', disposed: '処分', unknown: '所在不明' };
 const LINK_TYPES = ['本体', '付帯工事', '移設費', '親資産に含む', 'リース', 'その他'];
 const isAdmin = () => JSON.parse(localStorage.getItem('user') || '{}').role === 'admin';
+// チップは left/top を中心にして描く（座標は機械の中心）
+const CHIP_TRANSFORM = 'translate(-50%, -50%)';
 
 export default function EquipmentPage() {
   const [tab, setTab] = useState<Tab>('board');
@@ -191,12 +193,16 @@ function BoardTab({ reloadKey, onChanged }: { reloadKey: number; onChanged: () =
   };
 
   // チップのドラッグ（ポインタイベント）
-  const dragRef = useRef<{ id: string; startX: number; startY: number; moved: boolean; el: HTMLElement } | null>(null);
+  // つかんだ位置とチップ中心のずれ（offX/offY）を覚えておき、離したときはチップ中心が落ちる位置を座標にする。
+  // ポインタ位置をそのまま中心にすると、チップの端をつかんだ分だけ離した瞬間に飛ぶ
+  const dragRef = useRef<{ id: string; startX: number; startY: number; offX: number; offY: number; moved: boolean; el: HTMLElement } | null>(null);
   const onChipPointerDown = (e: React.PointerEvent, p: any) => {
     if (readOnly) { setSelected(p.id); return; }
     e.preventDefault();
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    dragRef.current = { id: p.id, startX: e.clientX, startY: e.clientY, moved: false, el: e.currentTarget as HTMLElement };
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const r = el.getBoundingClientRect();
+    dragRef.current = { id: p.id, startX: e.clientX, startY: e.clientY, offX: e.clientX - (r.left + r.width / 2), offY: e.clientY - (r.top + r.height / 2), moved: false, el };
     setSelected(p.id);
   };
   const onChipPointerMove = (e: React.PointerEvent) => {
@@ -205,15 +211,18 @@ function BoardTab({ reloadKey, onChanged }: { reloadKey: number; onChanged: () =
     const dx = e.clientX - d.startX, dy = e.clientY - d.startY;
     if (!d.moved && Math.hypot(dx, dy) < 3) return;
     d.moved = true;
-    d.el.style.transform = `translate(-50%, -50%) translate(${dx}px, ${dy}px)`;
+    d.el.style.transform = `${CHIP_TRANSFORM} translate(${dx}px, ${dy}px)`;
   };
   const onChipPointerUp = (e: React.PointerEvent, p: any) => {
     const d = dragRef.current;
     dragRef.current = null;
     if (!d) return;
-    d.el.style.transform = '';
+    // 中央寄せの transform に戻す（'' にすると React は同じ style prop を再適用しないため、以後そのチップが左上基準になって半分ずれる）
+    d.el.style.transform = CHIP_TRANSFORM;
     if (!d.moved) return;
-    const { x, y } = toRatio(e.clientX, e.clientY);
+    const { x, y } = toRatio(e.clientX - d.offX, e.clientY - d.offY);
+    // 先に画面上の位置を更新しておく（保存→再読込の間に元の位置へ戻って見えるのを防ぐ）
+    setBoard((b: any) => b ? { ...b, placements: b.placements.map((q: any) => q.id === p.id ? { ...q, x, y, draft: q.draft || 'move' } : q) } : b);
     post(() => equipmentApi.addMove(drawingId, { machine_id: p.id, kind: 'move', x, y }));
   };
   // 未配置リストからのドロップ（HTML5 DnD）
@@ -315,7 +324,7 @@ function BoardTab({ reloadKey, onChanged }: { reloadKey: number; onChanged: () =
                   className={`absolute select-none cursor-move rounded px-1.5 py-0.5 text-[11px] font-semibold leading-tight border shadow-sm whitespace-nowrap
                     ${p.draft ? 'bg-amber-300 border-amber-600 text-amber-950' : 'bg-red-500 border-red-700 text-white'}
                     ${selected === p.id ? 'ring-2 ring-indigo-500 z-20' : 'z-10'}`}
-                  style={{ left: p.x * W, top: p.y * H, transform: 'translate(-50%, -50%)', touchAction: 'none' }}>
+                  style={{ left: p.x * W, top: p.y * H, transform: CHIP_TRANSFORM, touchAction: 'none' }}>
                   {p.code}
                 </div>
               ))}

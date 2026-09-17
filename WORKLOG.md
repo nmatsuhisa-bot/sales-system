@@ -15,6 +15,13 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-09-17 — Claude — 工場機械管理: チップをドラッグすると位置がずれる問題を修正
+**触ったファイル**: `frontend/src/pages/EquipmentPage.tsx` のみ
+**原因**: ①ドラッグ終了時にチップの中央寄せ transform を `''` で消していた。React は style prop が前回と同じだと再適用しないため、以後そのチップは左上基準になり、チップの半分（約 20×10px）ずれて描かれる。
+②離した位置の計算がポインタ位置をそのままチップ中心にしていたため、チップの端をつかむとその分だけ飛ぶ。
+**修正**: transform は定数 CHIP_TRANSFORM に戻す。つかんだ位置とチップ中心のオフセットを pointerdown で記録し、離したときに補正。保存前に画面の座標を先に更新して、再読込までの間に元の位置へ戻って見えるちらつきも解消。
+**確認**: ローカル画面でポインタイベントを合成し、つかむ位置 3 通り × 移動量 3 通りで移動後の中心が指定どおり（誤差 0px）になることを確認。tsc / vite build OK。
+
 ### 2026-09-16 — Claude — 工場機械管理: 本番で図面（配置）が Network Error になる問題を修正
 **触ったファイル**: `backend/app/db/models.py`（EqDrawing.image / original を deferred に）, `backend/app/api/equipment.py`（board を JSONResponse で直接返す・未配置リストを軽量化・例外を 500+detail で返す・画像を bytes() で返す・has_original を original_type で判定）,
 `frontend/src/pages/EquipmentPage.tsx`（未配置の機械を選択したとき機械詳細 API で台帳紐付けを補う）
