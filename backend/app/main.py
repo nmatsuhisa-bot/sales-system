@@ -57,6 +57,16 @@ def ensure_users_employee_code():
         print(f"[startup] users.employee_code の確認に失敗: {e}")
 
 
+@app.on_event("startup")
+def start_weekly_schedule_digest():
+    """今週の予定メール（月曜 6:00 JST）の常駐スレッドを起動する"""
+    try:
+        from app.api.team_schedule import start_digest_scheduler
+        start_digest_scheduler()
+    except Exception as e:  # noqa: BLE001  起動を止めない
+        print(f"[startup] 週次メールの起動に失敗: {e}")
+
+
 @app.get("/seed-users")
 def seed_users():
     """初期ユーザーを投入（後藤・國立・井上）"""

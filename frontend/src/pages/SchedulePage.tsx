@@ -56,10 +56,13 @@ export default function SchedulePage() {
   const dragId = useRef<string | null>(null);
   // 編集時に「参加者全員へ反映するか」。複数参加者の予定では既定でON
   const [applyAll, setApplyAll] = useState(true);
-  const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
+  const [viewMode, setViewMode] = useState<'week' | 'month' | 'list'>('week');
+  // 一覧で見る期間（週/月）。予定だけを日付順に並べて確認する
+  const [listRange, setListRange] = useState<'week' | 'month'>('week');
   const weekDates = getWeekDates(base);
   const monthDates = getMonthDates(base);
-  const displayDates = viewMode === 'week' ? weekDates : monthDates;
+  const listDates = listRange === 'week' ? weekDates : monthDates;
+  const displayDates = viewMode === 'month' ? monthDates : viewMode === 'list' ? listDates : weekDates;
   const todayKey = dateKey(new Date());
   // 権限: 施工部門は閲覧のみ（管理者は常に編集可）
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
@@ -89,16 +92,18 @@ export default function SchedulePage() {
       .catch(() => {});
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { loadSchedules(); }, [base, viewMode]);
+  useEffect(() => { loadSchedules(); }, [base, viewMode, listRange]);
 
   function goPrev() {
     const d = new Date(base);
-    if (viewMode === 'week') d.setDate(d.getDate() - 7); else d.setMonth(d.getMonth() - 1);
+    const byWeek = viewMode === 'week' || (viewMode === 'list' && listRange === 'week');
+    if (byWeek) d.setDate(d.getDate() - 7); else d.setMonth(d.getMonth() - 1);
     setBase(d);
   }
   function goNext() {
     const d = new Date(base);
-    if (viewMode === 'week') d.setDate(d.getDate() + 7); else d.setMonth(d.getMonth() + 1);
+    const byWeek = viewMode === 'week' || (viewMode === 'list' && listRange === 'week');
+    if (byWeek) d.setDate(d.getDate() + 7); else d.setMonth(d.getMonth() + 1);
     setBase(d);
   }
 
@@ -107,6 +112,35 @@ export default function SchedulePage() {
     setForm({ title: '', color: COLOR_OPTIONS[0].value, allDay: false, userIds, date, slot });
     setModal({ open: true, defaultUserIds: userIds, defaultDate: date, defaultSlot: slot });
   }
+  /** 一覧ビューの行。同じ予定（参加者・午前午後）を1行にまとめ、日付順に並べる */
+  const listRows = (() => {
+    const inRange = new Set(displayDates.map(dateKey));
+    const visible = new Set(displayUsers.map(u => String(u.id)));
+    const groups = new Map<string, ScheduleEntry[]>();
+    schedules
+      .filter(s => inRange.has(s.date) && visible.has(String(s.userId)))
+      .forEach(s => {
+        const key = `${s.date}|${s.groupId || `${s.slot}|${s.title}`}`;
+        groups.set(key, [...(groups.get(key) || []), s]);
+      });
+    return Array.from(groups.entries()).map(([key, entries]) => {
+      const slots = new Set(entries.map(e => e.slot));
+      const d = new Date(entries[0].date + 'T00:00:00');
+      const w = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()];
+      const names = Array.from(new Set(entries.map(e =>
+        users.find(u => String(u.id) === String(e.userId))?.full_name || '—')));
+      return {
+        key, entries, names,
+        title: entries[0].title, color: entries[0].color,
+        dateLabel: `${d.getMonth() + 1}/${d.getDate()}(${w})`,
+        slotLabel: slots.size > 1 ? '終日' : entries[0].slot === 'am' ? '午前' : '午後',
+        isToday: entries[0].date === todayKey,
+        isWeekend: d.getDay() === 0 || d.getDay() === 6,
+        sortKey: `${entries[0].date}|${entries[0].slot}`,
+      };
+    }).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+  })();
+
   /** 同じ予定の行（複数参加者・終日）。group_id が無い古い予定は日付・時間帯・内容で束ねる */
   function groupOf(entry: ScheduleEntry): ScheduleEntry[] {
     if (entry.groupId) return schedules.filter(s => s.groupId === entry.groupId);
@@ -215,16 +249,18 @@ export default function SchedulePage() {
             className={`px-3 py-1 rounded text-sm font-medium transition-colors ${viewMode === 'week' ? 'bg-white shadow text-gray-800' : 'text-gray-500'}`}>週</button>
           <button onClick={() => setViewMode('month')}
             className={`px-3 py-1 rounded text-sm font-medium transition-colors ${viewMode === 'month' ? 'bg-white shadow text-gray-800' : 'text-gray-500'}`}>月</button>
+          <button onClick={() => setViewMode('list')}
+            className={`px-3 py-1 rounded text-sm font-medium transition-colors ${viewMode === 'list' ? 'bg-white shadow text-gray-800' : 'text-gray-500'}`}>一覧</button>
         </div>
       </div>
 
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div className="flex gap-2 items-center flex-wrap">
-          <button onClick={goPrev} className="px-3 py-1.5 border rounded text-sm hover:bg-gray-100">&lt; {viewMode === 'week' ? '前週' : '前月'}</button>
+          <button onClick={goPrev} className="px-3 py-1.5 border rounded text-sm hover:bg-gray-100">&lt; {(viewMode === 'week' || (viewMode === 'list' && listRange === 'week')) ? '前週' : '前月'}</button>
           <button onClick={() => setBase(new Date())} className="px-3 py-1.5 border rounded text-sm bg-blue-50 hover:bg-blue-100">今日</button>
-          <button onClick={goNext} className="px-3 py-1.5 border rounded text-sm hover:bg-gray-100">{viewMode === 'week' ? '次週' : '次月'} &gt;</button>
+          <button onClick={goNext} className="px-3 py-1.5 border rounded text-sm hover:bg-gray-100">{(viewMode === 'week' || (viewMode === 'list' && listRange === 'week')) ? '次週' : '次月'} &gt;</button>
           <span className="text-sm text-gray-600 font-medium ml-1">
-            {viewMode === 'week'
+            {(viewMode === 'week' || (viewMode === 'list' && listRange === 'week'))
               ? `${weekDates[0].getMonth()+1}/${weekDates[0].getDate()}〜${weekDates[6].getMonth()+1}/${weekDates[6].getDate()}`
               : `${base.getFullYear()}年${base.getMonth()+1}月`}
           </span>
@@ -240,9 +276,50 @@ export default function SchedulePage() {
         </div>
       </div>
 
+      {/* 一覧: 予定だけを日付順に並べる（同じ予定は参加者をまとめて1行） */}
+      {viewMode === 'list' && (
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-xs text-gray-500">期間</span>
+            <div className="flex gap-1 bg-gray-100 rounded p-0.5">
+              <button onClick={() => setListRange('week')}
+                className={`px-2 py-0.5 rounded text-xs ${listRange === 'week' ? 'bg-white shadow text-gray-800' : 'text-gray-500'}`}>この週</button>
+              <button onClick={() => setListRange('month')}
+                className={`px-2 py-0.5 rounded text-xs ${listRange === 'month' ? 'bg-white shadow text-gray-800' : 'text-gray-500'}`}>この月</button>
+            </div>
+            <span className="text-xs text-gray-400">{listRows.length}件</span>
+          </div>
+          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div className="grid text-xs text-gray-500 bg-gray-50 border-b border-gray-200 px-3 py-2 font-medium"
+              style={{ gridTemplateColumns: '110px 60px 1fr 220px' }}>
+              <span>日付</span><span>時間</span><span>予定</span><span>参加者</span>
+            </div>
+            {listRows.length === 0 && (
+              <div className="text-center py-10 text-gray-400 text-sm">この期間に予定はありません</div>
+            )}
+            {listRows.map(row => (
+              <div key={row.key}
+                onClick={() => openEdit(row.entries[0])}
+                className={`grid items-center px-3 py-2 text-sm border-b border-gray-100 hover:bg-blue-50 cursor-pointer ${row.isToday ? 'bg-blue-50/60' : ''}`}
+                style={{ gridTemplateColumns: '110px 60px 1fr 220px' }}>
+                <span className={`text-xs font-medium ${row.isWeekend ? 'text-red-500' : 'text-gray-600'}`}>
+                  {row.dateLabel}
+                </span>
+                <span className="text-xs text-gray-500">{row.slotLabel}</span>
+                <span className="truncate">
+                  <span className={`inline-block px-1.5 py-0.5 rounded border text-xs mr-2 align-middle ${row.color}`}>&nbsp;</span>
+                  <span className="text-gray-800 align-middle">{row.title || '（内容なし）'}</span>
+                </span>
+                <span className="text-xs text-gray-500 truncate">{row.names.join('、')}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* テーブル要素は使わずCSS Gridで組む。position:sticky を <th>/<td> に使うとSafariの
           table-layout計算が不安定になり、日付/時間列の間にズレ（隙間）が生じるため。 */}
-      <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+      <div className={`overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 ${viewMode === 'list' ? 'hidden' : ''}`}>
         <div className="inline-grid border-t border-l border-gray-300" style={{ gridTemplateColumns: `${DATE_W}px ${TIME_W}px` + (displayUsers.length ? ` repeat(${displayUsers.length}, ${USER_W}px)` : '') }}>
           <div className="sticky left-0 z-20 border-r border-b border-gray-300 bg-gray-100 px-1 py-2 text-center text-sm" style={{ gridColumn: 1, gridRow: 1 }}>日付</div>
           <div className="sticky z-20 border-r border-b border-gray-300 bg-gray-100 px-1 py-2 text-center text-sm" style={{ gridColumn: 2, gridRow: 1, left: DATE_W }}>時間</div>
