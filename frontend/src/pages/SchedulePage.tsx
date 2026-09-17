@@ -402,7 +402,7 @@ export default function SchedulePage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">内容</label>
               <input className="border rounded w-full px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
                 value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-                onKeyDown={e => e.key === 'Enter' && saveEntry()} autoFocus placeholder="予定を入力..." />
+                autoFocus placeholder="予定を入力..." />
             </div>
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">色</label>
