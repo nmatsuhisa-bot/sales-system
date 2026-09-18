@@ -33,6 +33,20 @@ const TEXT_LABELS: [string, string][] = [
 ];
 const VENDOR_CATEGORIES = ['クレーン・作業車', '運送（トラック）', 'その他'];
 
+// 入力欄。コンポーネントの外で定義する。
+// 中で定義すると毎レンダーで別のコンポーネント扱いになり、入力欄が作り直されて
+// 1文字ごとにフォーカス（カーソル位置）が失われる
+function F({ label, name, type = 'text', form, setForm }: any) {
+  return (
+    <div>
+      <label className="block text-xs text-gray-500 mb-1">{label}</label>
+      <input type={type} value={form[name] || ''}
+        onChange={e => setForm((f: any) => ({ ...f, [name]: e.target.value }))}
+        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+    </div>
+  );
+}
+
 export default function MastersPage() {
   // ?tab=users のように URL で開くタブを指定できる（旧「ユーザー管理」メニューからの移動先）
   const [params] = useSearchParams();
@@ -77,15 +91,6 @@ export default function MastersPage() {
   };
 
   useEffect(() => { loadAll(); }, [search]);
-
-  const F = ({ label, name, type = 'text' }: any) => (
-    <div>
-      <label className="block text-xs text-gray-500 mb-1">{label}</label>
-      <input type={type} value={form[name] || ''}
-        onChange={e => setForm((f: any) => ({ ...f, [name]: e.target.value }))}
-        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-    </div>
-  );
 
   const handleSave = async () => {
     try {
@@ -316,25 +321,25 @@ export default function MastersPage() {
             </h2>
             <div className="space-y-3">
               {tab === 'agencies' && (<>
-                <F label="商社コード *" name="agency_code" />
-                <F label="商社名 *" name="agency_name" />
-                <F label="支店名" name="branch_name" />
-                <F label="取引条件" name="trade_terms" />
-                <F label="住所（請求先）" name="address" />
-                <F label="担当者名" name="contact_person" />
-                <F label="電話番号" name="phone" />
+                <F label="商社コード *" name="agency_code" form={form} setForm={setForm} />
+                <F label="商社名 *" name="agency_name" form={form} setForm={setForm} />
+                <F label="支店名" name="branch_name" form={form} setForm={setForm} />
+                <F label="取引条件" name="trade_terms" form={form} setForm={setForm} />
+                <F label="住所（請求先）" name="address" form={form} setForm={setForm} />
+                <F label="担当者名" name="contact_person" form={form} setForm={setForm} />
+                <F label="電話番号" name="phone" form={form} setForm={setForm} />
               </>)}
               {tab === 'destinations' && (<>
-                <F label="顧客ID *" name="customer_id" />
-                <F label="会社名 *" name="company_name" />
-                <F label="工場名" name="factory_name" />
-                <F label="会社名_工場名" name="company_factory_name" />
-                <F label="郵便番号" name="postal_code" />
-                <F label="都道府県" name="prefecture" />
-                <F label="住所" name="address" />
-                <F label="TEL" name="tel" />
-                <F label="FAX" name="fax" />
-                <F label="顧客ランク" name="customer_rank" />
+                <F label="顧客ID *" name="customer_id" form={form} setForm={setForm} />
+                <F label="会社名 *" name="company_name" form={form} setForm={setForm} />
+                <F label="工場名" name="factory_name" form={form} setForm={setForm} />
+                <F label="会社名_工場名" name="company_factory_name" form={form} setForm={setForm} />
+                <F label="郵便番号" name="postal_code" form={form} setForm={setForm} />
+                <F label="都道府県" name="prefecture" form={form} setForm={setForm} />
+                <F label="住所" name="address" form={form} setForm={setForm} />
+                <F label="TEL" name="tel" form={form} setForm={setForm} />
+                <F label="FAX" name="fax" form={form} setForm={setForm} />
+                <F label="顧客ランク" name="customer_rank" form={form} setForm={setForm} />
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">備考</label>
                   <textarea value={form.notes || ''} rows={2}
@@ -351,13 +356,13 @@ export default function MastersPage() {
                     {VENDOR_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
-                <F label="業者名 *" name="name" />
-                <F label="営業所/支店" name="branch" />
-                <F label="担当" name="contact_person" />
-                <F label="TEL" name="phone" />
-                <F label="FAX" name="fax" />
-                <F label="郵便番号" name="postal_code" />
-                <F label="住所" name="address" />
+                <F label="業者名 *" name="name" form={form} setForm={setForm} />
+                <F label="営業所/支店" name="branch" form={form} setForm={setForm} />
+                <F label="担当" name="contact_person" form={form} setForm={setForm} />
+                <F label="TEL" name="phone" form={form} setForm={setForm} />
+                <F label="FAX" name="fax" form={form} setForm={setForm} />
+                <F label="郵便番号" name="postal_code" form={form} setForm={setForm} />
+                <F label="住所" name="address" form={form} setForm={setForm} />
               </>)}
             </div>
             <div className="flex justify-end gap-3 mt-5">
