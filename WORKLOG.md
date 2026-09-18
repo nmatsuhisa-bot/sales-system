@@ -15,6 +15,13 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-09-19 — Claude (Cowork) — ヘルプ（アプリ内マニュアル）を最新機能へ同期
+**触ったファイル**: `frontend/src/pages/HelpPage.tsx`, `WORKLOG.md`
+**基準**: 前回ヘルプを同期した `5a5e981`（2026-09-18）〜 HEAD の 2 コミット（`8eae2b7` 仕入の修正、`5456a18` マスタ入力欄のフォーカス修正）を実コードで確認。
+**反映した内容（仕入（発注）管理）**: 明細の数量は 0 より大きい数・単価は 0 以上（空欄可）という入力条件と、ヘッダーの注文日を空欄のままでも保存できる点を手順に追記。保存・追加・削除に失敗したときに発注書詳細の上部へ赤いメッセージが出る（×で消せる）ことを注記に追記。
+**反映しなかったもの**: `5456a18`（マスタ登録の入力欄で 1 文字ごとにカーソルが飛ぶ不具合の修正）は内部リファクタで画面の使い方が変わらないため、ヘルプは変更なし。
+**確認**: HelpPage.tsx は esbuild 構文チェック通過。全角スペースの追加なし。機能コードは未変更。
+**運用**: push → Render 再デプロイのみ。DB 変更なし。
 ### 2026-09-18 — Claude (Cowork) — 仕入（発注）管理 /procurement の定期検証と修正
 **触ったファイル**: `backend/app/api/materials.py`, `frontend/src/pages/ProcurementPage.tsx`, `WORKLOG.md`
 **ライブ検証**: 本番 API `/api/procurement/` の suppliers / materials / bom / material-orders / purchase-orders と発注書 PDF を確認。すべて 200で 500 なし。
