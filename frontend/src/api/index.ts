@@ -229,7 +229,7 @@ export const listSalesPersons = () =>
 // =============================================
 export const procurementApi = {
   // 部材マスタ
-  listMaterials: (search?: string) => api.get('/procurement/materials', { params: { search } }),
+  listMaterials: (search?: string, limit?: number) => api.get('/procurement/materials', { params: { search, limit } }),
   createMaterial: (data: any) => api.post('/procurement/materials', data),
   updateMaterial: (id: string, data: any) => api.put(`/procurement/materials/${id}`, data),
   deleteMaterial: (id: string) => api.delete(`/procurement/materials/${id}`),

@@ -1,4 +1,4 @@
-import { useEffect, useState, Fragment } from 'react';
+import { useEffect, useRef, useState, Fragment } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { procurementApi } from '../api';
 import OrderSearchInput from '../components/common/OrderSearchInput';
@@ -259,6 +259,9 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
   const [matResults, setMatResults] = useState<any[]>([]);
   const [newLine, setNewLine] = useState<any>({ order_qty: 1 });
   const [err, setErr] = useState('');
+  // 部材検索の入力ごとの問い合わせを間引き、古い応答で新しい候補を上書きしないための番号
+  const matTimer = useRef<any>(null);
+  const matSeq = useRef(0);
   const fail = (e: any, fallback: string) => setErr(e?.response?.data?.detail || fallback);
 
   const reload = () => procurementApi.getPurchaseOrder(poId).then(r => {
@@ -274,6 +277,7 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
     procurementApi.listSuppliers()
       .then(r => setSuppliers(r.data))
       .catch(() => setErr('発注先の一覧を取得できませんでした。'));
+    return () => { if (matTimer.current) clearTimeout(matTimer.current); };
   }, [poId]);
 
   const saveHdr = async () => {
@@ -290,8 +294,15 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
   };
   const searchMat = (q: string) => {
     setMatQuery(q); setNewLine((n: any) => ({ ...n, material_id: undefined, material_name: undefined }));
+    if (matTimer.current) clearTimeout(matTimer.current);
     if (!q.trim()) { setMatResults([]); return; }
-    procurementApi.listMaterials(q).then(r => setMatResults(r.data.slice(0, 15))).catch(() => {});
+    const seq = ++matSeq.current;
+    // 部材マスタは1万件超あるため、件数を絞って問い合わせる（入力が続く間は投げない）
+    matTimer.current = setTimeout(() => {
+      procurementApi.listMaterials(q, 20)
+        .then(r => { if (seq === matSeq.current) setMatResults((r.data || []).slice(0, 15)); })
+        .catch(() => { if (seq === matSeq.current) { setMatResults([]); setErr('部材の検索に失敗しました。'); } });
+    }, 300);
   };
   const pickMat = (m: any) => {
     setNewLine((n: any) => ({ ...n, material_id: m.id, material_name: m.material_name, unit: m.unit }));

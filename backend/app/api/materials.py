@@ -31,14 +31,18 @@ def _nullify_blanks(data: dict) -> dict:
 # ---- 部材マスタ ----
 
 @router.get("/materials")
-def list_materials(search: str = Query(None), db: Session = Depends(get_db)):
+def list_materials(search: str = Query(None), limit: int = Query(None, ge=1, le=1000),
+                   db: Session = Depends(get_db)):
     q = db.query(MaterialMaster).filter(MaterialMaster.is_active == True)
     if search:
         q = q.filter(or_(
             MaterialMaster.material_name.ilike(f"%{search}%"),
             MaterialMaster.material_code.ilike(f"%{search}%")
         ))
-    items = q.order_by(MaterialMaster.material_code).all()
+    q = q.order_by(MaterialMaster.material_code)
+    if limit:
+        q = q.limit(limit)
+    items = q.all()
     return [_mat_dict(m) for m in items]
 
 @router.post("/materials")
@@ -691,9 +695,12 @@ def update_po_status(po_id: str, status: str = Query(...), db: Session = Depends
     po = db.query(MaterialPurchaseOrder).filter(MaterialPurchaseOrder.id == po_id).first()
     if not po: raise HTTPException(404)
     po.status = status
-    # 明細にも反映（一部入荷以外）
+    # 明細にも反映（一部入荷以外）。
+    # 在庫引当・入荷済の明細は在庫の記録が済んでいるため、状態を書き換えると在庫が二重計上になるので触らない。
     if status in ("発注済", "入荷済", "キャンセル"):
         for l in po.lines:
+            if l.status in ("在庫引当", "入荷済"):
+                continue
             l.status = "入荷済" if status == "入荷済" else ("未発注" if status == "キャンセル" else "発注済")
     db.commit()
     return {"ok": True, "status": po.status}
@@ -706,17 +713,17 @@ def receive_po_stock(po_id: str, db: Session = Depends(get_db)):
     db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"po_receive_{po_id}"})
     po = db.query(MaterialPurchaseOrder).filter(MaterialPurchaseOrder.id == po_id).first()
     if not po: raise HTTPException(404)
-    dup = db.query(MaterialStockMovement).filter(
-        MaterialStockMovement.purchase_order_id == po_id,
-        MaterialStockMovement.movement_type == "入荷").first()
-    if dup:
-        raise HTTPException(400, "この発注書は既に入荷登録済みです")
     created = 0
+    skipped = 0
     for l in po.lines:
-        if l.status == "在庫引当":
+        # 在庫引当は購入ではないので在庫に加算しない。
+        # 入荷済は明細ごとの入荷登録で既に加算済みなので、ここで再加算すると二重計上になる。
+        if l.status in ("在庫引当", "入荷済"):
+            skipped += 1
             continue
         qty = float(l.order_qty or 0)
         if qty <= 0:
+            skipped += 1
             continue
         db.add(MaterialStockMovement(
             material_id=l.material_id, movement_type="入荷", quantity=qty,
@@ -725,9 +732,14 @@ def receive_po_stock(po_id: str, db: Session = Depends(get_db)):
         ))
         l.status = "入荷済"
         created += 1
+    if created == 0:
+        raise HTTPException(400, "入荷登録できる明細がありません（すべて入荷済または在庫引当、あるいは数量未設定です）")
     po.status = "入荷済"
     db.commit()
-    return {"ok": True, "created": created, "message": f"{created}明細を入荷登録しました"}
+    msg = f"{created}明細を入荷登録しました"
+    if skipped:
+        msg += f"（{skipped}明細は在庫引当・入荷済・数量未設定のためスキップ）"
+    return {"ok": True, "created": created, "skipped": skipped, "message": msg}
 
 @router.delete("/purchase-orders/{po_id}")
 def delete_purchase_order(po_id: str, db: Session = Depends(get_db)):
@@ -861,6 +873,7 @@ def _build_po_html(po: MaterialPurchaseOrder) -> str:
       <table class="meta" style="border-collapse:collapse; margin-left:auto;">
         <tr><td>発注番号</td><td>{po.po_no}</td></tr>
         <tr><td>注文日</td><td>{order_date}</td></tr>
+        <tr><td>納入場所</td><td>{po.delivery_place or ""}</td></tr>
         <tr><td>製番</td><td>{po.seiban or ""}</td></tr>
         <tr><td>件名</td><td>{po.title or ""}</td></tr>
       </table>
