@@ -394,6 +394,11 @@ def allocate_from_stock(mo_id: str, db: Session = Depends(get_db)):
     """発注明細を在庫から引き当て（在庫を order_qty 分減算し、明細を「在庫引当」にする）"""
     mo = db.query(MaterialOrder).filter(MaterialOrder.id == mo_id).first()
     if not mo: raise HTTPException(404)
+    # 二重引当は在庫を二重に減らすので拒否する
+    if mo.status == "在庫引当":
+        raise HTTPException(400, "この明細は既に在庫引当済みです")
+    if mo.status == "入荷済":
+        raise HTTPException(400, "入荷済みの明細は在庫引当できません")
     qty = float(mo.order_qty or 0)
     if qty <= 0: raise HTTPException(400, "数量が未設定です")
     db.add(MaterialStockMovement(
@@ -414,6 +419,11 @@ def receive_material_order_line(mo_id: str, data: dict, db: Session = Depends(ge
     """発注明細の入荷登録：実入荷数量を在庫に加算（入荷）し、明細を入荷済にする。"""
     mo = db.query(MaterialOrder).filter(MaterialOrder.id == mo_id).first()
     if not mo: raise HTTPException(404)
+    # 二重入荷・引当済み明細の入荷は在庫を二重計上するので拒否する
+    if mo.status == "入荷済":
+        raise HTTPException(400, "この明細は既に入荷登録済みです")
+    if mo.status == "在庫引当":
+        raise HTTPException(400, "在庫引当済みの明細は入荷登録できません")
     qty = float(data.get("quantity") if data.get("quantity") not in (None, "") else (mo.order_qty or 0))
     if qty <= 0: raise HTTPException(400, "入荷数量が未設定です")
     db.add(MaterialStockMovement(
@@ -809,6 +819,13 @@ def purchase_order_pdf(po_id: str, db: Session = Depends(get_db)):
     return StreamingResponse(io.BytesIO(html.encode("utf-8")), media_type="text/html",
         headers={"Content-Disposition": f"inline; filename={po.po_no}.html"})
 
+def _yen(value) -> str:
+    """金額表示。小数のある単価を切り捨てないよう、端数がある場合だけ小数2桁で出す。"""
+    f = float(value or 0)
+    if f == int(f):
+        return "\u00a5%s" % format(int(f), ",")
+    return "\u00a5%s" % format(round(f, 2), ",.2f")
+
 def _build_po_html(po: MaterialPurchaseOrder) -> str:
     sup = po.supplier
     sup_name = sup.name if sup else "（仕入先未指定）"
@@ -827,8 +844,8 @@ def _build_po_html(po: MaterialPurchaseOrder) -> str:
         name = mat.material_name if mat else ""
         unit = mat.unit if mat else ""
         qty = ("%g" % float(l.order_qty)) if l.order_qty is not None else ""
-        price = ("¥%s" % format(int(l.unit_price), ",")) if l.unit_price is not None else ""
-        amount = ("¥%s" % format(int(float(l.order_qty or 0) * float(l.unit_price or 0)), ","))
+        price = _yen(l.unit_price) if l.unit_price is not None else ""
+        amount = _yen(float(l.order_qty or 0) * float(l.unit_price or 0))
         due = l.due_date.strftime("%Y/%m/%d") if l.due_date else ""
         rows_html += f"""
         <tr>
