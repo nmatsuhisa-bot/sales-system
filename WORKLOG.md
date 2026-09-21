@@ -15,6 +15,15 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-09-22 — Claude (Cowork) — ヘルプ（アプリ内マニュアル）を最新機能へ同期
+**触ったファイル**: `frontend/src/pages/HelpPage.tsx`, `WORKLOG.md`
+**基準**: 前回ヘルプを同期した `ef4dd98`（2026-09-20）〜 HEAD の 1 コミット（`de3c731`、仕入（発注）管理の修正）を実コードで確認。
+**反映した変更点**（すべて「仕入（発注）管理」の項）:
+- キャンセルした発注書では明細の「入荷」ボタンが出ず、入荷・在庫引当ができないことを手順と注記に追記。
+- 入荷登録・在庫引当の記録がある発注書は削除できず、取り消すときはステータスを「キャンセル」にする運用を手順に追加（記録が無い発注書は従来どおり削除可）。
+- 一覧の「金額」が発注書詳細の「合計」と同じ値（端数があるときは小数2桁）になることを注記に追記。
+**確認**: HelpPage.tsx は esbuild 構文チェック通過。全角スペースの追加なし。main.py 未変更。機能コードは未変更（ヘルプ本文のみ）。
+
 ### 2026-09-22 — Claude (Cowork) — 仕入（発注）管理 /procurement の定期検証と修正
 **触ったファイル**: `backend/app/api/materials.py`, `frontend/src/pages/ProcurementPage.tsx`, `WORKLOG.md`
 **ライブ検証**: 本番 API `/api/procurement/` の suppliers / materials（limit 付き）/ material-orders / bom / purchase-orders を確認。すべて 200 で 500 なし。
