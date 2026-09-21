@@ -415,7 +415,7 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
                   : l.status === '入荷済'
                   ? <span className="text-xs text-teal-600 font-medium">入荷済</span>
                   : <>
-                      <button onClick={() => receiveLine(l)} className="text-teal-600 hover:text-teal-800 mr-1.5 text-[11px]" title="入荷を在庫に登録">入荷</button>
+                      {po.status !== 'キャンセル' && <button onClick={() => receiveLine(l)} className="text-teal-600 hover:text-teal-800 mr-1.5 text-[11px]" title="入荷を在庫に登録">入荷</button>}
                       {editable && <button onClick={() => allocate(l)} className="text-orange-500 hover:text-orange-700 mr-1.5 text-[11px]" title="在庫から引当">在庫引当</button>}
                       {editable && <button onClick={() => delLine(l.id)} className="text-red-400"><Trash2 size={12} /></button>}
                     </>}

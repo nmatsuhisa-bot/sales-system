@@ -205,6 +205,8 @@ def create_material_order(data: dict, db: Session = Depends(get_db)):
         if po:
             project_order_id = project_order_id or (str(po.project_order_id) if po.project_order_id else None)
             supplier_id = supplier_id or (str(po.supplier_id) if po.supplier_id else None)
+    if not data.get("material_id"):
+        raise HTTPException(400, "部材が指定されていません")
     mo = MaterialOrder(
         purchase_order_id=po_id,
         project_order_id=project_order_id,
@@ -399,6 +401,8 @@ def allocate_from_stock(mo_id: str, db: Session = Depends(get_db)):
         raise HTTPException(400, "この明細は既に在庫引当済みです")
     if mo.status == "入荷済":
         raise HTTPException(400, "入荷済みの明細は在庫引当できません")
+    if mo.purchase_order is not None and mo.purchase_order.status == "キャンセル":
+        raise HTTPException(400, "キャンセルされた発注書の明細は在庫引当できません")
     qty = float(mo.order_qty or 0)
     if qty <= 0: raise HTTPException(400, "数量が未設定です")
     db.add(MaterialStockMovement(
@@ -424,6 +428,8 @@ def receive_material_order_line(mo_id: str, data: dict, db: Session = Depends(ge
         raise HTTPException(400, "この明細は既に入荷登録済みです")
     if mo.status == "在庫引当":
         raise HTTPException(400, "在庫引当済みの明細は入荷登録できません")
+    if mo.purchase_order is not None and mo.purchase_order.status == "キャンセル":
+        raise HTTPException(400, "キャンセルされた発注書の明細は入荷登録できません")
     qty = float(data.get("quantity") if data.get("quantity") not in (None, "") else (mo.order_qty or 0))
     if qty <= 0: raise HTTPException(400, "入荷数量が未設定です")
     db.add(MaterialStockMovement(
@@ -582,7 +588,7 @@ def _po_dict(po: MaterialPurchaseOrder, with_lines: bool = False):
         "supplier_name": po.supplier.name if po.supplier else None,
         "order_date": str(po.order_date) if po.order_date else None,
         "delivery_place": po.delivery_place, "seiban": po.seiban, "title": po.title,
-        "notes": po.notes, "line_count": len(lines), "total_amount": int(total),
+        "notes": po.notes, "line_count": len(lines), "total_amount": round(total, 2),
     }
     if with_lines:
         d["lines"] = [_mo_dict(l) for l in sorted(lines, key=lambda x: str(x.created_at))]
@@ -755,6 +761,11 @@ def receive_po_stock(po_id: str, db: Session = Depends(get_db)):
 def delete_purchase_order(po_id: str, db: Session = Depends(get_db)):
     po = db.query(MaterialPurchaseOrder).filter(MaterialPurchaseOrder.id == po_id).first()
     if not po: raise HTTPException(404)
+    # 在庫移動が紐付いた発注書を消すと外部キー違反で 500 になり、在庫の記録も辿れなくなるため拒否する
+    moved = db.query(MaterialStockMovement).filter(
+        MaterialStockMovement.purchase_order_id == po.id).count()
+    if moved:
+        raise HTTPException(400, "入荷登録・在庫引当の記録がある発注書は削除できません。取り消す場合はステータスを「キャンセル」にしてください。")
     db.delete(po); db.commit()
     return {"ok": True}
 
