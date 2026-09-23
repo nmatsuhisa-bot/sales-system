@@ -15,6 +15,16 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-09-24 — Claude (Cowork) — 仕入（発注）管理 /procurement の定期検証と修正
+**触ったファイル**: `backend/app/api/materials.py`, `WORKLOG.md`
+**ライブ検証**: 本番 API `/api/procurement/` の suppliers / materials（limit=5）/ material-orders（13件）/ bom / purchase-orders（7件）を確認。すべて 200 で 500 なし。(a) 列不足の 500 は再現せず。(b)(c) 退行なし。(d) 該当なし。(e) 不一致なし。suppliers は今も `[]`（P-14）。
+**修正 1（P-30 中・在庫の二重計上）**: `PUT /material-orders/{id}` で `入荷済`・`在庫引当` の明細の status を `未発注` 等へ戻せ、その後に再度入荷・引当できて在庫が二重計上になり得た（P-20/21 の抜け道）。→ これらの明細の状態変更は 400「入荷済・在庫引当済みの明細は状態を変更できません」。同じ状態の送信や他項目の更新は従来どおり。
+**修正 2（P-31 低）**: `PUT /purchase-orders/{id}` が status に任意文字列を保存できた（P-29 の PATCH 側のみ対応済みだった）。→ `PO_STATUS` 以外は 400「不正なステータスです」。
+**修正 3（P-32 低）**: 明細入荷 `receive` の quantity が数値でないと ValueError で 500。→ 400「入荷数量は数値で入力してください」。
+**確認**: 関数を直接呼ぶモックテストで 6 ケース（拒否 3・通常系 3）が期待どおり。py_compile 通過。全角スペース追加なし。main.py・フロント・DB スキーマ未変更（画面は PUT で status を送っていないため影響なし）。
+**未検証**: 本番での書き込み操作、PostgreSQL 実機。
+**未対応の提案（継続・push せず）**: P-18（注文書 HTML エスケープ、`20260919_P-18_注文書HTMLエスケープ_提案.patch`）、P-14（仕入先マスタ CRUD 欠落）、P-27（部分入荷不可、DB 列追加が必要）。
+
 ### 2026-09-23 — Claude (Cowork) — 仕入（発注）管理 /procurement の定期検証と修正
 **触ったファイル**: `backend/app/api/materials.py`, `WORKLOG.md`
 **ライブ検証**: 本番 API `/api/procurement/` の suppliers / materials（limit 付き）/ material-orders / bom / purchase-orders を確認。すべて 200 で 500 なし。(a) 列不足の 500 は再現せず。(b) 赤バナー退行なし。(c) バリデーション有効。(d) 0 値の「—」表示は該当なし。(e) 不一致なし。suppliers は今も `[]`（P-14）。

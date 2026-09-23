@@ -386,6 +386,9 @@ def update_material_order(mo_id: str, data: dict, db: Session = Depends(get_db))
     mo = db.query(MaterialOrder).filter(MaterialOrder.id == mo_id).first()
     if not mo: raise HTTPException(404)
     data = _nullify_blanks(data)
+    # 入荷済・在庫引当の明細の状態を戻すと、再度入荷・引当できて在庫が二重計上になるので拒否する
+    if "status" in data and data["status"] != mo.status and mo.status in ("入荷済", "在庫引当"):
+        raise HTTPException(400, "入荷済・在庫引当済みの明細は状態を変更できません")
     for k in ["supplier_id","order_qty","unit_price","order_date","due_date","received_date","status","notes"]:
         if k in data: setattr(mo, k, data[k])
     db.commit(); db.refresh(mo)
@@ -430,7 +433,10 @@ def receive_material_order_line(mo_id: str, data: dict, db: Session = Depends(ge
         raise HTTPException(400, "在庫引当済みの明細は入荷登録できません")
     if mo.purchase_order is not None and mo.purchase_order.status == "キャンセル":
         raise HTTPException(400, "キャンセルされた発注書の明細は入荷登録できません")
-    qty = float(data.get("quantity") if data.get("quantity") not in (None, "") else (mo.order_qty or 0))
+    try:
+        qty = float(data.get("quantity") if data.get("quantity") not in (None, "") else (mo.order_qty or 0))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "入荷数量は数値で入力してください")
     if qty <= 0: raise HTTPException(400, "入荷数量が未設定です")
     db.add(MaterialStockMovement(
         material_id=mo.material_id, movement_type="入荷", quantity=qty,
@@ -701,6 +707,8 @@ def update_purchase_order(po_id: str, data: dict, db: Session = Depends(get_db))
     po = db.query(MaterialPurchaseOrder).filter(MaterialPurchaseOrder.id == po_id).first()
     if not po: raise HTTPException(404)
     data = _nullify_blanks(data)
+    if "status" in data and data["status"] not in PO_STATUS:
+        raise HTTPException(400, "不正なステータスです")
     for k in ["supplier_id", "order_date", "delivery_place", "seiban", "title", "status", "notes"]:
         if k in data: setattr(po, k, data[k])
     db.commit(); db.refresh(po)
