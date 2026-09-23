@@ -710,6 +710,8 @@ def update_purchase_order(po_id: str, data: dict, db: Session = Depends(get_db))
 def update_po_status(po_id: str, status: str = Query(...), db: Session = Depends(get_db)):
     po = db.query(MaterialPurchaseOrder).filter(MaterialPurchaseOrder.id == po_id).first()
     if not po: raise HTTPException(404)
+    if status not in PO_STATUS:
+        raise HTTPException(400, "不正なステータスです")
     po.status = status
     # 明細にも反映（一部入荷以外）。
     # 在庫引当・入荷済の明細は在庫の記録が済んでいるため、状態を書き換えると在庫が二重計上になるので触らない。
@@ -729,6 +731,9 @@ def receive_po_stock(po_id: str, db: Session = Depends(get_db)):
     db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"po_receive_{po_id}"})
     po = db.query(MaterialPurchaseOrder).filter(MaterialPurchaseOrder.id == po_id).first()
     if not po: raise HTTPException(404)
+    # キャンセルされた発注書は入荷登録できない（明細単位の入荷・引当と同じ扱い）
+    if po.status == "キャンセル":
+        raise HTTPException(400, "キャンセルされた発注書は入荷登録できません")
     created = 0
     skipped = 0
     for l in po.lines:
