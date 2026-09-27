@@ -15,6 +15,20 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-09-27 — Claude (Cowork) — /procurement 検証（異常なし）
+**触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
+**ライブ検証**: 本番API `/api/procurement/` の suppliers・materials（limit=5）・material-orders（11件）・bom・purchase-orders（7件）をWebFetch経由で確認。すべて200、500なし。(a) 列不足の500は再現せず。suppliers は今も `[]`（P-14、未対応のまま・データ未登録）。
+**静的解析**: 前回(09-24, commit `a268c06`)以降 origin/main に新規コミットなし（HEAD=`a268c06`）。
+- P-30/31/32（materials.py L390-391 状態戻し拒否／L710-711 PUTステータス検証／L436-439 入荷数量非数値400）、P-28/29（L743-744 キャンセル発注書の入荷登録拒否／L721-722 PATCHステータス検証）、P-23（L778-781 在庫移動ありの発注書削除拒否）、P-24（L405-408, L434-435 キャンセル発注書明細の入荷・引当拒否）、P-25（L586,597 金額round）、P-26（L208-209 material_id必須）いずれも健在・退行なし。
+- エンドポイント整合: procurementApi（frontend/src/api/index.ts）の全 `procurement/*` 参照（29系統）が materials.py の実ルート（32ルート）に一致。不一致なし。
+- (b) 赤エラーバナー: ProcurementPage.tsx の各タブ・PoDetail で catch→setErr/setLoadError 健在、握り潰しなし。
+- (c) 新規発注バリデーション: addLine/saveLine の数量>0・単価≥0チェック健在（L313-317, L329-332）。
+- (d) 0値「—」表示: 該当ロジック（`is not None`判定）に退行なし。
+- (e) フィールド名不一致なし。
+- 構文: `python3 -m py_compile materials.py` OK、`npx esbuild ProcurementPage.tsx --bundle --external:* --format=esm` OK。全角スペースは `_build_po_html` の住所文字列内のみ（コード構文への混入なし、既存仕様）。
+**未対応の提案（継続・push せず）**: P-18（注文書HTML未エスケープ、`20260919_P-18_注文書HTMLエスケープ_提案.patch`）、P-14（仕入先マスタ CRUD 欠落・データ未登録）、P-27（部分入荷不可、DB列追加が必要）。
+**バグ検出**: なし（異常なし）。push はWORKLOG更新のみ。
+
 ### 2026-09-24 — Claude (Cowork) — 仕入（発注）管理 /procurement の定期検証と修正
 **触ったファイル**: `backend/app/api/materials.py`, `WORKLOG.md`
 **ライブ検証**: 本番 API `/api/procurement/` の suppliers / materials（limit=5）/ material-orders（13件）/ bom / purchase-orders（7件）を確認。すべて 200 で 500 なし。(a) 列不足の 500 は再現せず。(b)(c) 退行なし。(d) 該当なし。(e) 不一致なし。suppliers は今も `[]`（P-14）。
