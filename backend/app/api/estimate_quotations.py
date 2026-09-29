@@ -1297,6 +1297,40 @@ def quote_texts(db: Optional[Session] = None) -> dict:
     return t
 
 
+@router.post("/settings/merge-fan-docs")
+def merge_fan_docs(db: Session = Depends(get_db)):
+    """ファン作業指示書・検査記録書の保存内容を1つにまとめる（冪等）。
+
+    保存先を分けていた時期のデータを fan-shared へ寄せる。同じ項目が両方にある場合は
+    作業指示書側を優先する（型式・モータ仕様などはそちらで入力されているため）。
+    """
+    from app.db.models import FormDocument
+    docs = db.query(FormDocument).filter(
+        FormDocument.form_type.in_(["fan-instruction", "fan-inspection", "fan-shared"])).all()
+    by_entity = {}
+    for d in docs:
+        by_entity.setdefault(d.entity_id, {})[d.form_type] = d
+    moved = 0
+    for entity, group in by_entity.items():
+        merged = {}
+        for ft in ("fan-inspection", "fan-instruction"):   # 後勝ち＝作業指示書を優先
+            doc = group.get(ft)
+            if doc and doc.data_json:
+                merged.update(doc.data_json)
+        if not merged:
+            continue
+        shared = group.get("fan-shared")
+        if not shared:
+            shared = FormDocument(form_type="fan-shared", entity_id=entity)
+            db.add(shared)
+        base = dict(shared.data_json or {})
+        merged.update(base)          # 既に共通側にある値は残す
+        shared.data_json = merged
+        moved += 1
+    db.commit()
+    return {"ok": True, "merged": moved}
+
+
 @router.get("/settings/texts")
 def get_quote_texts(db: Session = Depends(get_db)):
     """見積書の定型文。既定値と現在値を返す"""
@@ -2383,6 +2417,32 @@ def _item_kw(i):
     return ''
 
 
+def _fan_arrangement(po, db):
+    """案件に紐づく排風機の入力（注文確認書）。無ければ None"""
+    if po is None or db is None:
+        return None
+    from app.db.models import FanArrangement
+    return db.query(FanArrangement).filter(FanArrangement.project_order_id == po.id).first()
+
+
+def _is_bfq(fa) -> bool:
+    return bool(fa) and (fa.form_type or "") == "BFQ"
+
+
+def _fan_place(fa) -> str:
+    """屋内／屋外。入力欄がずれて取付欄に入っている場合も拾う"""
+    if not fa:
+        return ""
+    sj = fa.spec_json or {}
+    for k in ("motor_type", "motor_flange", "spec_place"):
+        v = str(sj.get(k) or "")
+        if "屋外" in v:
+            return "屋外"
+        if "屋内" in v:
+            return "屋内"
+    return ""
+
+
 def _q_order(q, db):
     """見積に紐づく案件（子ID）。出荷日・工場名など見積に無い情報の補完に使う。"""
     if not q.project_order_id:
@@ -2444,6 +2504,18 @@ def _fan_defaults(q, db=None):
     fan_text = _item_text(fan) if fan else ''
     po = _q_order(q, db) if db is not None else None
     ship = (po.shipment_date or po.expected_shipment_date) if po else None
+    # 案件の「排風機入力（注文確認書）」に入力済みならそちらを優先する。
+    # 同じ機械の書類なので、型式・製造番号・モータ仕様・出荷は1か所の入力を共有する
+    fa = _fan_arrangement(po, db) if (po is not None and db is not None) else None
+    if fa:
+        fsj = fa.spec_json or {}
+        model = _pick_s(fa.model, model)
+        kw = _pick_s(fsj.get("motor_kw"), kw)
+        pole = _pick_s(fsj.get("motor_pole"), pole)
+        hz = _pick_s(fsj.get("frequency"), hz)
+        volt = _pick_s(fsj.get("voltage"), volt)
+        if fa.ship_date:
+            ship = fa.ship_date
     return {
         "issue_date": q.issue_date.isoformat() if q.issue_date else "",
         "sales_person_name": q.sales_person_name or "",
@@ -2453,12 +2525,17 @@ def _fan_defaults(q, db=None):
         "delivery_name": _pick_s(q.delivery_name, q.customer_name),
         "usage_spec": _pick_s(q.title, model),
         "ship_date": ship.isoformat() if ship else "",
-        "motor_kw": kw, "motor_note": "IE3",
+        "serial_no": (fa.serial_no if fa else "") or "",
+        "ship_method": (fa.transport_method if fa else "") or "",
+        "motor_maker": ((fa.spec_json or {}).get("motor_maker") if fa else "") or "",
+        "motor_kw": kw, "motor_note": ((fa.spec_json or {}).get("motor_note") if fa else "") or "IE3",
         "motor_pole": pole, "motor_hz": hz, "motor_v": volt,
-        "motor_place": '屋外' if '屋外' in fan_text else ('屋内' if '屋内' in fan_text else ''),
+        "motor_place": _fan_place(fa) or ('屋外' if '屋外' in fan_text else ('屋内' if '屋内' in fan_text else '')),
         "motor_mount": 'フランジ' if 'フランジ' in fan_text else ('脚' if '脚取' in fan_text else ''),
-        "intake_taper": ('φ%s' % dias[0]) if dias else '',
-        "outlet": ('φ%s' % dias[1]) if len(dias) > 1 else '',
+        # BFQ（小型バグフィルター集塵機）は吸排気口の欄を使わない。
+        # 袋受の寸法などが吸口に紛れ込むため、様式がBFQのときは入れない
+        "intake_taper": '' if _is_bfq(fa) else (('φ%s' % dias[0]) if dias else ''),
+        "outlet": '' if _is_bfq(fa) else (('φ%s' % dias[1]) if len(dias) > 1 else ''),
         "perf_flow": flow,
     }
 
@@ -2519,6 +2596,14 @@ def _cp_defaults(q, db=None):
 FORM_DEFAULTS = {"fan-instruction": _fan_defaults, "fan-inspection": _fan_defaults,
                  "control-panel": _cp_defaults}
 
+# ファン作業指示書と検査記録書は同じ排風機の書類なので、保存先を1つにして
+# 片方で直した型式・製造番号・モータ仕様などがもう片方にも出るようにする
+DOC_STORE = {"fan-instruction": "fan-shared", "fan-inspection": "fan-shared"}
+
+
+def _doc_type(form_type: str) -> str:
+    return DOC_STORE.get(form_type, form_type)
+
 
 def _load_q(quotation_id, db):
     q = db.query(QuotationHeader).options(
@@ -2538,7 +2623,7 @@ def _form_doc(db, form_type, entity_id):
 def _form_ctx(form_type, q, mode, db):
     """(M, d, F, T) を返す。d は自動補完の値に、帳票画面で保存した値を上書きしたもの"""
     d = dict(FORM_DEFAULTS[form_type](q, db))
-    doc = _form_doc(db, form_type, q.id)
+    doc = _form_doc(db, _doc_type(form_type), q.id)
     if doc and doc.data_json:
         d.update(doc.data_json)
     M = "edit" if mode == "edit" else "view"
@@ -2756,7 +2841,7 @@ def save_form_document(quotation_id: str, form_type: str, body: dict, db: Sessio
         raise HTTPException(404, "帳票の種類が正しくありません")
     q = _load_q(quotation_id, db)
     defaults = FORM_DEFAULTS[form_type](q, db)
-    doc = _form_doc(db, form_type, q.id)
+    doc = _form_doc(db, _doc_type(form_type), q.id)
     over = dict((doc.data_json or {}) if doc else {})
     for k, v in ((body or {}).get("fields") or {}).items():
         v = "" if v is None else str(v)
@@ -2765,7 +2850,7 @@ def save_form_document(quotation_id: str, form_type: str, body: dict, db: Sessio
         else:
             over[k] = v
     if not doc:
-        doc = FormDocument(form_type=form_type, entity_id=str(q.id))
+        doc = FormDocument(form_type=_doc_type(form_type), entity_id=str(q.id))
         db.add(doc)
     doc.data_json = over
     db.commit()
