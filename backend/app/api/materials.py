@@ -36,10 +36,14 @@ def list_materials(search: str = Query(None), limit: int = Query(None, ge=1, le=
                    db: Session = Depends(get_db)):
     q = db.query(MaterialMaster).filter(MaterialMaster.is_active == True)
     if search:
-        q = q.filter(or_(
-            MaterialMaster.material_name.ilike(f"%{search}%"),
-            MaterialMaster.material_code.ilike(f"%{search}%")
-        ))
+        # 「ｹｰｽﾌﾞ」のような半角カナや全角英数でも拾えるよう、検索語を正規化してから照合する。
+        # 空白区切りの語はすべて含むものに絞る（例:「ケース ブレーカ」）
+        for word in [w for w in nfkc(search).split() if w]:
+            like = f"%{word}%"
+            q = q.filter(or_(
+                MaterialMaster.material_name.ilike(like),
+                MaterialMaster.material_code.ilike(like),
+            ))
     q = q.order_by(MaterialMaster.material_code)
     if limit:
         q = q.limit(limit)
@@ -482,12 +486,14 @@ def list_suppliers(search: str = Query(None), category: str = Query(None),
     if category:
         q = q.filter(Supplier.category == category)
     if search:
-        like = f"%{search.strip()}%"
-        q = q.filter(or_(
-            Supplier.name.ilike(like), Supplier.short_name.ilike(like),
-            Supplier.name_kana.ilike(like), Supplier.supplier_code.ilike(like),
-            Supplier.techs_code.ilike(like),
-        ))
+        # 半角カナ・全角英数の違いを吸収し、空白区切りの語をすべて含むもので絞る
+        for word in [w for w in nfkc(search).split() if w]:
+            like = f"%{word}%"
+            q = q.filter(or_(
+                Supplier.name.ilike(like), Supplier.short_name.ilike(like),
+                Supplier.name_kana.ilike(like), Supplier.supplier_code.ilike(like),
+                Supplier.techs_code.ilike(like),
+            ))
     return [_supplier_dict(s) for s in q.order_by(Supplier.supplier_code).all()]
 
 
