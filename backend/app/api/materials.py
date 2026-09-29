@@ -8,6 +8,7 @@ from app.db.models import (
     UnitMaster, UnitMaterialBom, QuotationHeader, MaterialPurchaseOrder, MaterialStockMovement,
 )
 import uuid, io
+from app.normalize import nfkc
 from datetime import date
 
 router = APIRouter()
@@ -458,13 +459,116 @@ def delete_material_order(mo_id: str, db: Session = Depends(get_db)):
     db.delete(mo); db.commit()
     return {"ok": True}
 
+SUPPLIER_FIELDS = ("supplier_code", "techs_code", "name", "short_name", "name_kana",
+                   "postal_code", "address", "phone", "fax", "email", "contact_person",
+                   "payment_terms", "category", "process", "material_account",
+                   "payment_small", "payment_large", "closing_day", "tax_type", "notes")
+
+
+def _supplier_dict(s: Supplier) -> dict:
+    d = {"id": str(s.id), "is_active": bool(s.is_active)}
+    for f in SUPPLIER_FIELDS:
+        d[f] = getattr(s, f, None)
+    return d
+
+
 @router.get("/suppliers")
-def list_suppliers(search: str = Query(None), db: Session = Depends(get_db)):
-    q = db.query(Supplier).filter(Supplier.is_active == True)
-    if search: q = q.filter(Supplier.name.ilike(f"%{search}%"))
-    return [{"id": str(s.id), "name": s.name, "supplier_code": s.supplier_code,
-             "contact_person": s.contact_person, "phone": s.phone, "email": s.email}
-            for s in q.order_by(Supplier.supplier_code).all()]
+def list_suppliers(search: str = Query(None), category: str = Query(None),
+                   include_inactive: bool = Query(False), db: Session = Depends(get_db)):
+    """仕入先の一覧。コード・名称・略称・ふりがな・TECHSコードのどれでも検索できる"""
+    q = db.query(Supplier)
+    if not include_inactive:
+        q = q.filter(Supplier.is_active == True)  # noqa: E712
+    if category:
+        q = q.filter(Supplier.category == category)
+    if search:
+        like = f"%{search.strip()}%"
+        q = q.filter(or_(
+            Supplier.name.ilike(like), Supplier.short_name.ilike(like),
+            Supplier.name_kana.ilike(like), Supplier.supplier_code.ilike(like),
+            Supplier.techs_code.ilike(like),
+        ))
+    return [_supplier_dict(s) for s in q.order_by(Supplier.supplier_code).all()]
+
+
+@router.post("/suppliers", status_code=201)
+def create_supplier(data: dict, db: Session = Depends(get_db)):
+    code = nfkc((data.get("supplier_code") or data.get("techs_code") or "").strip())
+    if not code:
+        raise HTTPException(400, "仕入先コードを入力してください")
+    if db.query(Supplier).filter(Supplier.supplier_code == code).first():
+        raise HTTPException(400, f"仕入先コード {code} は既に登録されています")
+    if not (data.get("name") or "").strip():
+        raise HTTPException(400, "仕入先名を入力してください")
+    s = Supplier(supplier_code=code)
+    for f in SUPPLIER_FIELDS:
+        if f in data and f != "supplier_code":
+            setattr(s, f, nfkc(data[f]) if isinstance(data[f], str) else data[f])
+    db.add(s); db.commit(); db.refresh(s)
+    return _supplier_dict(s)
+
+
+@router.put("/suppliers/{supplier_id}")
+def update_supplier(supplier_id: str, data: dict, db: Session = Depends(get_db)):
+    s = db.query(Supplier).filter(Supplier.id == supplier_id).first()
+    if not s:
+        raise HTTPException(404, "仕入先が見つかりません")
+    for f in SUPPLIER_FIELDS:
+        if f in data:
+            setattr(s, f, nfkc(data[f]) if isinstance(data[f], str) else data[f])
+    if "is_active" in data:
+        s.is_active = bool(data["is_active"])
+    db.commit(); db.refresh(s)
+    return _supplier_dict(s)
+
+
+@router.delete("/suppliers/{supplier_id}")
+def delete_supplier(supplier_id: str, db: Session = Depends(get_db)):
+    """使用中の仕入先は消さずに「無効」にする（発注書からの参照が切れるため）"""
+    s = db.query(Supplier).filter(Supplier.id == supplier_id).first()
+    if not s:
+        raise HTTPException(404, "仕入先が見つかりません")
+    s.is_active = False
+    db.commit()
+    return {"ok": True, "deactivated": s.supplier_code}
+
+
+@router.post("/suppliers/import")
+def import_suppliers(body: dict, db: Session = Depends(get_db)):
+    """仕入先の一括投入（TECHSの仕入先CDで突合）。
+
+    既にあるコードは指定された項目だけ上書きし、無いものは新規に作る。
+    dry_run=true なら件数だけ返す（登録はしない）。
+    """
+    rows = (body or {}).get("rows") or []
+    dry = bool((body or {}).get("dry_run"))
+    created = updated = 0
+    errors = []
+    for i, r in enumerate(rows):
+        code = nfkc(str(r.get("supplier_code") or r.get("techs_code") or "").strip())
+        if not code or not (r.get("name") or "").strip():
+            errors.append(f"{i + 1}行目: コードまたは名称がありません")
+            continue
+        s = db.query(Supplier).filter(Supplier.supplier_code == code).first()
+        if s:
+            updated += 1
+        else:
+            s = Supplier(supplier_code=code)
+            created += 1
+            if not dry:
+                db.add(s)
+        if dry:
+            continue
+        for f in SUPPLIER_FIELDS:
+            if f == "supplier_code":
+                continue
+            v = r.get(f)
+            if v not in (None, ""):
+                setattr(s, f, nfkc(v) if isinstance(v, str) else v)
+    if not dry:
+        db.commit()
+    return {"ok": True, "dry_run": dry, "created": created, "updated": updated,
+            "errors": errors[:20], "error_count": len(errors)}
 
 def _mo_dict(mo: MaterialOrder):
     return {

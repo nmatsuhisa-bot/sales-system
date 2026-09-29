@@ -245,7 +245,11 @@ export const procurementApi = {
   updateMaterialOrder: (id: string, data: any) => api.put(`/procurement/material-orders/${id}`, data),
   deleteMaterialOrder: (id: string) => api.delete(`/procurement/material-orders/${id}`),
   // 仕入先
-  listSuppliers: (search?: string) => api.get('/procurement/suppliers', { params: { search } }),
+  listSuppliers: (search?: string, category?: string) =>
+    api.get('/procurement/suppliers', { params: { search, category } }),
+  createSupplier: (data: any) => api.post('/procurement/suppliers', data),
+  updateSupplier: (id: string, data: any) => api.put(`/procurement/suppliers/${id}`, data),
+  deleteSupplier: (id: string) => api.delete(`/procurement/suppliers/${id}`),
   // ユニットから部材を一括取込（方式B）
   listBomUnits: (search?: string) => api.get('/procurement/units', { params: { search } }),
   previewUnitMaterials: (unitId: string) => api.get(`/procurement/units/${unitId}/materials`),

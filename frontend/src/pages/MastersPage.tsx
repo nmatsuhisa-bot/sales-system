@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { mastersApi, arrangementApi, estimateApi } from '../api';
+import { mastersApi, arrangementApi, estimateApi, procurementApi } from '../api';
 import UsersPage from './UsersPage';
-import { Plus, Edit2, Trash2, Search, Building2, MapPin, Users, Truck, FileText } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Building2, MapPin, Users, Truck, FileText, ShoppingBag } from 'lucide-react';
 
-type Tab = 'agencies' | 'destinations' | 'users' | 'vendors' | 'texts';
-const TAB_KEYS: Tab[] = ['agencies', 'destinations', 'users', 'vendors', 'texts'];
+type Tab = 'agencies' | 'destinations' | 'suppliers' | 'users' | 'vendors' | 'texts';
+const TAB_KEYS: Tab[] = ['agencies', 'destinations', 'suppliers', 'users', 'vendors', 'texts'];
+// 仕入先の区分（TECHSの支払先リストの備考に合わせる）
+const SUPPLIER_CATEGORIES = ['運送(トラック)', 'クレーン・作業車', '購入品'];
 
 // 見積書の定型文。キーと画面に出す名前
 const TEXT_LABELS: [string, string][] = [
@@ -56,6 +58,8 @@ export default function MastersPage() {
   const [agencies, setAgencies] = useState<any[]>([]);
   const [destinations, setDestinations] = useState<any[]>([]);
   const [vendors, setVendors] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [supplierCat, setSupplierCat] = useState('');
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState<any>(null);
   const [form, setForm] = useState<any>({});
@@ -88,9 +92,11 @@ export default function MastersPage() {
     mastersApi.listAgencies(search || undefined).then(r => setAgencies(r.data));
     mastersApi.listDeliveryDestinations(search || undefined).then(r => setDestinations(r.data));
     arrangementApi.listVendors(undefined, search || undefined).then(r => setVendors(r.data));
+    procurementApi.listSuppliers(search || undefined, supplierCat || undefined)
+      .then(r => setSuppliers(r.data)).catch(() => {});
   };
 
-  useEffect(() => { loadAll(); }, [search]);
+  useEffect(() => { loadAll(); }, [search, supplierCat]);
 
   const handleSave = async () => {
     try {
@@ -100,6 +106,9 @@ export default function MastersPage() {
       } else if (tab === 'destinations') {
         if (modal.id) await mastersApi.updateDeliveryDestination(modal.id, form);
         else await mastersApi.createDeliveryDestination(form);
+      } else if (tab === 'suppliers') {
+        if (modal.id) await procurementApi.updateSupplier(modal.id, form);
+        else await procurementApi.createSupplier(form);
       } else {
         if (modal.id) await arrangementApi.updateVendor(modal.id, form);
         else await arrangementApi.createVendor(form);
@@ -115,6 +124,7 @@ export default function MastersPage() {
     if (!confirm('削除しますか？')) return;
     if (tab === 'agencies') await mastersApi.deleteAgency(item.id);
     else if (tab === 'destinations') await mastersApi.deleteDeliveryDestination(item.id);
+    else if (tab === 'suppliers') await procurementApi.deleteSupplier(item.id);
     else await arrangementApi.deleteVendor(item.id);
     loadAll();
   };
@@ -125,6 +135,7 @@ export default function MastersPage() {
   const tabs = [
     { key: 'agencies', label: '商社マスタ', icon: Building2, count: agencies.length },
     { key: 'destinations', label: '納入先マスタ', icon: MapPin, count: destinations.length },
+    { key: 'suppliers', label: '仕入先マスタ', icon: ShoppingBag, count: suppliers.length },
     { key: 'users', label: '従業員・ユーザー', icon: Users, count: null },
     { key: 'vendors', label: '手配業者マスタ', icon: Truck, count: vendors.length },
     { key: 'texts', label: '見積書の文言', icon: FileText, count: TEXT_LABELS.length },
@@ -237,6 +248,61 @@ export default function MastersPage() {
         </div>
       )}
 
+      {/* 仕入先マスタ（TECHSの仕入先CDで突合） */}
+      {tab === 'suppliers' && (
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 bg-gray-50">
+            <span className="text-xs text-gray-500">区分</span>
+            <select value={supplierCat} onChange={e => setSupplierCat(e.target.value)}
+              className="border border-gray-200 rounded px-2 py-1 text-xs">
+              <option value="">すべて</option>
+              {SUPPLIER_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <span className="text-xs text-gray-400">
+              コード・名称・略称・ふりがなで検索できます（TECHSコードでも可）
+            </span>
+          </div>
+          <div className="overflow-auto max-h-[70vh]">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-100 sticky top-0">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600">TECHSコード</th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600">仕入先名</th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600">略称</th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600">区分</th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600">担当者</th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600">TEL</th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600">FAX</th>
+                  <th className="px-3 py-2 text-center font-medium text-gray-600">操作</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {suppliers.map(s => (
+                  <tr key={s.id} className="hover:bg-blue-50">
+                    <td className="px-3 py-2 font-mono text-xs text-blue-600">{s.techs_code || s.supplier_code}</td>
+                    <td className="px-3 py-2 text-gray-800">{s.name}</td>
+                    <td className="px-3 py-2 text-gray-500 text-xs">{s.short_name || '—'}</td>
+                    <td className="px-3 py-2 text-xs">
+                      {s.category
+                        ? <span className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">{s.category}</span>
+                        : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-gray-500 text-xs">{s.contact_person || '—'}</td>
+                    <td className="px-3 py-2 text-gray-500 text-xs">{s.phone || '—'}</td>
+                    <td className="px-3 py-2 text-gray-500 text-xs">{s.fax || '—'}</td>
+                    <td className="px-3 py-2 text-center flex items-center justify-center gap-2">
+                      <button onClick={() => openEdit(s)} className="text-blue-400 hover:text-blue-600"><Edit2 size={14} /></button>
+                      <button onClick={() => handleDelete(s)} className="text-red-300 hover:text-red-500" title="無効にする"><Trash2 size={14} /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {suppliers.length === 0 && <div className="text-center py-10 text-gray-400">該当する仕入先がありません</div>}
+        </div>
+      )}
+
       {/* 納入先マスタ */}
       {tab === 'destinations' && (
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -340,6 +406,38 @@ export default function MastersPage() {
                 <F label="TEL" name="tel" form={form} setForm={setForm} />
                 <F label="FAX" name="fax" form={form} setForm={setForm} />
                 <F label="顧客ランク" name="customer_rank" form={form} setForm={setForm} />
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">備考</label>
+                  <textarea value={form.notes || ''} rows={2}
+                    onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                </div>
+              </>)}
+              {tab === 'suppliers' && (<>
+                <F label="仕入先コード（TECHS仕入先CD）*" name="supplier_code" form={form} setForm={setForm} />
+                <F label="TECHSコード" name="techs_code" form={form} setForm={setForm} />
+                <F label="仕入先名 *" name="name" form={form} setForm={setForm} />
+                <F label="略称" name="short_name" form={form} setForm={setForm} />
+                <F label="ふりがな" name="name_kana" form={form} setForm={setForm} />
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">区分</label>
+                  <select value={form.category || ''} onChange={e => setForm((f: any) => ({ ...f, category: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                    <option value="">（なし）</option>
+                    {SUPPLIER_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <F label="担当者" name="contact_person" form={form} setForm={setForm} />
+                <F label="郵便番号" name="postal_code" form={form} setForm={setForm} />
+                <F label="住所" name="address" form={form} setForm={setForm} />
+                <F label="TEL" name="phone" form={form} setForm={setForm} />
+                <F label="FAX" name="fax" form={form} setForm={setForm} />
+                <F label="工程（運賃/材料 等）" name="process" form={form} setForm={setForm} />
+                <F label="材料補助科目" name="material_account" form={form} setForm={setForm} />
+                <F label="支払(10万円未満)" name="payment_small" form={form} setForm={setForm} />
+                <F label="支払(10万円以上)" name="payment_large" form={form} setForm={setForm} />
+                <F label="締め日" name="closing_day" type="number" form={form} setForm={setForm} />
+                <F label="税区分" name="tax_type" form={form} setForm={setForm} />
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">備考</label>
                   <textarea value={form.notes || ''} rows={2}

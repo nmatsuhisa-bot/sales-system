@@ -85,14 +85,24 @@ class Supplier(Base):
     __tablename__ = "suppliers"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     supplier_code = Column(String(50), unique=True, nullable=False)
+    techs_code = Column(String(50), index=True)      # TECHSの仕入先CD（TECHSとの突合用）
     name = Column(String(200), nullable=False)
+    short_name = Column(String(200))                 # 略称（TECHS）
     name_kana = Column(String(200))
     postal_code = Column(String(10))
     address = Column(String(500))
     phone = Column(String(50))
+    fax = Column(String(50))
     email = Column(String(255))
     contact_person = Column(String(100))
     payment_terms = Column(String(200))
+    category = Column(String(50))                    # 運送（トラック）/クレーン・作業車/購入品 等
+    process = Column(String(50))                     # 工程（運賃/材料/材料加工費）
+    material_account = Column(String(50))            # 材料補助科目（01 鋼材 等）
+    payment_small = Column(String(50))               # 仕入額10万円未満の支払方法
+    payment_large = Column(String(50))               # 仕入額10万円以上の支払方法
+    closing_day = Column(Integer)                    # 締め日
+    tax_type = Column(String(50))                    # 税区分（外税/内税 等）
     notes = Column(Text)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())

@@ -1416,6 +1416,18 @@ def setup_arrangement_forms(db: Session = Depends(get_db)):
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS updated_by_name VARCHAR(100)",
         "ALTER TABLE project_orders ADD COLUMN IF NOT EXISTS created_by_name VARCHAR(100)",
         "ALTER TABLE project_orders ADD COLUMN IF NOT EXISTS updated_by_name VARCHAR(100)",
+        # 仕入先マスタ（TECHSの仕入先CDと突合できるようにする）
+        "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS techs_code VARCHAR(50)",
+        "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS short_name VARCHAR(200)",
+        "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS fax VARCHAR(50)",
+        "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS category VARCHAR(50)",
+        "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS process VARCHAR(50)",
+        "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS material_account VARCHAR(50)",
+        "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS payment_small VARCHAR(50)",
+        "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS payment_large VARCHAR(50)",
+        "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS closing_day INTEGER",
+        "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS tax_type VARCHAR(50)",
+        "CREATE INDEX IF NOT EXISTS ix_suppliers_techs_code ON suppliers (techs_code)",
     ]
     done = []
     for sql in stmts:
