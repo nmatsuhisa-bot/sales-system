@@ -1428,6 +1428,9 @@ def setup_arrangement_forms(db: Session = Depends(get_db)):
         "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS closing_day INTEGER",
         "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS tax_type VARCHAR(50)",
         "CREATE INDEX IF NOT EXISTS ix_suppliers_techs_code ON suppliers (techs_code)",
+        # 部材検索の正規化キー（半角カナでも拾えるようにする）
+        "ALTER TABLE material_masters ADD COLUMN IF NOT EXISTS search_key VARCHAR(600)",
+        "CREATE INDEX IF NOT EXISTS ix_material_masters_search_key ON material_masters (search_key)",
     ]
     done = []
     for sql in stmts:

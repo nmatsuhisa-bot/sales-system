@@ -979,6 +979,9 @@ class MaterialMaster(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     material_code = Column(String(50), unique=True, nullable=False)
     material_name = Column(String(300), nullable=False)
+    # 検索用の正規化キー（半角カナ→全角・英数の全角半角を揃えたもの）。
+    # 部材名は半角カナで登録されているため、そのままでは「ｹｰｽﾌﾞ」「ケースブ」が一致しない
+    search_key = Column(String(600), index=True)
     unit = Column(String(20), default="個")
     default_supplier_id = Column(UUID(as_uuid=True), ForeignKey("suppliers.id"))
     standard_lead_days = Column(Integer, default=14)

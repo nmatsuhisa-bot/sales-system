@@ -36,11 +36,12 @@ def list_materials(search: str = Query(None), limit: int = Query(None, ge=1, le=
                    db: Session = Depends(get_db)):
     q = db.query(MaterialMaster).filter(MaterialMaster.is_active == True)
     if search:
-        # 「ｹｰｽﾌﾞ」のような半角カナや全角英数でも拾えるよう、検索語を正規化してから照合する。
-        # 空白区切りの語はすべて含むものに絞る（例:「ケース ブレーカ」）
+        # 「ｹｰｽﾌﾞ」のような半角カナや全角英数でも拾えるよう、登録側・検索側の双方を
+        # 正規化して突き合わせる。空白区切りの語はすべて含むものに絞る
         for word in [w for w in nfkc(search).split() if w]:
             like = f"%{word}%"
             q = q.filter(or_(
+                MaterialMaster.search_key.ilike(like),
                 MaterialMaster.material_name.ilike(like),
                 MaterialMaster.material_code.ilike(like),
             ))
@@ -51,6 +52,24 @@ def list_materials(search: str = Query(None), limit: int = Query(None, ge=1, le=
     return [_mat_dict(m) for m in items]
 
 @router.post("/materials")
+def _search_key(name, code) -> str:
+    """検索用キー。半角カナ・全角英数を揃えた「部材名 部材コード」"""
+    return nfkc(f"{name or ''} {code or ''}").strip()
+
+
+@router.post("/materials/rebuild-search-key")
+def rebuild_material_search_key(db: Session = Depends(get_db)):
+    """既存の部材に検索用キーを作る（冪等。列を追加した後に1回実行する）"""
+    n = 0
+    for m in db.query(MaterialMaster).all():
+        key = _search_key(m.material_name, m.material_code)
+        if m.search_key != key:
+            m.search_key = key
+            n += 1
+    db.commit()
+    return {"ok": True, "updated": n}
+
+
 def create_material(data: dict, db: Session = Depends(get_db)):
     m = MaterialMaster(
         material_code=data["material_code"],
@@ -60,6 +79,7 @@ def create_material(data: dict, db: Session = Depends(get_db)):
         standard_lead_days=data.get("standard_lead_days", 14),
         notes=data.get("notes"),
     )
+    m.search_key = _search_key(m.material_name, m.material_code)
     db.add(m); db.commit(); db.refresh(m)
     return _mat_dict(m)
 
@@ -69,6 +89,7 @@ def update_material(material_id: str, data: dict, db: Session = Depends(get_db))
     if not m: raise HTTPException(404, "部材が見つかりません")
     for k in ["material_code","material_name","unit","default_supplier_id","standard_lead_days","notes"]:
         if k in data: setattr(m, k, data[k])
+    m.search_key = _search_key(m.material_name, m.material_code)
     db.commit(); db.refresh(m)
     return _mat_dict(m)
 
