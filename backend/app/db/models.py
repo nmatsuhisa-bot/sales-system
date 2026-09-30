@@ -110,6 +110,29 @@ class Supplier(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class SupplierBranch(Base):
+    """仕入先の営業所（拠点）
+
+    クレーン業者・運送業者は営業所ごとに連絡先と担当が違うため、会社（仕入先）に
+    ぶら下げて持つ。TECHSコードは会社に1つなので、会社の行は分けない。
+    旧・手配業者マスタ（arrangement_vendors）はここへ移した。
+    """
+    __tablename__ = "supplier_branches"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    supplier_id = Column(UUID(as_uuid=True), ForeignKey("suppliers.id"), index=True)
+    name = Column(String(100))                 # 営業所名（本社ならその旨）
+    contact_person = Column(String(100))
+    phone = Column(String(50))
+    fax = Column(String(50))
+    postal_code = Column(String(20))
+    address = Column(String(500))
+    notes = Column(Text)
+    source_tag = Column(String(50))            # 取込元タグ
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class Product(Base):
     __tablename__ = "products"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

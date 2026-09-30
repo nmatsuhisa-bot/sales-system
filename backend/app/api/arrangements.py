@@ -1562,8 +1562,9 @@ def setup_arrangement_forms(db: Session = Depends(get_db)):
     排風機（注文確認書/ファン作業指示書）のテーブルを作る。
     """
     from sqlalchemy import text
-    from app.db.models import Base, engine, FanArrangement, FormDocument
-    Base.metadata.create_all(bind=engine, tables=[FanArrangement.__table__, FormDocument.__table__])
+    from app.db.models import Base, engine, FanArrangement, FormDocument, SupplierBranch
+    Base.metadata.create_all(bind=engine, tables=[FanArrangement.__table__, FormDocument.__table__,
+                                                  SupplierBranch.__table__])
     stmts = [
         "ALTER TABLE crane_arrangements ADD COLUMN IF NOT EXISTS site_dept VARCHAR(100)",
         "ALTER TABLE crane_arrangements ADD COLUMN IF NOT EXISTS issue_date DATE",
