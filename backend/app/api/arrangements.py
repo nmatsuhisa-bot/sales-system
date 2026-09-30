@@ -90,13 +90,14 @@ def _vendor_entries(db: Session, category=None, search=None, limit=1000):
                             SupplierBranch.is_active == True)  # noqa: E712
                     .order_by(SupplierBranch.name).all()):
             branches.setdefault(str(b.supplier_id), []).append(b)
+    digits = lambda x: re.sub(r"[^0-9]", "", x or "")
     out = []
     for s in sups:
         bs = branches.get(str(s.id)) or []
-        if not bs:
+        # 会社そのものの連絡先も選べるようにする。営業所と同じ番号なら出さない
+        if not bs or (digits(s.phone) and digits(s.phone) not in {digits(b.phone) for b in bs}):
             out.append(_vendor_entry(s))
-        else:
-            out.extend(_vendor_entry(s, b) for b in bs)
+        out.extend(_vendor_entry(s, b) for b in bs)
     return out
 
 

@@ -160,8 +160,10 @@ EDIT_JS = r"""
     var box = document.getElementById('ef-vl'); if(!box) return;
     box.innerHTML = vHits.length ? vHits.map(function(i, n){
       var v = CFG.vendors[i];
+      // 同じ会社でも営業所や連絡先が違う候補が並ぶため、TELまで出して選び分けられるようにする
+      var sub = [v.branch, v.phone].filter(Boolean).join('　');
       return '<div class="efv-i'+(n===vActive?' a':'')+'" onmousedown="event.preventDefault();efVendor('+i+')">'
-        + escH(v.name) + (v.branch ? '<small>'+escH(v.branch)+'</small>' : '') + '</div>';
+        + escH(v.name) + (sub ? '<small>'+escH(sub)+'</small>' : '') + '</div>';
     }).join('') : '<div class="efv-none">該当なし</div>';
     box.style.display = 'block';
     var a = box.querySelector('.a'); if(a && a.scrollIntoView) a.scrollIntoView({block:'nearest'});
