@@ -50,6 +50,7 @@ class User(Base):
     # 定義は app/roles.py の FUNCTION_ROLES を参照
     function_roles = Column(JSON, default=list)
     department = Column(String(50))            # 所属部門（営業/施工 等）。スケジュール絞込・権限用
+    mobile = Column(String(50))                # 携帯番号（クレーン依頼書の現地担当者欄などで使う）
     # 従業員ID（旧・従業員マスタの employee_code）。案件の sales_person_code にはこの値が入る。
     # 2026-09-17 に従業員マスタをユーザーマスタへ統合した際に追加（本番は /api/auth/users/merge-employees で列追加＋取込）
     employee_code = Column(String(50), unique=True)
@@ -472,6 +473,7 @@ class DeliveryDestination(Base):
     postal_code = Column(String(20))
     tel = Column(String(50))
     fax = Column(String(50))
+    contact_person = Column(String(100))       # 先方のご担当者（送り状・依頼書の宛先に使う）
     customer_rank = Column(String(50))
     notes = Column(Text)
     is_active = Column(Boolean, default=True)
@@ -841,6 +843,9 @@ class CraneArrangement(Base):
     vendor_fax = Column(String(50))
     order_no = Column(String(100))        # 注番
     site_dept = Column(String(100))       # 現場の部署
+    # 現地担当者（自社の施工担当）。原紙の「確認印」欄をこの欄に置き換える
+    site_staff_name = Column(String(100))
+    site_staff_phone = Column(String(50))
     issue_date = Column(Date)             # 作成日
     staff_name = Column(String(100))      # 担当（原紙下部）
     creator_name = Column(String(100))    # 作成（原紙下部）

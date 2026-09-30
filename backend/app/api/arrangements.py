@@ -23,7 +23,7 @@ from app.db.models import (
     FanArrangement,
 )
 from app.form_edit import (
-    ef, eftoggle, inject_edit, get_path, apply_fields, apply_row_op, parse_date,
+    ef, eftoggle, efdate, efpick, inject_edit, get_path, apply_fields, apply_row_op, parse_date,
 )
 import html as _h
 
@@ -208,6 +208,8 @@ class _FormBase(BaseModel):
 
 class CraneData(_FormBase):
     site_name: Optional[str] = None
+    site_staff_name: Optional[str] = None      # 現地担当者（自社）
+    site_staff_phone: Optional[str] = None
     site_address: Optional[str] = None
     site_tel: Optional[str] = None
     site_dept: Optional[str] = None
@@ -283,6 +285,7 @@ def crane_to_dict(c):
         "id": str(c.id), "child_no": c.child_no,
         "site_name": c.site_name, "site_address": c.site_address,
         "site_tel": c.site_tel, "site_dept": c.site_dept, "site_contact": c.site_contact,
+        "site_staff_name": c.site_staff_name, "site_staff_phone": c.site_staff_phone,
         "vendor_name": c.vendor_name, "vendor_branch": c.vendor_branch,
         "vendor_contact": c.vendor_contact, "vendor_tel": c.vendor_tel,
         "vendor_fax": c.vendor_fax, "order_no": c.order_no,
@@ -368,6 +371,15 @@ def _site_master(po, db):
     return d
 
 
+def _staff_mobile(full_name, db):
+    """自社担当者の携帯番号（ユーザーマスタ）"""
+    if not full_name or db is None:
+        return ''
+    from app.db.models import User
+    u = db.query(User).filter(User.full_name == full_name).first()
+    return (getattr(u, "mobile", "") or "") if u else ''
+
+
 def _order_context(po, db):
     """案件と見積から、手配書に流用できる情報をまとめて取り出す。
 
@@ -413,6 +425,12 @@ def _order_context(po, db):
         ctx["site_address"] = _pick(ctx["site_address"], m.address)
         ctx["site_tel"] = _pick(ctx["site_tel"], m.tel)
         ctx["site_name"] = _pick(ctx["site_name"], m.company_factory_name, m.company_name)
+        # 現場・送り先のご担当は納入先の担当者。見積の注文主担当（商社の担当者）は使わない
+        ctx["site_contact"] = getattr(m, "contact_person", "") or ""
+    else:
+        ctx["site_contact"] = ""
+    # 自社担当者の携帯（クレーン依頼書の現地担当者欄）
+    ctx["staff_mobile"] = _staff_mobile(ctx.get("sales_person_name"), db)
     ctx.setdefault("creator_name", '')
     return ctx
 
@@ -510,6 +528,7 @@ def get_crane(order_id: str, db: Session = Depends(get_db)):
         "id": None, "child_no": po.child_no,
         "site_name": ctx["site_name"], "site_address": ctx["site_address"],
         "site_tel": ctx["site_tel"], "site_dept": '', "site_contact": ctx["site_contact"],
+        "site_staff_name": ctx["sales_person_name"], "site_staff_phone": ctx.get("staff_mobile", ''),
         "vendor_name": '', "vendor_branch": '', "vendor_contact": '',
         "vendor_tel": '', "vendor_fax": '',
         "order_no": po.child_no or '',
@@ -556,14 +575,33 @@ def h2(c1, c2):
             '<td width="448">' + c2 + '</td></tr>')
 
 
+# クレーン・作業車の機械名と、よく使う仕様（入力候補。自由入力もできる）
+CRANE_MACHINES = ('高所作業車', 'ラフタークレーン', 'ユニック車', 'クローラクレーン', 'フォークリフト',
+                  'トラッククレーン', '発電機', 'ゴンドラ', '橋梁点検車')
+CRANE_SPECS = ('12m', '14m', '16m', '20m', '25m', '4.9t', '10t', '16t', '25t', '35t', '50t', '2.5t')
+CRANE_DELIVERY = ('引取', '搬入', '直送', '現場搬入')
+CRANE_RETURN = ('自社返却', '引取', '現場引渡し')
+
+
 def _crane_item_block(it, idx, mode="view"):
     """依頼書の明細1件分（原紙は1件＝4行の枠）。
 
+    使用期間は日付＋時刻をそのまま入力できるようにし、納品方法・返却方法は
+    候補から選びつつ「いつ引き取り・いつ返却」をメモできるようにしている。
     xhtml2pdf は td の CSS width を無視するため列幅は width 属性で指定する。
-    さらに、空セルのある行で列が潰れるため全行の全セルに width を付ける。
     """
     L = 'style="background:#f0f0f0"'
     W = (24, 62, 150, 52, 222)   # 合計510pt＝A4の本文幅
+    n = idx - 1
+
+    def c(key, kind=None, opts=None, block=False):
+        k = 'items_json.%d.%s' % (n, key)
+        v = it.get(key)
+        if kind in ("date", "time"):
+            return efdate(mode, k, v, kind)
+        if opts:
+            return efpick(mode, k, v, opts)
+        return ef(mode, k, v, block)
 
     def r(c1, c2, c3, c4, c5, h=''):
         return (
@@ -576,14 +614,15 @@ def _crane_item_block(it, idx, mode="view"):
             '</tr>'
         )
     return (
-        '<table style="margin-bottom:6px">'
-        + r(str(idx), '機械名', ef(mode, 'items_json.%d.machine' % (idx - 1), it.get('machine')), '使用期間',
-            ef(mode, 'items_json.%d.start_date' % (idx - 1), it.get('start_date')) + '　' + ef(mode, 'items_json.%d.start_time' % (idx - 1), it.get('start_time')) + ' ～')
-        + r('&nbsp;', '重量・仕様', ef(mode, 'items_json.%d.spec' % (idx - 1), it.get('spec')), '&nbsp;',
-            ef(mode, 'items_json.%d.end_date' % (idx - 1), it.get('end_date')) + '　' + ef(mode, 'items_json.%d.end_time' % (idx - 1), it.get('end_time')) + ' まで')
-        + r('&nbsp;', '納品方法', ef(mode, 'items_json.%d.delivery' % (idx - 1), it.get('delivery')), '備考', ef(mode, 'items_json.%d.note' % (idx - 1), it.get('note')))
-        + r('&nbsp;', '返却方法', ef(mode, 'items_json.%d.return_method' % (idx - 1), it.get('return_method')), '確認印', '&nbsp;',
-            ' style="height:26px"')
+        '<table style="margin-bottom:8px">'
+        + r(str(idx), '機械名', c('machine', opts=CRANE_MACHINES), '使用期間',
+            c('start_date', 'date') + '　' + c('start_time', 'time') + ' ～')
+        + r('&nbsp;', '重量・仕様', c('spec', opts=CRANE_SPECS), '&nbsp;',
+            c('end_date', 'date') + '　' + c('end_time', 'time') + ' まで')
+        + r('&nbsp;', '納品方法', c('delivery', opts=CRANE_DELIVERY) + '　' + c('delivery_note'),
+            '備考', c('note'))
+        + r('&nbsp;', '返却方法', c('return_method', opts=CRANE_RETURN) + '　' + c('return_note'),
+            '&nbsp;', '&nbsp;')
         + '</table>'
     )
 
@@ -616,11 +655,12 @@ def crane_pdf(order_id: str, format: str = "html", mode: str = "", db: Session =
         + h4wide('住　所', F('site_address'))
         + h4('TEL', F('site_tel'), 'ご担当',
              F('site_dept') + ' ' + F('site_contact') + ' 様')
+        + h4('現地担当者', F('site_staff_name'), 'TEL', F('site_staff_phone'))
         + '</table>'
         + '<table style="margin-bottom:6px">'
         + h2('依頼業者', F('vendor_name') + ' ' + F('vendor_branch') + ' 御中')
-        + h2('ご担当', F('vendor_contact') + ' 様　　TEL ' + F('vendor_tel')
-             + '　　FAX ' + F('vendor_fax'))
+        + h4('ご担当', F('vendor_contact') + ' 様', 'TEL', F('vendor_tel'))
+        + h4('&nbsp;', '&nbsp;', 'FAX', F('vendor_fax'))
         + '</table>'
         + '<div style="font-size:10px;margin:6px 0">下記、手配お願い致します。'
           '※請求書には右上の注番を記入してください。</div>'
@@ -679,14 +719,25 @@ def save_shipping(order_id: str, data: ShippingData, db: Session = Depends(get_d
 
 
 def _shipping_item_block(it, idx, mode="view"):
-    """送り状の明細1件分。
+    """送り状の明細1件分（トラック1台）。
 
     原紙は積込①〜③と、運送業者に記入してもらう欄（社名・運転手・携帯№・車番）を持つ。
-    テーブルの入れ子は xhtml2pdf で幅計算が壊れるため1つの表で組み、
+    積込③はほとんど使わないため、値があるときだけ出す。
+    入れ子テーブルは xhtml2pdf で幅計算が壊れるため1つの表で組み、
     列幅は width 属性を全行に付けて固定する。
     """
     L = 'style="background:#f0f0f0"'
-    W = (22, 54, 80, 38, 78, 50, 188)  # 合計510pt
+    W = (22, 66, 128, 40, 72, 54, 128)  # 合計510pt
+    n = idx - 1
+
+    def c(key, kind=None, opts=None):
+        k = 'items_json.%d.%s' % (n, key)
+        v = it.get(key)
+        if kind in ("date", "time"):
+            return efdate(mode, k, v, kind)
+        if opts:
+            return efpick(mode, k, v, opts)
+        return ef(mode, k, v)
 
     def r(c1, c2, c3, c4, c5, c6, c7, h=''):
         return (
@@ -700,25 +751,32 @@ def _shipping_item_block(it, idx, mode="view"):
             '<td width="%d"%s>%s</td>' % (W[6], h, c7) +
             '</tr>'
         )
-    return (
-        '<table style="margin-bottom:8px">'
-        + r(str(idx), '車種', ef(mode, 'items_json.%d.truck_type' % (idx - 1), it.get('truck_type')), '積込', ef(mode, 'items_json.%d.load_date' % (idx - 1), it.get('load_date')),
-            '到着', ef(mode, 'items_json.%d.arrive_date' % (idx - 1), it.get('arrive_date')) + '　' + ef(mode, 'items_json.%d.arrive_time' % (idx - 1), it.get('arrive_time')))
+
+    def load_row(no, place_key, time_key, right_label):
+        return r('&nbsp;', '積込%s' % no, c(place_key), '時間', c(time_key, 'time'),
+                 right_label, '&nbsp;', ' style="height:22px"')
+
+    rows = (
+        r(str(idx), '車種', c('truck_type', opts=TRUCK_TYPES), '積込日', c('load_date', 'date'),
+          '到着日', c('arrive_date', 'date') + '　' + c('arrive_time', 'time'))
+        # 積込内容は長くなるため1行を広く使う
         + '<tr><td width="%d" %s>&nbsp;</td><td width="%d" %s>積込内容</td>'
-          '<td colspan="5">%s</td></tr>' % (W[0], L, W[1], L, ef(mode, 'items_json.%d.cargo' % (idx - 1), it.get('cargo')))
-        + r('&nbsp;', '積込①', ef(mode, 'items_json.%d.load1_place' % (idx - 1), it.get('load1_place')), '時間', ef(mode, 'items_json.%d.load1_time' % (idx - 1), it.get('load1_time')),
-            '社名', '&nbsp;', ' style="height:20px"')
-        + r('&nbsp;', '積込②', ef(mode, 'items_json.%d.load2_place' % (idx - 1), it.get('load2_place')), '時間', ef(mode, 'items_json.%d.load2_time' % (idx - 1), it.get('load2_time')),
-            '運転手', '&nbsp;', ' style="height:20px"')
-        + r('&nbsp;', '積込③', ef(mode, 'items_json.%d.load3_place' % (idx - 1), it.get('load3_place')), '時間', ef(mode, 'items_json.%d.load3_time' % (idx - 1), it.get('load3_time')),
-            '携帯№', '&nbsp;', ' style="height:20px"')
-        + '<tr><td width="%d" %s>&nbsp;</td><td width="%d" %s>備考</td>'
-          '<td colspan="3">%s</td>'
-          '<td width="%d" %s>車番</td>'
-          '<td width="%d" style="height:20px">&nbsp;</td></tr>'
-          % (W[0], L, W[1], L, ef(mode, 'items_json.%d.note' % (idx - 1), it.get('note')), W[5], L, W[6])
-        + '</table>'
+          '<td colspan="5" style="height:34px;vertical-align:top">%s</td></tr>'
+          % (W[0], L, W[1], L, ef(mode, 'items_json.%d.cargo' % n, it.get('cargo'), block=True))
+        + load_row('①', 'load1_place', 'load1_time', '社名')
+        + load_row('②', 'load2_place', 'load2_time', '運転手')
     )
+    # 積込③は原紙にはあるが普段使わない。入力がある場合だけ出す
+    if (it.get('load3_place') or it.get('load3_time')) or mode == "edit":
+        rows += load_row('③', 'load3_place', 'load3_time', '携帯№')
+    else:
+        rows += r('&nbsp;', '&nbsp;', '&nbsp;', '&nbsp;', '&nbsp;', '携帯№', '&nbsp;', ' style="height:22px"')
+    rows += ('<tr><td width="%d" %s>&nbsp;</td><td width="%d" %s>備考</td>'
+             '<td colspan="3">%s</td>'
+             '<td width="%d" %s>車番</td>'
+             '<td width="%d" style="height:22px">&nbsp;</td></tr>'
+             % (W[0], L, W[1], L, ef(mode, 'items_json.%d.note' % n, it.get('note')), W[5], L, W[6]))
+    return '<table style="margin-bottom:10px">' + rows + '</table>'
 
 
 @router.get("/shipping/{order_id}/pdf")
@@ -845,6 +903,8 @@ FAN_FORMS = {
     "BFQ": ("小型ﾊﾞｸﾞﾌｨﾙﾀｰ集塵機", "小型バグフィルター集塵機"),
     "FS": ("ファンシュレッダー", "ファンシュレッダー"),
 }
+TRUCK_TYPES = ('2t', '2tロング', '3t', '4t', '4tロング', '10t', '10tロング', 'トレーラー', 'ユニック')
+
 BFQ_RE = re.compile(r'BFQ|小型ﾊﾞｸﾞ|小型バグ')
 FS_RE = re.compile(r'FS[DQ]?\d|ﾌｧﾝｼｭﾚｯﾀﾞ|ファンシュレッダ|粉砕機')
 
@@ -1344,6 +1404,18 @@ VENDOR_CFG = {
 }
 
 
+# 現地担当者（自社）を入れる帳票と、選んだときに埋める欄
+STAFF_CFG = {"crane": {"site_staff_name": "name", "site_staff_phone": "mobile"}}
+
+
+def _staff_list(db):
+    """自社の担当者（ユーザーマスタ）。名前と携帯番号"""
+    from app.db.models import User
+    return [{"name": u.full_name, "mobile": getattr(u, "mobile", "") or ""}
+            for u in db.query(User).filter(User.is_active == True)  # noqa: E712
+            .order_by(User.full_name).all()]
+
+
 def _inject(html, kind, order_id, title, db, pdf_path="pdf", rows=False, extra=""):
     oid = quote(str(order_id), safe="")
     base = "/api/arrangements/%s/%s" % (kind, oid)
@@ -1362,7 +1434,9 @@ def _inject(html, kind, order_id, title, db, pdf_path="pdf", rows=False, extra="
                  '%sの画面へ</button>' % (base, other, other_name))
         btns += ('<button class="p" onclick="efPdf2(\'%s/%s?format=pdf\')">保存して%sのPDF</button>'
                  % (base, other, other_name))
+    staff = _staff_list(db) if kind in STAFF_CFG else None
     return inject_edit(html, title=title, save_url=base + "/edit-save",
+                       staff=staff, staff_map=STAFF_CFG.get(kind),
                        pdf_url=base + "/%s?format=pdf" % pdf_path,
                        extra_buttons=btns, vendors=vendors, vendor_map=vmap)
 
@@ -1460,6 +1534,11 @@ def setup_arrangement_forms(db: Session = Depends(get_db)):
         # 部材検索の正規化キー（半角カナでも拾えるようにする）
         "ALTER TABLE material_masters ADD COLUMN IF NOT EXISTS search_key VARCHAR(600)",
         "CREATE INDEX IF NOT EXISTS ix_material_masters_search_key ON material_masters (search_key)",
+        # 現地担当者（自社）と、送り先の担当者
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS mobile VARCHAR(50)",
+        "ALTER TABLE delivery_destinations ADD COLUMN IF NOT EXISTS contact_person VARCHAR(100)",
+        "ALTER TABLE crane_arrangements ADD COLUMN IF NOT EXISTS site_staff_name VARCHAR(100)",
+        "ALTER TABLE crane_arrangements ADD COLUMN IF NOT EXISTS site_staff_phone VARCHAR(50)",
     ]
     done = []
     for sql in stmts:

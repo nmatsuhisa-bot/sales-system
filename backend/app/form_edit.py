@@ -31,6 +31,33 @@ def ef(mode: str, key: str, value, block: bool = False, placeholder: str = "") -
         tag, " ef-block" if block else "", _h.escape(key), ph, _h.escape(v), tag)
 
 
+def efdate(mode: str, key: str, value, kind: str = "date") -> str:
+    """日付・時刻の欄。編集モードではカレンダー／時刻ピッカーを出す。
+
+    印刷・PDFでは日付を「2026/11/25」の形で出す（入力値は YYYY-MM-DD で保持）。
+    """
+    v = "" if value is None else str(value)
+    if mode != "edit":
+        if kind == "date" and len(v) == 10 and v[4] == "-":
+            v = v.replace("-", "/")
+        return _h.escape(v)
+    return ('<input class="ef ef-input" type="%s" data-k="%s" value="%s">'
+            % (kind, _h.escape(key), _h.escape(v)))
+
+
+def efpick(mode: str, key: str, value, options, placeholder: str = "") -> str:
+    """候補から選べる欄（自由入力も可）。編集モードでは入力欄＋候補リストを出す"""
+    v = "" if value is None else str(value)
+    if mode != "edit":
+        return _h.escape(v)
+    lid = "dl-" + re.sub(r"[^a-zA-Z0-9]", "-", key)
+    opts = "".join('<option value="%s">' % _h.escape(o) for o in options)
+    return ('<input class="ef ef-input" list="%s" data-k="%s" value="%s"%s>'
+            '<datalist id="%s">%s</datalist>'
+            % (lid, _h.escape(key), _h.escape(v),
+               (' placeholder="%s"' % _h.escape(placeholder)) if placeholder else "", lid, opts))
+
+
 def eftoggle(mode: str, key: str, value: str, options=("有", "無", "")) -> str:
     """クリックで選択肢を切り替える欄（有/無、未/済 など）。編集モード以外は太字下線で強調表示。"""
     v = value or ""
@@ -49,6 +76,10 @@ EDIT_CSS = """
 .ef:focus{background:#fff9c4;border-bottom:1px solid #2563eb}
 .ef-toggle{cursor:pointer;user-select:none;border:1px dashed #2563eb;border-radius:3px;
     padding:0 6px;text-align:center}
+.ef-input{font:inherit;color:inherit;border:1px dashed #2563eb;border-radius:3px;
+    background:rgba(37,99,235,.04);padding:1px 4px;min-width:6em}
+.ef-input[type=time]{min-width:5.5em}
+@media print{.ef-input{border:none!important;background:none!important;padding:0}}
 .ef-bar{position:sticky;top:0;z-index:50;background:#1e3a5f;color:#fff;padding:8px 12px;
     display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px;border-radius:6px;
     font-family:'Hiragino Sans','Yu Gothic',sans-serif;font-size:12px}
@@ -86,7 +117,11 @@ EDIT_JS = r"""
   function collect(){
     var o = {};
     document.querySelectorAll('[data-k]').forEach(function(el){
-      o[el.getAttribute('data-k')] = el.innerText.replace(/ /g,' ').replace(/\s+$/,'').replace(/^\s+/,'');
+      var tag = el.tagName;
+      var v = (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA')
+        ? el.value
+        : el.innerText.replace(/\u00a0/g,' ').replace(/\s+$/,'').replace(/^\s+/,'');
+      o[el.getAttribute('data-k')] = v;
     });
     return o;
   }
@@ -148,6 +183,18 @@ EDIT_JS = r"""
     else if(e.key==='Escape'){ efVClose(); e.target.blur(); }
   };
   window.efVClose = function(){ var b = document.getElementById('ef-vl'); if(b) b.style.display='none'; };
+  // 自社担当者を選ぶ（クレーン依頼書の現地担当者欄など）
+  window.efStaff = function(sel){
+    var v = CFG.staff && CFG.staff[sel.value]; if(!v) return;
+    Object.keys(CFG.staff_map||{}).forEach(function(k){
+      document.querySelectorAll('[data-k="'+k+'"]').forEach(function(el){
+        var val = v[CFG.staff_map[k]] || '';
+        if(el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') el.value = val;
+        else el.innerText = val;
+      });
+    });
+    dirty = true; sel.selectedIndex = 0; msg('担当者を反映しました（未保存）');
+  };
   window.efVendor = function(i){
     var v = CFG.vendors && CFG.vendors[i]; if(!v) return;
     Object.keys(CFG.vendor_map||{}).forEach(function(k){
@@ -159,13 +206,24 @@ EDIT_JS = r"""
 
   // 同じ項目が帳票内に複数回出る場合（件名など）、1か所を直したら他も揃える。
   // 揃えないと保存時に書き換えていない方の値で上書きされてしまう
+  function fieldValue(el){
+    var tag = el.tagName;
+    return (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') ? el.value : el.innerText;
+  }
   document.addEventListener('input', function(e){
     var el = e.target.closest && e.target.closest('[data-k]'); if(!el) return;
     dirty = true;
-    var k = el.getAttribute('data-k');
+    var k = el.getAttribute('data-k'), v = fieldValue(el);
     document.querySelectorAll('[data-k]').forEach(function(o){
-      if(o !== el && o.getAttribute('data-k') === k && !o.hasAttribute('data-toggle')) o.innerText = el.innerText;
+      if(o === el || o.getAttribute('data-k') !== k || o.hasAttribute('data-toggle')) return;
+      if(o.tagName === 'INPUT' || o.tagName === 'SELECT' || o.tagName === 'TEXTAREA') o.value = v;
+      else o.innerText = v;
     });
+  });
+  // カレンダー等はクリック選択だと input が出ない環境があるため change でも拾う
+  document.addEventListener('change', function(e){
+    if(e.target.closest && e.target.closest('[data-k]')) dirty = true;
+  });
   });
   document.querySelectorAll('[data-toggle]').forEach(function(el){
     el.addEventListener('click', function(){
@@ -196,7 +254,7 @@ EDIT_JS = r"""
 
 
 def edit_bar(title: str, pdf_url: str, extra_buttons: str = "", notes=None,
-             vendors=None, vendor_map=None, pdf_label: str = "保存してPDF") -> str:
+             vendors=None, vendor_map=None, pdf_label: str = "保存してPDF", staff=None) -> str:
     """帳票画面の上部に出す保存バー"""
     vsel = ""
     if vendors:
@@ -205,29 +263,36 @@ def edit_bar(title: str, pdf_url: str, extra_buttons: str = "", notes=None,
                 'placeholder="業者マスタを検索（%d件）…" onfocus="efVFilter()" oninput="efVFilter()" '
                 'onkeydown="efVKey(event)" onblur="setTimeout(efVClose,150)">'
                 '<div id="ef-vl" class="efv-l"></div></span>' % len(vendors))
+    ssel = ""
+    if staff:
+        sopts = "".join('<option value="%d">%s</option>' % (i, _h.escape(u.get("name") or ""))
+                        for i, u in enumerate(staff))
+        ssel = ('<select onchange="efStaff(this)" class="g">'
+                '<option value="">現地担当者を選択…</option>%s</select>' % sopts)
     note_html = "".join('<div class="ef-note">%s</div>' % n for n in (notes or []))
     return (
         '<div class="ef-bar">'
         '<b style="margin-right:6px">%s（編集中）</b>'
         '<button class="s" onclick="efSave()">保存</button>'
         '<button class="p" onclick="efPdf()">%s</button>'
-        '%s%s'
+        '%s%s%s'
         '<button class="g" onclick="window.print()">印刷</button>'
         '<span class="msg" id="ef-msg"></span>'
         '</div>%s'
         '<div class="ef-note">青い下線の箇所をクリックすると、その場で書き換えられます。'
         '有/無などの枠はクリックで切り替わります。保存は Ctrl+S でも可能です。</div>'
-    ) % (_h.escape(title), _h.escape(pdf_label), extra_buttons, vsel, note_html)
+    ) % (_h.escape(title), _h.escape(pdf_label), extra_buttons, vsel, ssel, note_html)
 
 
 def inject_edit(html: str, *, title: str, save_url: str, pdf_url: str,
                 extra_buttons: str = "", notes=None, vendors=None, vendor_map=None,
-                pdf_label: str = "保存してPDF") -> str:
+                pdf_label: str = "保存してPDF", staff=None, staff_map=None) -> str:
     """組み立て済みの帳票HTMLに、編集用のCSS・保存バー・JSを差し込む"""
     cfg = {"save_url": save_url, "pdf_url": pdf_url,
-           "vendors": vendors or [], "vendor_map": vendor_map or {}}
+           "vendors": vendors or [], "vendor_map": vendor_map or {},
+           "staff": staff or [], "staff_map": staff_map or {}}
     js = EDIT_JS.replace("__CFG__", json.dumps(cfg, ensure_ascii=False))
-    bar = edit_bar(title, pdf_url, extra_buttons, notes, vendors, vendor_map, pdf_label)
+    bar = edit_bar(title, pdf_url, extra_buttons, notes, vendors, vendor_map, pdf_label, staff)
     html = html.replace("</head>", "<style>%s</style></head>" % EDIT_CSS, 1)
     html = re.sub(r"(<body[^>]*>)", lambda m: m.group(1) + bar, html, count=1)
     html = html.replace("</body>", "<script>%s</script></body>" % js, 1)
