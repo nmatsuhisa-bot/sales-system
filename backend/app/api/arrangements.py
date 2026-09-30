@@ -115,10 +115,10 @@ PRINT_BAR = (
 )
 
 BASE_STYLE = (
-    "body{font-family:'Hiragino Sans','Yu Gothic',sans-serif;font-size:11px;margin:15mm}"
+    "body{font-family:'Hiragino Sans','Yu Gothic',sans-serif;font-size:13px;margin:12mm}"
     "@media print{.no-print{display:none}}"
     "table{border-collapse:collapse;width:100%}"
-    "td,th{border:1px solid #999;padding:4px 6px}"
+    "td,th{border:1px solid #999;padding:5px 7px}"
     "th{background:#f0f0f0}"
 )
 
@@ -939,7 +939,7 @@ def get_fan(order_id: str, db: Session = Depends(get_db)):
             "shaker": bfq.get("shaker", ''), "shaker_drive": bfq.get("shaker_drive", ''),
             "shaker_pos": bfq.get("shaker_pos", ''), "shaker_switch": '',
             "bag_type": '', "bag_size": '', "air_send": '', "q_container": '',
-            "flexible_container": '', "rv_std": bfq.get("rv_std", ''), "rv_special": '',
+            "flexible_container": '', "rv_use": '', "rv_std": bfq.get("rv_std", ''), "rv_special": '',
             "filter_size": '', "filter_count": '',
         },
         "instruction_json": {
@@ -976,34 +976,50 @@ def _kv(label, value, lw='72px'):
 
 def _fan_spec_rows(ftype, F, spec, spec_wide):
     """注文確認書の仕様ブロック。原紙の様式（BFQ / FS / PL）ごとに項目が違う。"""
+    L = 'style="background:#f0f0f0"'
+
+    def shaker_rows():
+        """シェーカ欄。原紙どおり「見出し行＋値行」。
+        PDF変換は入れ子テーブルで崩れるため、同じ表の中で2行に分けて組む"""
+        return (
+            '<tr><td width="72" rowspan="2" ' + L + '>ｼｪｰｶ</td>'
+            '<td width="130" style="text-align:center;background:#fafafa">有／無</td>'
+            '<td width="172" colspan="2" style="text-align:center;background:#fafafa">手動／電動</td>'
+            '<td width="136" colspan="2" style="text-align:center;background:#fafafa">取付位置</td></tr>'
+            '<tr><td width="130" style="text-align:center">' + F('spec_json.shaker') + '</td>'
+            '<td width="172" colspan="2" style="text-align:center">' + F('spec_json.shaker_drive') + '</td>'
+            '<td width="136" colspan="2" style="text-align:center">' + F('spec_json.shaker_pos') + '</td></tr>'
+            '<tr><td width="72" ' + L + '>&nbsp;</td>'
+            '<td colspan="5" style="font-size:10px">'
+            '※有の場合、下図が標準の取付位置です。勝手違いが必要な場合はご指示願います。</td></tr>'
+        )
     motor = (F('spec_json.motor_kw') + ' kW　' + F('spec_json.motor_pole') + ' P　'
              + F('spec_json.motor_type') + '　' + F('spec_json.motor_flange') + ' 型')
     small = '<br><span style="font-size:9px">%s</span>'
     if ftype == "BFQ":
+        # 原紙（BFQ注文確認書）の並び・文言に合わせる。有無は「付／×」で表す
         return (
             spec('名称', F('product_name'), '型式', F('model'), '製造No.', F('serial_no'))
             + spec('周波数', F('spec_json.frequency') + ' Hz', '動力', F('spec_json.voltage') + ' V',
-                   '制御', F('spec_json.control_voltage') + ' V')
+                   '制御', F('spec_json.control_voltage', ph='V'))
             + spec('排風機', F('spec_json.fan_std'), '型式', F('spec_json.fan_model'),
                    'ﾒｰｶ', F('spec_json.motor_maker'))
             + spec('ﾓｰﾀ', motor, '備考', F('spec_json.motor_note'), '&nbsp;', '&nbsp;')
             + spec_wide('ｽｲｯﾁ',
                         'ﾓｰﾀﾌﾞﾚｰｶ ' + F('spec_json.switch_type')
-                        + '　ｼｪｰｶｰ用押しﾎﾞﾀﾝ ' + F('spec_json.shaker_switch')
-                        + '　制御盤 ' + F('spec_json.control_panel')
-                        + small % '※必要の有無を記載願います。なお、電気配線工事は含んでいません。')
-            + spec_wide('ｼｪｰｶ',
-                        '有／無 ' + F('spec_json.shaker')
-                        + '　手動／電動 ' + F('spec_json.shaker_drive')
-                        + '　取付位置 ' + F('spec_json.shaker_pos')
-                        + small % '※有の場合は標準の取付位置です。勝手違いが必要な場合はご指示願います。')
+                        + '　　ｼｪｰｶｰ用押しﾎﾞﾀﾝ ' + F('spec_json.shaker_switch')
+                        + '　　制御盤 ' + F('spec_json.control_panel')
+                        + small % '※ご確認下さい。　注）電気配線工事は含んでいません。')
+            + shaker_rows()
             + spec_wide('袋受／ﾎｯﾊﾟｰ',
-                        F('spec_json.bag_type') + '　' + F('spec_json.bag_size')
-                        + '　H：空送 ' + F('spec_json.air_send')
-                        + '　Qｺﾝﾃﾅ ' + F('spec_json.q_container')
-                        + '　ﾌﾚｺﾝ受け ' + F('spec_json.flexible_container'))
+                        '標準：' + F('spec_json.bag_type') + '　' + F('spec_json.bag_size')
+                        + '　　H：空送 ' + F('spec_json.air_send')
+                        + '　　Qｺﾝﾃﾅ ' + F('spec_json.q_container')
+                        + '　　ﾌﾚｺﾝ受け ' + F('spec_json.flexible_container'))
             + spec_wide('ﾛｰﾀﾘｰﾊﾞﾙﾌﾞ',
-                        '標準 ' + F('spec_json.rv_std') + '　特殊 ' + F('spec_json.rv_special'))
+                        F('spec_json.rv_use', ph='有／無')
+                        + '　　標準：RV ' + F('spec_json.rv_std')
+                        + '　　特殊：RV ' + F('spec_json.rv_special'))
             + spec('ﾌｨﾙﾀｰ', F('spec_json.filter_size'), '本数', F('spec_json.filter_count') + ' 本',
                    '&nbsp;', '&nbsp;')
         )
@@ -1048,7 +1064,10 @@ def fan_order_pdf(order_id: str, format: str = "html", mode: str = "", db: Sessi
                 ftype == "PL" and d.get("product_name") == 'ターボファン'):
             d["product_name"] = FAN_FORMS[ftype][0]
     M = _mode(format, mode)
-    F = lambda k, v=None, block=False: ef(M, k, get_path(d, k) if v is None else v, block)
+
+    def F(k, v=None, block=False, ph=""):
+        """値の欄。ph は未入力のときに薄く出す見本（印刷には出さない）"""
+        return ef(M, k, get_path(d, k) if v is None else v, block, ph)
 
     L = 'style="background:#f0f0f0"'
 
@@ -1079,11 +1098,13 @@ def fan_order_pdf(order_id: str, format: str = "html", mode: str = "", db: Sessi
             + '（PL:プレートファン／BFQ:小型バグフィルター集塵機／FS:ファンシュレッダー）</div>')
            if M == "edit" else '')
         + '<table style="margin-bottom:6px">'
-        + '<tr><td width="316" rowspan="2" style="border:none;vertical-align:top">'
+        + '<tr><td width="330" rowspan="2" style="border:none;vertical-align:top;font-size:14px">'
           + F('vendor_name') + ' 御中<br>' + F('vendor_contact') + ' 様</td>'
-        + '<td width="64" ' + L + '>受注No.</td>'
-          '<td width="130" style="color:#c00;font-weight:bold">' + F('order_no') + '</td></tr>'
-        + '<tr><td ' + L + '>御確認印</td><td style="height:38px">&nbsp;</td></tr></table>'
+        + '<td width="36" style="border:none">&nbsp;</td>'
+        + '<td width="62" ' + L + '>受注No.</td>'
+          '<td width="112" style="color:#c00;font-weight:bold">' + F('order_no') + '</td></tr>'
+        + '<tr><td style="border:none">&nbsp;</td><td ' + L + '>御確認印</td>'
+          '<td style="height:40px">&nbsp;</td></tr></table>'
         + '<div style="font-size:10px;margin:6px 0">'
           'このたびは' + _h.escape(FAN_FORMS[ftype][1]) + 'のご注文を頂きありがとうございます。<br>'
           '下記内容をご確認の上、捺印後折り返しFAXにてご返送下さいますようお願い致します。</div>'
