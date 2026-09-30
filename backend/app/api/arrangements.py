@@ -154,15 +154,19 @@ def merge_vendors(dry_run: bool = True, reset: bool = False, db: Session = Depen
     """
     undone = {}
     if reset:
-        brs = db.query(SupplierBranch).filter(SupplierBranch.source_tag == MERGE_TAG).all()
-        sups = db.query(Supplier).filter(Supplier.notes == MERGE_NOTE,
-                                         Supplier.supplier_code.like("V%")).all()
-        for b in brs:
-            db.delete(b)
-        for s in sups:
-            db.delete(s)
+        # 営業所を先に消してから会社を消す（会社を先に消すと外部キーで落ちる）
+        sup_ids = [s.id for s in
+                   db.query(Supplier).filter(Supplier.notes == MERGE_NOTE,
+                                             Supplier.supplier_code.like("V%")).all()]
+        cond = SupplierBranch.source_tag == MERGE_TAG
+        if sup_ids:
+            cond = or_(cond, SupplierBranch.supplier_id.in_(sup_ids))
+        nb = db.query(SupplierBranch).filter(cond).delete(synchronize_session=False)
         db.flush()
-        undone = {"branches_deleted": len(brs), "suppliers_deleted": len(sups)}
+        ns = (db.query(Supplier).filter(Supplier.id.in_(sup_ids)).delete(synchronize_session=False)
+              if sup_ids else 0)
+        db.flush()
+        undone = {"branches_deleted": nb, "suppliers_deleted": ns}
 
     vendors = db.query(ArrangementVendor).filter(ArrangementVendor.is_active == True).all()  # noqa: E712
     # 名寄せの索引。コードの小さい方を優先して選び、実行ごとに寄せ先がぶれないようにする
