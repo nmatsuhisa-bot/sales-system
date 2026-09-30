@@ -176,7 +176,8 @@ def merge_vendors(dry_run: bool = True, reset: bool = False, db: Session = Depen
             k = _company_key(nm)
             if k:
                 sup_by_key.setdefault(k, s)
-    have_branch = {(str(b.supplier_id), (b.name or "").strip())
+    have_branch = {(str(b.supplier_id), (b.name or "").strip()):
+                   (b.phone or "", b.fax or "", b.contact_person or "")
                    for b in db.query(SupplierBranch).all()}
     used_codes = {c for (c,) in db.query(Supplier.supplier_code).all()}
     seq = 0
@@ -202,6 +203,23 @@ def merge_vendors(dry_run: bool = True, reset: bool = False, db: Session = Depen
 
     matched_branch_row, created_sup, filled_sup, created_br, skipped = 0, 0, 0, 0, 0
     samples = []
+
+    def add_branch(s, v, bname):
+        """営業所を作る。同じ名前が既にあって連絡先が違うときは番号を足して両方残す"""
+        nonlocal created_br
+        name, n = bname, 1
+        while (str(s.id), name) in have_branch:
+            if have_branch[(str(s.id), name)] == (v.phone or "", v.fax or "",
+                                                  v.contact_person or ""):
+                return          # 同じ内容が既にある
+            n += 1
+            name = "%s%d" % (bname, n)
+        have_branch[(str(s.id), name)] = (v.phone or "", v.fax or "", v.contact_person or "")
+        db.add(SupplierBranch(supplier_id=s.id, name=name,
+                              contact_person=v.contact_person, phone=v.phone, fax=v.fax,
+                              postal_code=v.postal_code, address=v.address,
+                              source_tag=MERGE_TAG, is_active=True))
+        created_br += 1
     for v in vendors:
         ckey = _company_key(v.name)
         if not ckey:
@@ -215,6 +233,10 @@ def merge_vendors(dry_run: bool = True, reset: bool = False, db: Session = Depen
             matched_branch_row += 1
             if fill_empty(s, v, cat):
                 filled_sup += 1
+            # TECHSの連絡先（支払先の窓口）と手配の連絡先が違うことがある。
+            # 手配で使う番号が消えないよう、同じ営業所名で控えておく
+            if not _same_contact(v, s):
+                add_branch(s, v, branch)
             continue
         # 2. 会社で一致するか
         s = sup_by_key.get(ckey)
@@ -237,13 +259,8 @@ def merge_vendors(dry_run: bool = True, reset: bool = False, db: Session = Depen
             filled_sup += 1
         # 会社の行に寄せた。営業所名が無くても連絡先が違えば「本社」として残す
         bname = branch or ("" if _same_contact(v, s) else "本社")
-        if bname and (str(s.id), bname) not in have_branch:
-            have_branch.add((str(s.id), bname))
-            db.add(SupplierBranch(supplier_id=s.id, name=bname,
-                                  contact_person=v.contact_person, phone=v.phone, fax=v.fax,
-                                  postal_code=v.postal_code, address=v.address,
-                                  source_tag=MERGE_TAG, is_active=True))
-            created_br += 1
+        if bname:
+            add_branch(s, v, bname)
     result = {"vendors": len(vendors), "matched_branch_row": matched_branch_row,
               "suppliers_created": created_sup, "suppliers_filled": filled_sup,
               "branches_created": created_br, "skipped": skipped,
