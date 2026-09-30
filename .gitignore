@@ -25,3 +25,6 @@ backend/tests/_costing.db
 
 # 工場機械管理 API テスト・開発用の一時 DB
 backend/tests/_equipment*.db
+
+# テスト実行でできる一時DB
+backend/tests/_users.db
