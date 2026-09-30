@@ -47,7 +47,8 @@ export default function UsersPage({ search = '', openSignal = 0 }: { search?: st
     try {
       const roles = form.function_roles || [];
       const body = { email: form.email, full_name: form.full_name, role: form.role || 'user', function_roles: roles,
-                     department: form.department || null, employee_code: (form.employee_code || '').trim() };
+                     department: form.department || null, mobile: (form.mobile || '').trim() || null,
+                     employee_code: (form.employee_code || '').trim() };
       if (modal.isNew) {
         await authApi.createUser({ ...body, password: form.password });
       } else {
@@ -171,6 +172,11 @@ export default function UsersPage({ search = '', openSignal = 0 }: { search?: st
                 <label className="block text-xs text-gray-500 mb-1">従業員ID<span className="text-[10px] text-gray-400 ml-1">案件の営業担当コードに使う（旧・従業員マスタのID）</span></label>
                 <input value={form.employee_code || ''} onChange={e => setForm((f: any) => ({ ...f, employee_code: e.target.value }))}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder="例: 20202" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">携帯番号<span className="text-[10px] text-gray-400 ml-1">クレーン依頼書の現地担当者欄に入ります</span></label>
+                <input value={form.mobile || ''} onChange={e => setForm((f: any) => ({ ...f, mobile: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder="例: 090-1234-5678" />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">メールアドレス *</label>

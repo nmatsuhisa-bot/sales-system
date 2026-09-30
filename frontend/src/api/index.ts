@@ -145,6 +145,8 @@ export const arrangementApi = {
   fanPdf: (orderId: string, fmt = 'pdf') => `${API_BASE}/arrangements/fan/${orderId}/pdf?format=${fmt}`,
   fanInstructionPdf: (orderId: string, fmt = 'pdf') => `${API_BASE}/arrangements/fan/${orderId}/instruction-pdf?format=${fmt}`,
   hotelPdf: (orderId: string) => `${API_BASE}/arrangements/hotel/${orderId}/pdf`,
+  // 宿泊予約票がまだ無い案件（出張手配の漏れ防止）
+  hotelPending: (days = 120) => api.get('/arrangements/hotel-pending', { params: { days } }),
   // 手配業者マスタ
   listVendors: (category?: string, search?: string) => api.get('/arrangements/vendors', { params: { category, search } }),
   createVendor: (data: any) => api.post('/arrangements/vendors', data),

@@ -405,6 +405,7 @@ export default function MastersPage() {
                 <F label="住所" name="address" form={form} setForm={setForm} />
                 <F label="TEL" name="tel" form={form} setForm={setForm} />
                 <F label="FAX" name="fax" form={form} setForm={setForm} />
+                <F label="ご担当者（送り状・依頼書に出ます）" name="contact_person" form={form} setForm={setForm} />
                 <F label="顧客ランク" name="customer_rank" form={form} setForm={setForm} />
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">備考</label>

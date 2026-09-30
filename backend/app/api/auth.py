@@ -181,6 +181,7 @@ class UserCreate(BaseModel):
     role: str = "staff"
     function_roles: List[str] = []
     department: Optional[str] = None
+    mobile: Optional[str] = None          # 携帯番号（クレーン依頼書の現地担当者欄で使う）
     employee_code: Optional[str] = None   # 従業員ID（案件の営業担当コードに使う）
 
 
@@ -196,7 +197,7 @@ def _user_uuid(user_id: str):
 def _user_out(u: User) -> dict:
     return {"id": str(u.id), "email": u.email, "full_name": u.full_name, "role": u.role,
             "function_roles": u.function_roles or [], "department": u.department,
-            "employee_code": u.employee_code}
+            "mobile": u.mobile, "employee_code": u.employee_code}
 
 
 def _check_employee_code(db: Session, code: Optional[str], exclude_id=None) -> Optional[str]:
@@ -223,6 +224,7 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), _: User = Depen
     hashed = bcrypt.hashpw(data.password.encode(), bcrypt.gensalt()).decode()
     user = User(email=data.email, hashed_password=hashed, full_name=data.full_name, role=data.role,
                 function_roles=normalize_roles(data.function_roles), department=data.department,
+                mobile=data.mobile,
                 employee_code=_check_employee_code(db, data.employee_code))
     db.add(user)
     db.commit()
@@ -247,11 +249,13 @@ def list_team(db: Session = Depends(get_db), _: User = Depends(get_current_user)
     function_roles を含むので、画面側は「営業担当」権限のある人だけに絞れる。"""
     users = db.query(User).filter(User.is_active == True).order_by(User.full_name).all()
     return [{"id": str(u.id), "full_name": u.full_name, "role": u.role, "department": u.department,
-             "function_roles": u.function_roles or [], "employee_code": u.employee_code} for u in users]
+             "function_roles": u.function_roles or [], "mobile": u.mobile,
+             "employee_code": u.employee_code} for u in users]
 
 class UserUpdate(BaseModel):
     email: Optional[str] = None
     full_name: Optional[str] = None
+    mobile: Optional[str] = None
     role: Optional[str] = None
     function_roles: Optional[List[str]] = None   # 空配列＝全解除。Noneなら変更しない
     department: Optional[str] = None

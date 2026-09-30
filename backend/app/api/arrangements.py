@@ -614,7 +614,7 @@ def _crane_item_block(it, idx, mode="view"):
             '</tr>'
         )
     return (
-        '<table style="margin-bottom:8px">'
+        '<table style="margin-bottom:8px;page-break-inside:avoid">'
         + r(str(idx), '機械名', c('machine', opts=CRANE_MACHINES), '使用期間',
             c('start_date', 'date') + '　' + c('start_time', 'time') + ' ～')
         + r('&nbsp;', '重量・仕様', c('spec', opts=CRANE_SPECS), '&nbsp;',
@@ -754,7 +754,7 @@ def _shipping_item_block(it, idx, mode="view"):
 
     def load_row(no, place_key, time_key, right_label):
         return r('&nbsp;', '積込%s' % no, c(place_key), '時間', c(time_key, 'time'),
-                 right_label, '&nbsp;', ' style="height:22px"')
+                 right_label, '&nbsp;', ' style="height:28px"')
 
     rows = (
         r(str(idx), '車種', c('truck_type', opts=TRUCK_TYPES), '積込日', c('load_date', 'date'),
@@ -770,13 +770,14 @@ def _shipping_item_block(it, idx, mode="view"):
     if (it.get('load3_place') or it.get('load3_time')) or mode == "edit":
         rows += load_row('③', 'load3_place', 'load3_time', '携帯№')
     else:
-        rows += r('&nbsp;', '&nbsp;', '&nbsp;', '&nbsp;', '&nbsp;', '携帯№', '&nbsp;', ' style="height:22px"')
+        rows += r('&nbsp;', '&nbsp;', '&nbsp;', '&nbsp;', '&nbsp;', '携帯№', '&nbsp;', ' style="height:28px"')
     rows += ('<tr><td width="%d" %s>&nbsp;</td><td width="%d" %s>備考</td>'
              '<td colspan="3">%s</td>'
              '<td width="%d" %s>車番</td>'
-             '<td width="%d" style="height:22px">&nbsp;</td></tr>'
+             '<td width="%d" style="height:28px">&nbsp;</td></tr>'
              % (W[0], L, W[1], L, ef(mode, 'items_json.%d.note' % n, it.get('note')), W[5], L, W[6]))
-    return '<table style="margin-bottom:10px">' + rows + '</table>'
+    # 明細が5件以上のとき、ページの切れ目で枠が割れないようにする
+    return ('<table style="margin-bottom:10px;page-break-inside:avoid">' + rows + '</table>')
 
 
 @router.get("/shipping/{order_id}/pdf")
@@ -1302,6 +1303,35 @@ def fan_instruction_pdf(order_id: str, format: str = "html", mode: str = "", db:
 # =============================================
 # 宿泊予約票
 # =============================================
+@router.get("/hotel-pending")
+def hotel_pending(days: int = 120, db: Session = Depends(get_db)):
+    """宿泊予約票が未作成（または明細が空）の案件を拾う。
+
+    出荷予定日・売上予定日が近いものから並べる。出張の手配漏れを防ぐための一覧。
+    """
+    from datetime import timedelta
+    today = date.today()
+    until = today + timedelta(days=days)
+    hotels = {h.project_order_id: h for h in db.query(HotelArrangement).all()}
+    booked = {pid for pid, h in hotels.items() if (h.items_json or [])}
+    rows = []
+    for po in db.query(ProjectOrder).all():
+        when = po.expected_shipment_date or po.shipment_date or po.sales_date
+        if not when or when < today or when > until:
+            continue
+        if po.id in booked:
+            continue
+        rows.append({
+            "id": str(po.id), "child_no": po.child_no, "project_no": po.project_no,
+            "project_name": po.project_name, "customer_name": po.customer_name,
+            "sales_person_name": po.sales_person_name, "status": po.status,
+            "date": str(when),
+            "has_form": po.id in hotels,
+        })
+    rows.sort(key=lambda r: r["date"])
+    return {"from": str(today), "to": str(until), "count": len(rows), "items": rows}
+
+
 @router.get("/hotel/{order_id}")
 def get_hotel(order_id: str, db: Session = Depends(get_db)):
     po = find_order(order_id, db)
@@ -1336,37 +1366,54 @@ def hotel_pdf(order_id: str, format: str = "html", mode: str = "", db: Session =
     M = _mode(format, mode)
     F = lambda k, v=None, block=False: ef(M, k, get_path(d, k) if v is None else v, block)
 
+    # 列幅は width 属性で指定する（xhtml2pdf は CSS の width を無視して列が潰れる）
+    W = (190, 90, 78, 78, 34, 34, 62, 92, 120)
     rows = ''
     for i, it in enumerate(d.get("items_json") or []):
-        c = lambda k: ef(M, 'items_json.%d.%s' % (i, k), it.get(k))
+        def c(k, kind=None, idx=i, item=it):
+            key = 'items_json.%d.%s' % (idx, k)
+            if kind:
+                return efdate(M, key, item.get(k), kind)
+            return ef(M, key, item.get(k))
         rows += (
-            '<tr><td>' + c('hotel') + '</td><td>' + c('tel') + '</td>'
-            '<td>' + c('checkin') + '</td><td>' + c('checkout') + '</td>'
-            '<td style="text-align:center">' + c('nights') + '</td>'
-            '<td style="text-align:center">' + c('persons') + '</td>'
-            '<td style="text-align:right">' + c('price') + '</td>'
-            '<td>' + c('guests') + '</td><td>' + c('note') + '</td>'
-            + ('<td class="ef-rowop"><button onclick="efDelRow(%d)">削除</button></td>' % i
-               if M == "edit" else '') + '</tr>'
+            '<tr>'
+            '<td width="%d">%s</td>' % (W[0], c('hotel')) +
+            '<td width="%d">%s</td>' % (W[1], c('tel')) +
+            '<td width="%d">%s</td>' % (W[2], c('checkin', 'date')) +
+            '<td width="%d">%s</td>' % (W[3], c('checkout', 'date')) +
+            '<td width="%d" style="text-align:center">%s</td>' % (W[4], c('nights')) +
+            '<td width="%d" style="text-align:center">%s</td>' % (W[5], c('persons')) +
+            '<td width="%d" style="text-align:right">%s</td>' % (W[6], c('price')) +
+            '<td width="%d">%s</td>' % (W[7], c('guests')) +
+            '<td width="%d">%s</td>' % (W[8], c('note')) +
+            ('<td class="ef-rowop"><button onclick="efDelRow(%d)">削除</button></td>' % i
+             if M == "edit" else '') + '</tr>'
         )
     if not rows:
-        rows = '<tr><td colspan="9" style="color:#999;text-align:center">明細がありません</td></tr>'
+        rows = ('<tr><td colspan="9" width="778" style="color:#999;text-align:center">'
+                '明細がありません</td></tr>')
 
     html = (
         '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">'
-        '<title>宿泊予約票</title><style>' + BASE_STYLE + '</style></head><body>'
+        '<title>宿泊予約票</title><style>' + BASE_STYLE
+        # 横向き。9列あるため縦だと列が詰まって読みにくい
+        + '@page{size:A4 landscape;margin:10mm}'
+        + '</style></head><body>'
         + (PRINT_BAR if M != "edit" else '')
         + '<h2 style="font-size:16px;font-weight:bold;margin-bottom:4px">宿泊予約票</h2>'
         + '<p style="font-size:9px;color:#666;margin-bottom:10px">'
         + '※基本は朝食なしで！変更・キャンセルは必ず宿へ連絡！予約したら旅費の領収書を忘れずに！</p>'
         + '<table style="margin-bottom:8px"><tr>'
-        + '<td width="70" style="background:#f0f0f0">現場</td><td>' + F('site_name') + '</td>'
-        + '<td width="70" style="background:#f0f0f0">受注番号</td><td>' + esc(d.get('child_no')) + '</td></tr>'
-        + '<tr><td style="background:#f0f0f0">住所</td><td colspan="3">' + F('site_address') + '</td></tr></table>'
+        + '<td width="70" style="background:#f0f0f0">現場</td><td width="420">' + F('site_name') + '</td>'
+        + '<td width="70" style="background:#f0f0f0">受注番号</td>'
+          '<td width="218">' + esc(d.get('child_no')) + '</td></tr>'
+        + '<tr><td width="70" style="background:#f0f0f0">住所</td>'
+          '<td colspan="3" width="708">' + F('site_address') + '</td></tr></table>'
         + '<table><thead><tr>'
-        + '<th>ホテル名</th><th style="width:90px">TEL</th><th style="width:60px">IN</th>'
-        + '<th style="width:60px">OUT</th><th style="width:30px">泊</th><th style="width:30px">人</th>'
-        + '<th style="width:60px">値段/泊</th><th>宿泊者</th><th>備考</th></tr></thead>'
+        + '<th width="%d">ホテル名</th><th width="%d">TEL</th><th width="%d">IN</th>' % (W[0], W[1], W[2])
+        + '<th width="%d">OUT</th><th width="%d">泊</th><th width="%d">人</th>' % (W[3], W[4], W[5])
+        + '<th width="%d">値段/泊</th><th width="%d">宿泊者</th><th width="%d">備考</th>' % (W[6], W[7], W[8])
+        + '</tr></thead>'
         + '<tbody>' + rows + '</tbody></table>'
         + ('<div style="margin-top:8px;font-size:10px">備考：' + F('notes', block=True) + '</div>'
            if (d.get('notes') or M == "edit") else '')

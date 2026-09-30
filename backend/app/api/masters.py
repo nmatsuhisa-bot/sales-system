@@ -64,6 +64,7 @@ class DeliveryDestinationIn(BaseModel):
     postal_code: Optional[str] = None
     tel: Optional[str] = None
     fax: Optional[str] = None
+    contact_person: Optional[str] = None   # 先方のご担当者（送り状・依頼書の宛先に使う）
     customer_rank: Optional[str] = None
     notes: Optional[str] = None
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { projectApi, mastersApi, authApi, API_BASE, listSalesPersons } from '../api';
+import { projectApi, mastersApi, authApi, arrangementApi, API_BASE, listSalesPersons } from '../api';
 import SearchSelect from '../components/common/SearchSelect';
 import { Plus, ChevronDown, ChevronRight, Edit2, Trash2, FileText, Copy } from 'lucide-react';
 
@@ -119,6 +119,8 @@ export default function ProjectsPage() {
   const [destinations, setDestinations] = useState<any[]>([]);
   const [salesPersons, setSalesPersons] = useState<any[]>([]);   // 営業担当の候補（機能権限「営業担当」のユーザー）
   const [teamUsers, setTeamUsers] = useState<any[]>([]);         // 作成者・更新者の候補（全ユーザー）
+  // 宿泊予約がまだ無い案件（出張手配の漏れ防止）
+  const [hotelPending, setHotelPending] = useState<any[] | null>(null);
 
   // 選択欄の候補（入力で曖昧検索）
   const agencyOptions = useMemo(() => agencies.map(a => ({
@@ -300,6 +302,12 @@ export default function ProjectsPage() {
           <h1 className="text-2xl font-bold text-gray-800">案件管理</h1>
           <p className="text-sm text-gray-500 mt-1">全 {total} 件</p>
         </div>
+        <button onClick={() => arrangementApi.hotelPending()
+          .then(r => setHotelPending(r.data.items || []))
+          .catch(() => alert('取得に失敗しました'))}
+          className="flex items-center gap-2 border border-green-300 text-green-700 bg-green-50 px-3 py-2 rounded-lg hover:bg-green-100 text-sm mr-2">
+          宿泊未予約
+        </button>
         <button onClick={openProjectNew}
           className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm">
           <Plus size={16} /> 新規案件登録
@@ -489,6 +497,44 @@ export default function ProjectsPage() {
           </div>
         )}
       </div>
+
+      {/* 宿泊予約がまだ無い案件（出荷予定・売上予定が近い順） */}
+      {hotelPending && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onClick={() => setHotelPending(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[85vh] flex flex-col"
+            onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-gray-800">宿泊予約がまだの案件</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  これから120日以内に出荷・売上予定の子IDのうち、宿泊予約票に明細が無いものです（{hotelPending.length}件）
+                </p>
+              </div>
+              <button onClick={() => setHotelPending(null)}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-gray-700 text-sm">閉じる</button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              {hotelPending.length === 0 && (
+                <div className="text-center py-12 text-gray-400 text-sm">対象の案件はありません</div>
+              )}
+              {hotelPending.map(r => (
+                <div key={r.id} className="flex items-center gap-3 px-4 py-2 border-b border-gray-100 text-sm hover:bg-green-50">
+                  <span className="font-mono text-xs text-blue-600 w-28 shrink-0">{r.child_no}</span>
+                  <span className="text-xs text-gray-500 w-24 shrink-0">{r.date}</span>
+                  <span className="flex-1 truncate text-gray-800">{r.project_name || '—'}</span>
+                  <span className="text-xs text-gray-500 w-32 truncate">{r.customer_name || '—'}</span>
+                  <span className="text-xs text-gray-400 w-20 truncate">{r.sales_person_name || '—'}</span>
+                  <button onClick={() => window.open(`${API_BASE}/arrangements/hotel/${r.id}/pdf?mode=edit`, '_blank')}
+                    className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded hover:bg-green-200 shrink-0">
+                    {r.has_form ? '宿泊予約票を開く' : '宿泊予約票を作る'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ===== 詳細モーダル（案件ID・子IDのクリックで開く。編集は「編集する」から） ===== */}
       {detail && (() => {
