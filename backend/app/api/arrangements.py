@@ -26,6 +26,7 @@ from app.form_edit import (
     ef, eftoggle, efdate, efpick, inject_edit, get_path, apply_fields, apply_row_op, parse_date,
 )
 import html as _h
+from app import assets
 
 router = APIRouter()
 
@@ -1059,7 +1060,22 @@ def _fan_spec_rows(ftype, F, spec, spec_wide, d=None, edit=False):
             '<tr><td width="72" ' + L + '>&nbsp;</td>'
             '<td colspan="5" style="font-size:10px">'
             '※有の場合、下図が標準の取付位置です。勝手違いが必要な場合はご指示願います。</td></tr>'
+            + shaker_figures()
         )
+
+    def shaker_figures():
+        """シェーキングの標準取付位置（原紙の図）。左＝手動／右＝電動。
+        入れ子テーブルはPDF変換で崩れるため、同じ表の1行を2セルに割って並べる"""
+        def fig(png, caption, span, cell_w):
+            return ('<td colspan="%d" width="%d" style="text-align:center;padding:4px 2px">'
+                    '<img src="%s" width="%d"><br>'
+                    '<span style="font-size:9px">%s</span></td>'
+                    % (span, cell_w, assets.data_uri(png), cell_w - 12, caption))
+        # 列幅は spec() と同じ 72/130/72/100/64/72。2列分＋3列分に割る
+        return ('<tr><td width="72" ' + L + '>&nbsp;</td>'
+                + fig('shaker_manual.png', '手動ｼｪｰｷﾝｸﾞ 標準位置', 2, 202)
+                + fig('shaker_electric.png', '電動ｼｪｰｷﾝｸﾞ 標準位置', 3, 236)
+                + '</tr>')
     # 原紙のモータ行: 出力 kW / 極数 P / 屋内外 / 取付（フランジ・脚）型 / メーカ
     motor = (F('spec_json.motor_kw') + ' kW　' + F('spec_json.motor_pole') + ' P　'
              + F('spec_json.motor_type', ph='屋内/屋外') + '　'
