@@ -15,6 +15,10 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-09-30 — Claude (Cowork) — ヘルプ（マニュアル）同期
+**触ったファイル**: `frontend/src/pages/HelpPage.tsx`, `WORKLOG.md`（機能コード変更なし）
+**反映**: (1) マスタ管理に追加された「仕入先マスタ」（TECHSコード・区分・支払条件・区分絞込/検索）を基本マスタに追記。(2) ファン作業指示書/検査記録書が保存先を共有し、排風機 注文確認書の入力（型式・製造番号・モータ仕様・出荷）を優先、BFQ様式は吸排気口を自動入力しない旨を手配書・帳票の手順に追記。
+
 ### 2026-09-27 — Claude (Cowork) — /procurement 検証（異常なし）
 **触ったファイル**: `WORKLOG.md` のみ（コード変更なし）
 **ライブ検証**: 本番API `/api/procurement/` の suppliers・materials（limit=5）・material-orders（11件）・bom・purchase-orders（7件）をWebFetch経由で確認。すべて200、500なし。(a) 列不足の500は再現せず。suppliers は今も `[]`（P-14、未対応のまま・データ未登録）。
