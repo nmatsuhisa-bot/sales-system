@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, Fragment } from 'react';
 import { useLocation, Link } from 'react-router-dom';
-import { procurementApi } from '../api';
+import { procurementApi, bomMasterApi } from '../api';
 import OrderSearchInput from '../components/common/OrderSearchInput';
 import SearchSelect from '../components/common/SearchSelect';
 import { Plus, Trash2, Check, X, Boxes, FileText, ChevronDown, ChevronRight, GitBranch } from 'lucide-react';
@@ -252,6 +252,7 @@ function PurchaseOrdersTab({ initialOrder }: { initialOrder?: any }) {
 function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
   const [po, setPo] = useState<any>(null);
   const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [units, setUnits] = useState<any[]>([]);   // 注文書の「ユニット/備考」欄の候補
   const [hdr, setHdr] = useState<any>({});
   const [hdrDirty, setHdrDirty] = useState(false);
   // 明細追加用
@@ -277,6 +278,7 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
     procurementApi.listSuppliers()
       .then(r => setSuppliers(r.data))
       .catch(() => setErr('発注先の一覧を取得できませんでした。'));
+    bomMasterApi.listUnits().then(r => setUnits(r.data || [])).catch(() => {});
     return () => { if (matTimer.current) clearTimeout(matTimer.current); };
   }, [poId]);
 
@@ -331,7 +333,8 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
     const price = l.unit_price === '' || l.unit_price == null ? null : Number(l.unit_price);
     if (price != null && (!Number.isFinite(price) || price < 0)) { setErr('単価は 0 以上の数で入力してください。'); reload(); return; }
     try {
-      await procurementApi.updateMaterialOrder(l.id, { order_qty: qty, unit_price: price, due_date: l.due_date || null });
+      await procurementApi.updateMaterialOrder(l.id, { order_qty: qty, unit_price: price,
+        due_date: l.due_date || null, unit_label: l.unit_label ?? null });
       reload(); onChange();
     } catch (e: any) { fail(e, '明細の保存に失敗しました。'); }
   };
@@ -395,15 +398,26 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
       </div>
 
       {/* 明細編集 */}
+      {/* ユニット名の候補（注文書の「ユニット/備考」欄に出す） */}
+      <datalist id="unit-options">
+        {units.map((u: any) => <option key={u.id} value={u.unit_name}>{u.unit_code}</option>)}
+      </datalist>
       <table className="w-full text-xs">
         <thead><tr className="text-gray-500 bg-white">
-          {['部材コード', '部材名', '数量', '単位', '単価', '金額', '納期', ''].map(h => <th key={h} className="text-left px-2 py-1">{h}</th>)}
+          {['部材コード', '部材名', 'ユニット/備考', '数量', '単位', '単価', '金額', '納期', ''].map(h => <th key={h} className="text-left px-2 py-1">{h}</th>)}
         </tr></thead>
         <tbody>
           {(po.lines || []).map((l: any) => (
             <tr key={l.id} className="border-t border-gray-200 bg-white">
               <td className="px-2 py-1 font-mono text-amber-700">{l.material_code}</td>
               <td className="px-2 py-1">{l.material_name}</td>
+              <td className="px-1 py-1">
+                <input disabled={!editable} list="unit-options" value={l.unit_label ?? ''}
+                  onChange={e => updLineLocal(l.id, { unit_label: e.target.value })}
+                  onBlur={() => editable && saveLine(l)}
+                  placeholder="ユニット名"
+                  className="border rounded px-1 w-32 disabled:bg-gray-50 disabled:border-transparent" />
+              </td>
               <td className="px-1 py-1"><input disabled={!editable} type="number" value={l.order_qty ?? ''} onChange={e => updLineLocal(l.id, { order_qty: e.target.value })} onBlur={() => editable && saveLine(l)} className="border rounded px-1 w-16 text-right disabled:bg-gray-50 disabled:border-transparent" /></td>
               <td className="px-2 py-1">{l.unit}</td>
               <td className="px-1 py-1"><input disabled={!editable} type="number" value={l.unit_price ?? ''} onChange={e => updLineLocal(l.id, { unit_price: e.target.value })} onBlur={() => editable && saveLine(l)} className="border rounded px-1 w-24 text-right disabled:bg-gray-50 disabled:border-transparent" /></td>
@@ -422,9 +436,9 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
               </td>
             </tr>
           ))}
-          {(po.lines || []).length === 0 && <tr><td colSpan={8} className="px-2 py-2 text-gray-400">明細なし。下で追加してください。</td></tr>}
+          {(po.lines || []).length === 0 && <tr><td colSpan={9} className="px-2 py-2 text-gray-400">明細なし。下で追加してください。</td></tr>}
         </tbody>
-        <tfoot><tr className="border-t-2 border-gray-300"><td colSpan={5} className="px-2 py-1 text-right font-medium">合計</td><td className="px-2 py-1 text-right font-bold">¥{total.toLocaleString()}</td><td colSpan={2}></td></tr></tfoot>
+        <tfoot><tr className="border-t-2 border-gray-300"><td colSpan={6} className="px-2 py-1 text-right font-medium">合計</td><td className="px-2 py-1 text-right font-bold">¥{total.toLocaleString()}</td><td colSpan={2}></td></tr></tfoot>
       </table>
 
       {/* 明細追加 */}

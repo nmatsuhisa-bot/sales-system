@@ -1040,6 +1040,7 @@ class MaterialOrder(Base):
     purchase_order_id = Column(UUID(as_uuid=True), ForeignKey("material_purchase_orders.id"))  # 発注書ヘッダー
     project_order_id = Column(UUID(as_uuid=True), ForeignKey("project_orders.id"))
     project_unit_id = Column(UUID(as_uuid=True), ForeignKey("project_units.id"))  # 案件ユニット紐付け
+    unit_label = Column(String(200))     # 注文書の「ユニット/備考」欄に出すユニット名
     material_id = Column(UUID(as_uuid=True), ForeignKey("material_masters.id"), nullable=False)
     supplier_id = Column(UUID(as_uuid=True), ForeignKey("suppliers.id"))
     order_qty = Column(Numeric(10, 3))

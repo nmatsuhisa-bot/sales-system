@@ -415,7 +415,8 @@ def update_material_order(mo_id: str, data: dict, db: Session = Depends(get_db))
     # 入荷済・在庫引当の明細の状態を戻すと、再度入荷・引当できて在庫が二重計上になるので拒否する
     if "status" in data and data["status"] != mo.status and mo.status in ("入荷済", "在庫引当"):
         raise HTTPException(400, "入荷済・在庫引当済みの明細は状態を変更できません")
-    for k in ["supplier_id","order_qty","unit_price","order_date","due_date","received_date","status","notes"]:
+    for k in ["supplier_id","order_qty","unit_price","order_date","due_date","received_date",
+              "status","notes","unit_label"]:
         if k in data: setattr(mo, k, data[k])
     db.commit(); db.refresh(mo)
     return _mo_dict(mo)
@@ -614,7 +615,7 @@ def _mo_dict(mo: MaterialOrder):
         "order_date": str(mo.order_date) if mo.order_date else None,
         "due_date": str(mo.due_date) if mo.due_date else None,
         "received_date": str(mo.received_date) if mo.received_date else None,
-        "status": mo.status, "notes": mo.notes,
+        "status": mo.status, "notes": mo.notes, "unit_label": mo.unit_label,
     }
 
 
@@ -1005,7 +1006,7 @@ def _build_po_html(po: MaterialPurchaseOrder) -> str:
         rows_html += f"""
         <tr>
           <td class="c">{po.po_no}</td>
-          <td>{l.notes or ""}</td>
+          <td>{" ".join(x for x in [l.unit_label or "", l.notes or ""] if x)}</td>
           <td>{code}</td>
           <td>{name}</td>
           <td class="r">{qty}</td><td class="c">{unit}</td>
