@@ -44,14 +44,26 @@ CAT_CRANE = "クレーン・作業車"
 CAT_TRUCK = "運送(トラック)"       # 仕入先マスタはNFKC正規化して持つため半角括弧
 
 
+# TECHSの仕入先は営業所ごとに行があり、社名に営業所が入っている
+# （例「株式会社アクティオ 高知営業所」）。帳票は業者名と営業所が別欄なので分ける
+_BRANCH_RE = re.compile(
+    r'^(.*?)[ 　]([^ 　]*(?:営業所|支店|支社|出張所|事業所|ｾﾝﾀｰ|センター|営業部))$')
+
+
+def _split_branch(name):
+    m = _BRANCH_RE.match((name or "").strip())
+    return (m.group(1).strip(), m.group(2)) if m else ((name or "").strip(), "")
+
+
 def _vendor_entry(s: Supplier, b=None):
     """帳票の業者選択1行分。営業所があればその連絡先を優先する"""
+    company, name_branch = _split_branch(s.name)
     return {
         "id": (str(b.id) if b is not None else str(s.id)),
         "supplier_id": str(s.id),
         "category": s.category,
-        "name": s.name,
-        "branch": (b.name if b is not None else "") or "",
+        "name": company,
+        "branch": (b.name if b is not None else "") or name_branch,
         "contact_person": (b.contact_person if b is not None else None) or s.contact_person or "",
         "phone": (b.phone if b is not None else None) or s.phone or "",
         "fax": (b.fax if b is not None else None) or s.fax or "",
@@ -117,7 +129,7 @@ def _company_key(name: str) -> str:
 
 
 def _same_contact(v: ArrangementVendor, s: Supplier) -> bool:
-    """手配業者の連絡先が仕入先（本社）と同じか。数字だけで比べる"""
+    """手配業者の連絡先が仕入先と同じか。数字だけで比べる"""
     d = lambda x: re.sub(r"[^0-9]", "", x or "")
     return ((not d(v.phone) or d(v.phone) == d(s.phone))
             and (not d(v.fax) or d(v.fax) == d(s.fax))
@@ -125,23 +137,41 @@ def _same_contact(v: ArrangementVendor, s: Supplier) -> bool:
                  or (v.contact_person or "").strip() == (s.contact_person or "").strip()))
 
 
-@router.post("/merge-vendors")
-def merge_vendors(dry_run: bool = True, db: Session = Depends(get_db)):
-    """手配業者マスタを仕入先マスタへ寄せる（何度実行しても結果は同じ）。
+MERGE_TAG = "arrangement_vendors"
+MERGE_NOTE = "手配業者マスタから移行"
 
-    ・社名が一致する仕入先があればその会社に寄せる（既存の値は上書きしない）
-    ・無ければ仕入先を新規に作る（TECHSコードは空＝TECHS未登録）
-    ・営業所は supplier_branches へ。営業所名が無くても本社と連絡先が違えば
-      「本社」として残す（連絡先が消えないようにするため）
+
+@router.post("/merge-vendors")
+def merge_vendors(dry_run: bool = True, reset: bool = False, db: Session = Depends(get_db)):
+    """旧・手配業者マスタを仕入先マスタへ寄せる（何度実行しても結果は同じ）。
+
+    TECHSの仕入先マスタは営業所ごとに行を持っている（「㈱アクティオ 高知営業所」等）。
+    そのため寄せ先は次の順で探す。
+      1. 社名＋営業所 で一致する仕入先 … その行が営業所そのもの。連絡先を補うだけ
+      2. 社名だけ一致する仕入先       … 会社の行。営業所は子レコードにして残す
+      3. どちらも無い                 … 仕入先を新規に作る（TECHSコードは空）
+    既に入っている値は上書きしない。reset=true で前回の移行分を消してからやり直す。
     """
+    undone = {}
+    if reset:
+        brs = db.query(SupplierBranch).filter(SupplierBranch.source_tag == MERGE_TAG).all()
+        sups = db.query(Supplier).filter(Supplier.notes == MERGE_NOTE,
+                                         Supplier.supplier_code.like("V%")).all()
+        for b in brs:
+            db.delete(b)
+        for s in sups:
+            db.delete(s)
+        db.flush()
+        undone = {"branches_deleted": len(brs), "suppliers_deleted": len(sups)}
+
     vendors = db.query(ArrangementVendor).filter(ArrangementVendor.is_active == True).all()  # noqa: E712
+    # 名寄せの索引。コードの小さい方を優先して選び、実行ごとに寄せ先がぶれないようにする
     sup_by_key = {}
-    for s in db.query(Supplier).all():
+    for s in sorted(db.query(Supplier).all(), key=lambda x: x.supplier_code or ""):
         for nm in (s.name, s.short_name):
             k = _company_key(nm)
             if k:
                 sup_by_key.setdefault(k, s)
-    # 既存の営業所（会社ID＋営業所名）。再実行で増やさないため
     have_branch = {(str(b.supplier_id), (b.name or "").strip())
                    for b in db.query(SupplierBranch).all()}
     used_codes = {c for (c,) in db.query(Supplier.supplier_code).all()}
@@ -156,49 +186,64 @@ def merge_vendors(dry_run: bool = True, db: Session = Depends(get_db)):
                 used_codes.add(c)
                 return c
 
-    created_sup, filled_sup, created_br, skipped = 0, 0, 0, 0
+    def fill_empty(s, v, cat):
+        """空欄だけ埋める。既に入っている値は触らない"""
+        before = (s.category, s.phone, s.fax, s.contact_person)
+        if not (s.category or "").strip() and cat:
+            s.category = cat
+        for f in ("phone", "fax", "contact_person"):
+            if not (getattr(s, f) or "").strip() and (getattr(v, f) or "").strip():
+                setattr(s, f, getattr(v, f))
+        return before != (s.category, s.phone, s.fax, s.contact_person)
+
+    matched_branch_row, created_sup, filled_sup, created_br, skipped = 0, 0, 0, 0, 0
     samples = []
     for v in vendors:
-        key = _company_key(v.name)
-        if not key:
+        ckey = _company_key(v.name)
+        if not ckey:
             skipped += 1
             continue
         cat = nfkc(v.category or "")
-        s = sup_by_key.get(key)
+        branch = (v.branch or "").strip()
+        # 1. 営業所そのものが仕入先として登録されていないか
+        s = sup_by_key.get(_company_key((v.name or "") + branch)) if branch else None
+        if s is not None:
+            matched_branch_row += 1
+            if fill_empty(s, v, cat):
+                filled_sup += 1
+            continue
+        # 2. 会社で一致するか
+        s = sup_by_key.get(ckey)
         if s is None:
-            s = Supplier(supplier_code=new_code(), name=(v.name or "").strip(), category=cat,
+            # 3. 新規。営業所つきなら社名に含めて1行にする（TECHSの並びに合わせる）
+            nm = " ".join(x for x in [(v.name or "").strip(), branch] if x)
+            s = Supplier(supplier_code=new_code(), name=nm, category=cat,
                          phone=v.phone, fax=v.fax, contact_person=v.contact_person,
                          postal_code=v.postal_code, address=v.address,
-                         notes="手配業者マスタから移行", is_active=True)
+                         notes=MERGE_NOTE, is_active=True)
             db.add(s)
             db.flush()          # 以降の名寄せ・営業所付けでIDが要る
-            sup_by_key[key] = s
+            for k in {_company_key(nm), ckey if not branch else ""} - {""}:
+                sup_by_key.setdefault(k, s)
             created_sup += 1
-            if len(samples) < 15:
+            if len(samples) < 20:
                 samples.append("新規 %s / %s" % (s.supplier_code, s.name))
-        else:
-            # 空欄だけ埋める。既に入っている値は触らない
-            before = (s.category, s.phone, s.fax, s.contact_person)
-            if not (s.category or "").strip() and cat:
-                s.category = cat
-            for f in ("phone", "fax", "contact_person"):
-                if not (getattr(s, f) or "").strip() and (getattr(v, f) or "").strip():
-                    setattr(s, f, getattr(v, f))
-            if before != (s.category, s.phone, s.fax, s.contact_person):
-                filled_sup += 1
-        bname = (v.branch or "").strip()
-        if not bname and not _same_contact(v, s):
-            bname = "本社"      # 本社の連絡先が仕入先側と違う → 手配側も残す
+            continue
+        if fill_empty(s, v, cat):
+            filled_sup += 1
+        # 会社の行に寄せた。営業所名が無くても連絡先が違えば「本社」として残す
+        bname = branch or ("" if _same_contact(v, s) else "本社")
         if bname and (str(s.id), bname) not in have_branch:
             have_branch.add((str(s.id), bname))
             db.add(SupplierBranch(supplier_id=s.id, name=bname,
                                   contact_person=v.contact_person, phone=v.phone, fax=v.fax,
                                   postal_code=v.postal_code, address=v.address,
-                                  source_tag="arrangement_vendors", is_active=True))
+                                  source_tag=MERGE_TAG, is_active=True))
             created_br += 1
-    result = {"vendors": len(vendors), "suppliers_created": created_sup,
-              "suppliers_filled": filled_sup, "branches_created": created_br,
-              "skipped": skipped, "dry_run": dry_run, "samples": samples}
+    result = {"vendors": len(vendors), "matched_branch_row": matched_branch_row,
+              "suppliers_created": created_sup, "suppliers_filled": filled_sup,
+              "branches_created": created_br, "skipped": skipped,
+              "dry_run": dry_run, "reset": undone, "samples": samples}
     if dry_run:
         db.rollback()
     else:
