@@ -4,7 +4,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, func as safunc
 from app.db.models import (
-    get_db, MaterialMaster, BomItem, MaterialOrder, Supplier, ProjectOrder,
+    get_db, MaterialMaster, BomItem, MaterialOrder, Supplier, SupplierBranch, ProjectOrder,
     UnitMaster, UnitMaterialBom, QuotationHeader, MaterialPurchaseOrder, MaterialStockMovement,
 )
 import uuid, io
@@ -491,22 +491,53 @@ SUPPLIER_FIELDS = ("supplier_code", "techs_code", "name", "short_name", "name_ka
                    "payment_small", "payment_large", "closing_day", "tax_type", "notes")
 
 
-def _supplier_dict(s: Supplier) -> dict:
+BRANCH_FIELDS = ("name", "contact_person", "phone", "fax", "postal_code", "address", "notes")
+
+
+def _branch_dict(b: SupplierBranch) -> dict:
+    d = {"id": str(b.id), "supplier_id": str(b.supplier_id) if b.supplier_id else None}
+    for f in BRANCH_FIELDS:
+        d[f] = getattr(b, f, None)
+    return d
+
+
+def _supplier_dict(s: Supplier, branches=None) -> dict:
     d = {"id": str(s.id), "is_active": bool(s.is_active)}
     for f in SUPPLIER_FIELDS:
         d[f] = getattr(s, f, None)
+    # TECHSに無い先（手配だけで使う業者）を画面で見分けられるようにする
+    d["has_techs"] = bool((s.techs_code or "").strip())
+    d["branches"] = [_branch_dict(b) for b in (branches or [])]
     return d
+
+
+def _branch_map(db: Session, supplier_ids) -> dict:
+    """仕入先IDごとの営業所。一覧で1件ずつ引かないようまとめて取る"""
+    out = {}
+    ids = list(supplier_ids)
+    if not ids:
+        return out
+    rows = (db.query(SupplierBranch)
+              .filter(SupplierBranch.supplier_id.in_(ids), SupplierBranch.is_active == True)  # noqa: E712
+              .order_by(SupplierBranch.name).all())
+    for b in rows:
+        out.setdefault(str(b.supplier_id), []).append(b)
+    return out
 
 
 @router.get("/suppliers")
 def list_suppliers(search: str = Query(None), category: str = Query(None),
-                   include_inactive: bool = Query(False), db: Session = Depends(get_db)):
-    """仕入先の一覧。コード・名称・略称・ふりがな・TECHSコードのどれでも検索できる"""
+                   include_inactive: bool = Query(False), techs_only: bool = Query(False),
+                   db: Session = Depends(get_db)):
+    """仕入先の一覧。コード・名称・略称・ふりがな・TECHSコードのどれでも検索できる。
+    techs_only=true でTECHSに登録のある先だけに絞る（注文書の発注先はこちら）"""
     q = db.query(Supplier)
     if not include_inactive:
         q = q.filter(Supplier.is_active == True)  # noqa: E712
     if category:
-        q = q.filter(Supplier.category == category)
+        q = q.filter(Supplier.category == nfkc(category))
+    if techs_only:
+        q = q.filter(Supplier.techs_code.isnot(None), Supplier.techs_code != "")
     if search:
         # 半角カナ・全角英数の違いを吸収し、空白区切りの語をすべて含むもので絞る
         for word in [w for w in nfkc(search).split() if w]:
@@ -516,7 +547,54 @@ def list_suppliers(search: str = Query(None), category: str = Query(None),
                 Supplier.name_kana.ilike(like), Supplier.supplier_code.ilike(like),
                 Supplier.techs_code.ilike(like),
             ))
-    return [_supplier_dict(s) for s in q.order_by(Supplier.supplier_code).all()]
+    rows = q.order_by(Supplier.supplier_code).all()
+    bm = _branch_map(db, [s.id for s in rows])
+    return [_supplier_dict(s, bm.get(str(s.id))) for s in rows]
+
+
+# --- 営業所（拠点） ---
+
+@router.get("/suppliers/{supplier_id}/branches")
+def list_branches(supplier_id: str, db: Session = Depends(get_db)):
+    return [_branch_dict(b) for b in
+            db.query(SupplierBranch)
+              .filter(SupplierBranch.supplier_id == supplier_id,
+                      SupplierBranch.is_active == True)  # noqa: E712
+              .order_by(SupplierBranch.name).all()]
+
+
+@router.post("/suppliers/{supplier_id}/branches", status_code=201)
+def create_branch(supplier_id: str, data: dict, db: Session = Depends(get_db)):
+    if not db.query(Supplier).filter(Supplier.id == supplier_id).first():
+        raise HTTPException(404, "仕入先が見つかりません")
+    b = SupplierBranch(supplier_id=supplier_id)
+    for f in BRANCH_FIELDS:
+        if f in data:
+            setattr(b, f, nfkc(data[f]) if isinstance(data[f], str) else data[f])
+    db.add(b); db.commit(); db.refresh(b)
+    return _branch_dict(b)
+
+
+@router.put("/branches/{branch_id}")
+def update_branch(branch_id: str, data: dict, db: Session = Depends(get_db)):
+    b = db.query(SupplierBranch).filter(SupplierBranch.id == branch_id).first()
+    if not b:
+        raise HTTPException(404, "営業所が見つかりません")
+    for f in BRANCH_FIELDS:
+        if f in data:
+            setattr(b, f, nfkc(data[f]) if isinstance(data[f], str) else data[f])
+    db.commit(); db.refresh(b)
+    return _branch_dict(b)
+
+
+@router.delete("/branches/{branch_id}")
+def delete_branch(branch_id: str, db: Session = Depends(get_db)):
+    b = db.query(SupplierBranch).filter(SupplierBranch.id == branch_id).first()
+    if not b:
+        raise HTTPException(404, "営業所が見つかりません")
+    b.is_active = False
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/suppliers", status_code=201)

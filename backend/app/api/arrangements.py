@@ -20,86 +20,190 @@ from app.db.models import (
     pk_or_code,
     get_db, ProjectOrder,
     CraneArrangement, ShippingArrangement, HotelArrangement, ArrangementVendor,
-    FanArrangement,
+    FanArrangement, Supplier, SupplierBranch,
 )
 from app.form_edit import (
     ef, eftoggle, efdate, efpick, inject_edit, get_path, apply_fields, apply_row_op, parse_date,
 )
+from app.normalize import nfkc
 import html as _h
 from app import assets
 
 router = APIRouter()
 
 # =============================================
-# 手配業者マスタ
+# 手配で選ぶ業者
+#
+# 旧・手配業者マスタ（arrangement_vendors）は仕入先マスタへ統合した。
+# クレーン業者も運送業者も支払先＝仕入先であり、二重に持つと連絡先が食い違うため。
+# 会社は仕入先1行（TECHSコードも1つ）、営業所は supplier_branches にぶら下げる。
+# ここは「会社×営業所」を1行に並べて帳票へ渡すだけの読み取り口。
 # =============================================
 
-def _vendor_dict(v: ArrangementVendor):
+CAT_CRANE = "クレーン・作業車"
+CAT_TRUCK = "運送(トラック)"       # 仕入先マスタはNFKC正規化して持つため半角括弧
+
+
+def _vendor_entry(s: Supplier, b=None):
+    """帳票の業者選択1行分。営業所があればその連絡先を優先する"""
     return {
-        "id": str(v.id), "category": v.category, "name": v.name, "branch": v.branch,
-        "contact_person": v.contact_person, "phone": v.phone, "fax": v.fax,
-        "postal_code": v.postal_code, "address": v.address, "notes": v.notes,
+        "id": (str(b.id) if b is not None else str(s.id)),
+        "supplier_id": str(s.id),
+        "category": s.category,
+        "name": s.name,
+        "branch": (b.name if b is not None else "") or "",
+        "contact_person": (b.contact_person if b is not None else None) or s.contact_person or "",
+        "phone": (b.phone if b is not None else None) or s.phone or "",
+        "fax": (b.fax if b is not None else None) or s.fax or "",
+        "postal_code": (b.postal_code if b is not None else None) or s.postal_code or "",
+        "address": (b.address if b is not None else None) or s.address or "",
+        "notes": (b.notes if b is not None else None) or s.notes or "",
     }
 
-@router.get("/vendors")
-def list_vendors(category: Optional[str] = None, search: Optional[str] = None, db: Session = Depends(get_db)):
-    q = db.query(ArrangementVendor).filter(ArrangementVendor.is_active == True)
+
+def _vendor_entries(db: Session, category=None, search=None, limit=1000):
+    """仕入先＋営業所を「会社×営業所」に展開して返す"""
+    q = db.query(Supplier).filter(Supplier.is_active == True)  # noqa: E712
     if category:
-        q = q.filter(ArrangementVendor.category == category)
+        q = q.filter(Supplier.category == nfkc(category))
     if search:
-        like = f"%{search}%"
-        q = q.filter(or_(ArrangementVendor.name.ilike(like), ArrangementVendor.branch.ilike(like),
-                         ArrangementVendor.contact_person.ilike(like)))
-    return [_vendor_dict(v) for v in q.order_by(ArrangementVendor.name).limit(50).all()]
+        like = f"%{nfkc(search)}%"
+        q = q.filter(or_(Supplier.name.ilike(like), Supplier.short_name.ilike(like),
+                         Supplier.name_kana.ilike(like), Supplier.contact_person.ilike(like)))
+    sups = q.order_by(Supplier.name).limit(limit).all()
+    branches = {}
+    if sups:
+        for b in (db.query(SupplierBranch)
+                    .filter(SupplierBranch.supplier_id.in_([s.id for s in sups]),
+                            SupplierBranch.is_active == True)  # noqa: E712
+                    .order_by(SupplierBranch.name).all()):
+            branches.setdefault(str(b.supplier_id), []).append(b)
+    out = []
+    for s in sups:
+        bs = branches.get(str(s.id)) or []
+        if not bs:
+            out.append(_vendor_entry(s))
+        else:
+            out.extend(_vendor_entry(s, b) for b in bs)
+    return out
 
-@router.post("/vendors")
-def create_vendor(data: dict, db: Session = Depends(get_db)):
-    v = ArrangementVendor(**{k: data.get(k) for k in
-        ["category", "name", "branch", "contact_person", "phone", "fax", "postal_code", "address", "notes", "source_tag"] if k in data})
-    db.add(v); db.commit(); db.refresh(v)
-    return _vendor_dict(v)
 
-@router.put("/vendors/{vendor_id}")
-def update_vendor(vendor_id: str, data: dict, db: Session = Depends(get_db)):
-    v = db.query(ArrangementVendor).filter(ArrangementVendor.id == vendor_id).first()
-    if not v: raise HTTPException(404)
-    for k in ["category", "name", "branch", "contact_person", "phone", "fax", "postal_code", "address", "notes"]:
-        if k in data: setattr(v, k, data[k])
-    db.commit(); db.refresh(v)
-    return _vendor_dict(v)
+@router.get("/vendors")
+def list_vendors(category: Optional[str] = None, search: Optional[str] = None,
+                 limit: int = 1000, db: Session = Depends(get_db)):
+    return _vendor_entries(db, category, search, limit)
 
-@router.delete("/vendors/{vendor_id}")
-def delete_vendor(vendor_id: str, db: Session = Depends(get_db)):
-    v = db.query(ArrangementVendor).filter(ArrangementVendor.id == vendor_id).first()
-    if not v: raise HTTPException(404)
-    v.is_active = False; db.commit()
-    return {"ok": True}
-
-@router.post("/vendors/bulk")
-def bulk_vendors(data: dict, db: Session = Depends(get_db)):
-    """業者を一括登録。既存（同名＋同営業所）はスキップ。"""
-    tag = data.get("tag")
-    rows = data.get("vendors", [])
-    existing = {(r[0], r[1] or "") for r in db.query(ArrangementVendor.name, ArrangementVendor.branch).all()}
-    created = 0
-    for r in rows:
-        name = (r.get("name") or "").strip()
-        branch = (r.get("branch") or "").strip()
-        if not name or (name, branch) in existing:
-            continue
-        existing.add((name, branch))
-        db.add(ArrangementVendor(
-            category=r.get("category"), name=name, branch=branch,
-            contact_person=r.get("contact"), phone=r.get("tel"), fax=r.get("fax"),
-            source_tag=tag,
-        ))
-        created += 1
-    db.commit()
-    return {"ok": True, "created": created, "skipped": len(rows) - created}
 
 @router.get("/vendors/count")
 def vendor_count(db: Session = Depends(get_db)):
-    return {"count": db.query(ArrangementVendor).filter(ArrangementVendor.is_active == True).count()}
+    """手配で選べる業者（クレーン・運送）の数"""
+    n = (db.query(Supplier)
+           .filter(Supplier.is_active == True,  # noqa: E712
+                   Supplier.category.in_([CAT_CRANE, CAT_TRUCK])).count())
+    return {"count": n}
+
+
+# --- 旧・手配業者マスタからの移行 ---
+
+_CORP_WORDS = ("株式会社", "有限会社", "合同会社", "(株)", "(有)", "(同)", "㈱", "㈲")
+
+
+def _company_key(name: str) -> str:
+    """社名の名寄せキー。法人格・記号・空白の違いを無視する"""
+    s = nfkc(name or "").lower()
+    for w in _CORP_WORDS:
+        s = s.replace(w.lower(), "")
+    return re.sub(r"[\s・,.，、\-ー－_()（）]", "", s)
+
+
+def _same_contact(v: ArrangementVendor, s: Supplier) -> bool:
+    """手配業者の連絡先が仕入先（本社）と同じか。数字だけで比べる"""
+    d = lambda x: re.sub(r"[^0-9]", "", x or "")
+    return ((not d(v.phone) or d(v.phone) == d(s.phone))
+            and (not d(v.fax) or d(v.fax) == d(s.fax))
+            and (not (v.contact_person or "").strip()
+                 or (v.contact_person or "").strip() == (s.contact_person or "").strip()))
+
+
+@router.post("/merge-vendors")
+def merge_vendors(dry_run: bool = True, db: Session = Depends(get_db)):
+    """手配業者マスタを仕入先マスタへ寄せる（何度実行しても結果は同じ）。
+
+    ・社名が一致する仕入先があればその会社に寄せる（既存の値は上書きしない）
+    ・無ければ仕入先を新規に作る（TECHSコードは空＝TECHS未登録）
+    ・営業所は supplier_branches へ。営業所名が無くても本社と連絡先が違えば
+      「本社」として残す（連絡先が消えないようにするため）
+    """
+    vendors = db.query(ArrangementVendor).filter(ArrangementVendor.is_active == True).all()  # noqa: E712
+    sup_by_key = {}
+    for s in db.query(Supplier).all():
+        for nm in (s.name, s.short_name):
+            k = _company_key(nm)
+            if k:
+                sup_by_key.setdefault(k, s)
+    # 既存の営業所（会社ID＋営業所名）。再実行で増やさないため
+    have_branch = {(str(b.supplier_id), (b.name or "").strip())
+                   for b in db.query(SupplierBranch).all()}
+    used_codes = {c for (c,) in db.query(Supplier.supplier_code).all()}
+    seq = 0
+
+    def new_code():
+        nonlocal seq
+        while True:
+            seq += 1
+            c = "V%04d" % seq
+            if c not in used_codes:
+                used_codes.add(c)
+                return c
+
+    created_sup, filled_sup, created_br, skipped = 0, 0, 0, 0
+    samples = []
+    for v in vendors:
+        key = _company_key(v.name)
+        if not key:
+            skipped += 1
+            continue
+        cat = nfkc(v.category or "")
+        s = sup_by_key.get(key)
+        if s is None:
+            s = Supplier(supplier_code=new_code(), name=(v.name or "").strip(), category=cat,
+                         phone=v.phone, fax=v.fax, contact_person=v.contact_person,
+                         postal_code=v.postal_code, address=v.address,
+                         notes="手配業者マスタから移行", is_active=True)
+            db.add(s)
+            db.flush()          # 以降の名寄せ・営業所付けでIDが要る
+            sup_by_key[key] = s
+            created_sup += 1
+            if len(samples) < 15:
+                samples.append("新規 %s / %s" % (s.supplier_code, s.name))
+        else:
+            # 空欄だけ埋める。既に入っている値は触らない
+            before = (s.category, s.phone, s.fax, s.contact_person)
+            if not (s.category or "").strip() and cat:
+                s.category = cat
+            for f in ("phone", "fax", "contact_person"):
+                if not (getattr(s, f) or "").strip() and (getattr(v, f) or "").strip():
+                    setattr(s, f, getattr(v, f))
+            if before != (s.category, s.phone, s.fax, s.contact_person):
+                filled_sup += 1
+        bname = (v.branch or "").strip()
+        if not bname and not _same_contact(v, s):
+            bname = "本社"      # 本社の連絡先が仕入先側と違う → 手配側も残す
+        if bname and (str(s.id), bname) not in have_branch:
+            have_branch.add((str(s.id), bname))
+            db.add(SupplierBranch(supplier_id=s.id, name=bname,
+                                  contact_person=v.contact_person, phone=v.phone, fax=v.fax,
+                                  postal_code=v.postal_code, address=v.address,
+                                  source_tag="arrangement_vendors", is_active=True))
+            created_br += 1
+    result = {"vendors": len(vendors), "suppliers_created": created_sup,
+              "suppliers_filled": filled_sup, "branches_created": created_br,
+              "skipped": skipped, "dry_run": dry_run, "samples": samples}
+    if dry_run:
+        db.rollback()
+    else:
+        db.commit()
+    return result
 
 COMPANY_FOOTER = (
     '<div style="margin-top:15px;border:2px solid #000;padding:8px;display:flex;align-items:center">'
@@ -1458,11 +1562,11 @@ def _rowop(i):
 
 # 業者マスタから選べる帳票と、マスタ項目→帳票項目の対応
 VENDOR_CFG = {
-    "crane": ("クレーン・作業車", {"vendor_name": "name", "vendor_branch": "branch",
-                              "vendor_contact": "contact_person", "vendor_tel": "phone",
-                              "vendor_fax": "fax"}),
-    "shipping": ("運送（トラック）", {"carrier_name": "name", "carrier_contact": "contact_person",
-                                "carrier_tel": "phone", "carrier_fax": "fax"}),
+    "crane": (CAT_CRANE, {"vendor_name": "name", "vendor_branch": "branch",
+                          "vendor_contact": "contact_person", "vendor_tel": "phone",
+                          "vendor_fax": "fax"}),
+    "shipping": (CAT_TRUCK, {"carrier_name": "name", "carrier_contact": "contact_person",
+                             "carrier_tel": "phone", "carrier_fax": "fax"}),
     "fan": ("排風機", {"vendor_name": "name", "vendor_contact": "contact_person"}),
 }
 
@@ -1485,9 +1589,9 @@ def _inject(html, kind, order_id, title, db, pdf_path="pdf", rows=False, extra="
     vendors = vmap = None
     if kind in VENDOR_CFG:
         cat, vmap = VENDOR_CFG[kind]
-        vendors = [_vendor_dict(v) for v in
-                   db.query(ArrangementVendor).filter(ArrangementVendor.category == cat)
-                     .order_by(ArrangementVendor.name).limit(300).all()]
+        # 画面内で絞り込むため区分の全件を渡す。不要な項目は落として軽くする
+        vendors = [{k: e[k] for k in ("name", "branch", "contact_person", "phone", "fax")}
+                   for e in _vendor_entries(db, cat)]
     btns = ('<button class="w" onclick="efOp({add_row:true})">明細を追加</button>' if rows else '') + extra
     if kind == "fan":
         # 注文確認書と作業指示書は同じデータ。画面を行き来しても入力は共有される

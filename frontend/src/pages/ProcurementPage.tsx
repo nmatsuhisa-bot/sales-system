@@ -275,7 +275,8 @@ function PoDetail({ poId, onChange }: { poId: string; onChange: () => void }) {
   });
   useEffect(() => {
     reload();
-    procurementApi.listSuppliers()
+    // 発注先はTECHSに登録のある先だけ（手配専用の業者は候補に出さない）
+    procurementApi.listSuppliers(undefined, undefined, true)
       .then(r => setSuppliers(r.data))
       .catch(() => setErr('発注先の一覧を取得できませんでした。'));
     bomMasterApi.listUnits().then(r => setUnits(r.data || [])).catch(() => {});

@@ -383,7 +383,7 @@ function MaterialsTab() {
   const load = () => { setError('');
     return Promise.all([
       procurementApi.listMaterials(search || undefined),
-      procurementApi.listSuppliers(),
+      procurementApi.listSuppliers(undefined, undefined, true),
     ]).then(([m, s]) => { setMaterials(m.data); setSuppliers(s.data); })
       .catch((e) => { setError('部材マスタの取得に失敗しました（' + (e?.response?.status || e?.message || 'error') + '）。'); });
   };

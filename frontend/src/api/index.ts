@@ -147,11 +147,8 @@ export const arrangementApi = {
   hotelPdf: (orderId: string) => `${API_BASE}/arrangements/hotel/${orderId}/pdf`,
   // 宿泊予約票がまだ無い案件（出張手配の漏れ防止）
   hotelPending: (days = 120) => api.get('/arrangements/hotel-pending', { params: { days } }),
-  // 手配業者マスタ
+  // 手配で選ぶ業者（仕入先マスタ＋営業所の読み取り。登録は仕入先マスタで行う）
   listVendors: (category?: string, search?: string) => api.get('/arrangements/vendors', { params: { category, search } }),
-  createVendor: (data: any) => api.post('/arrangements/vendors', data),
-  updateVendor: (id: string, data: any) => api.put(`/arrangements/vendors/${id}`, data),
-  deleteVendor: (id: string) => api.delete(`/arrangements/vendors/${id}`),
   vendorCount: () => api.get('/arrangements/vendors/count'),
 };
 
@@ -247,11 +244,15 @@ export const procurementApi = {
   updateMaterialOrder: (id: string, data: any) => api.put(`/procurement/material-orders/${id}`, data),
   deleteMaterialOrder: (id: string) => api.delete(`/procurement/material-orders/${id}`),
   // 仕入先
-  listSuppliers: (search?: string, category?: string) =>
-    api.get('/procurement/suppliers', { params: { search, category } }),
+  listSuppliers: (search?: string, category?: string, techsOnly?: boolean) =>
+    api.get('/procurement/suppliers', { params: { search, category, techs_only: techsOnly || undefined } }),
   createSupplier: (data: any) => api.post('/procurement/suppliers', data),
   updateSupplier: (id: string, data: any) => api.put(`/procurement/suppliers/${id}`, data),
   deleteSupplier: (id: string) => api.delete(`/procurement/suppliers/${id}`),
+  // 仕入先の営業所（クレーン・運送は営業所ごとに連絡先が違う）
+  createBranch: (supplierId: string, data: any) => api.post(`/procurement/suppliers/${supplierId}/branches`, data),
+  updateBranch: (id: string, data: any) => api.put(`/procurement/branches/${id}`, data),
+  deleteBranch: (id: string) => api.delete(`/procurement/branches/${id}`),
   // ユニットから部材を一括取込（方式B）
   listBomUnits: (search?: string) => api.get('/procurement/units', { params: { search } }),
   previewUnitMaterials: (unitId: string) => api.get(`/procurement/units/${unitId}/materials`),
