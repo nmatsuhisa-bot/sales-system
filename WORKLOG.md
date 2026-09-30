@@ -15,6 +15,12 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-09-30 — Claude (Cowork) — /procurement 定期検証と修正
+**触ったファイル**: `backend/app/api/materials.py`, `WORKLOG.md`
+**ライブ検証**: 本番 API suppliers(150件超・P-14は 8177b5b で解消)/materials/material-orders(13件)/bom すべて 200、500 なし。
+**修正（P-33 中）**: 直前コミット(b8d556b/a73e765)で `@router.post("/materials")` が `_search_key` に付き、`create_material` がルート未登録に。→ `POST /materials`（部材新規登録）が 422/不動作。デコレータを create_material に戻した。py_compile 通過。
+**未対応の提案（継続）**: P-18、P-27。運用: 部材の検索キー列追加後 `POST /api/procurement/materials/rebuild-search-key` を1回実行。
+
 ### 2026-09-30 — Claude (Cowork) — ヘルプ（マニュアル）同期
 **触ったファイル**: `frontend/src/pages/HelpPage.tsx`, `WORKLOG.md`（機能コード変更なし）
 **反映**: (1) マスタ管理に追加された「仕入先マスタ」（TECHSコード・区分・支払条件・区分絞込/検索）を基本マスタに追記。(2) ファン作業指示書/検査記録書が保存先を共有し、排風機 注文確認書の入力（型式・製造番号・モータ仕様・出荷）を優先、BFQ様式は吸排気口を自動入力しない旨を手配書・帳票の手順に追記。

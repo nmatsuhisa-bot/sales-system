@@ -51,7 +51,6 @@ def list_materials(search: str = Query(None), limit: int = Query(None, ge=1, le=
     items = q.all()
     return [_mat_dict(m) for m in items]
 
-@router.post("/materials")
 def _search_key(name, code) -> str:
     """検索用キー。半角カナ・全角英数を揃えた「部材名 部材コード」"""
     return nfkc(f"{name or ''} {code or ''}").strip()
@@ -70,6 +69,7 @@ def rebuild_material_search_key(db: Session = Depends(get_db)):
     return {"ok": True, "updated": n}
 
 
+@router.post("/materials")
 def create_material(data: dict, db: Session = Depends(get_db)):
     m = MaterialMaster(
         material_code=data["material_code"],
