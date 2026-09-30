@@ -974,9 +974,15 @@ def _kv(label, value, lw='72px'):
             '<td>' + esc(value) + '</td></tr>')
 
 
-def _fan_spec_rows(ftype, F, spec, spec_wide):
+def _fan_spec_rows(ftype, F, spec, spec_wide, d=None, edit=False):
     """注文確認書の仕様ブロック。原紙の様式（BFQ / FS / PL）ごとに項目が違う。"""
     L = 'style="background:#f0f0f0"'
+
+    def U(key, unit):
+        """単位つきの欄。値が無ければ単位も出さない（空欄に「V」だけ残るのを防ぐ）。
+        編集中は入力の目安として単位を出す"""
+        has = bool(get_path(d or {}, key))
+        return F(key, ph=unit) + ((' ' + unit) if (has or edit) else '')
 
     def shaker_rows():
         """シェーカ欄。原紙どおり「見出し行＋値行」。
@@ -993,18 +999,21 @@ def _fan_spec_rows(ftype, F, spec, spec_wide):
             '<td colspan="5" style="font-size:10px">'
             '※有の場合、下図が標準の取付位置です。勝手違いが必要な場合はご指示願います。</td></tr>'
         )
+    # 原紙のモータ行: 出力 kW / 極数 P / 屋内外 / 取付（フランジ・脚）型 / メーカ
     motor = (F('spec_json.motor_kw') + ' kW　' + F('spec_json.motor_pole') + ' P　'
-             + F('spec_json.motor_type') + '　' + F('spec_json.motor_flange') + ' 型')
+             + F('spec_json.motor_type', ph='屋内/屋外') + '　'
+             + F('spec_json.motor_flange', ph='ﾌﾗﾝｼﾞ/脚') + ' 型　'
+             + F('spec_json.motor_maker', ph='日立'))
     small = '<br><span style="font-size:9px">%s</span>'
     if ftype == "BFQ":
         # 原紙（BFQ注文確認書）の並び・文言に合わせる。有無は「付／×」で表す
         return (
             spec('名称', F('product_name'), '型式', F('model'), '製造No.', F('serial_no'))
-            + spec('周波数', F('spec_json.frequency') + ' Hz', '動力', F('spec_json.voltage') + ' V',
-                   '制御', F('spec_json.control_voltage', ph='V'))
+            + spec('周波数', U('spec_json.frequency', 'Hz'), '動力', U('spec_json.voltage', 'V'),
+                   '制御', U('spec_json.control_voltage', 'V'))
             + spec('排風機', F('spec_json.fan_std'), '型式', F('spec_json.fan_model'),
-                   'ﾒｰｶ', F('spec_json.motor_maker'))
-            + spec('ﾓｰﾀ', motor, '備考', F('spec_json.motor_note'), '&nbsp;', '&nbsp;')
+                   '&nbsp;', '&nbsp;')
+            + spec_wide('ﾓｰﾀ', motor + '　　備考 ' + F('spec_json.motor_note'))
             + spec_wide('ｽｲｯﾁ',
                         'ﾓｰﾀﾌﾞﾚｰｶ ' + F('spec_json.switch_type')
                         + '　　ｼｪｰｶｰ用押しﾎﾞﾀﾝ ' + F('spec_json.shaker_switch')
@@ -1026,11 +1035,10 @@ def _fan_spec_rows(ftype, F, spec, spec_wide):
     # PL（プレートファン）と FS（ファンシュレッダー）は同じ様式
     return (
         spec('名称', F('product_name'), '駆動方式', F('drive_type'), '製造No.', F('serial_no'))
-        + spec('型式', F('model'), '仕様', F('spec_json.spec_note'),
-               'ﾒｰｶ', F('spec_json.motor_maker'))
-        + spec('周波数', F('spec_json.frequency') + ' Hz', '動力', F('spec_json.voltage') + ' V',
-               '制御', F('spec_json.control_voltage') + ' V')
-        + spec('ﾓｰﾀ', motor, '備考', F('spec_json.motor_note'), '&nbsp;', '&nbsp;')
+        + spec('型式', F('model'), '仕様', F('spec_json.spec_note'), '&nbsp;', '&nbsp;')
+        + spec('周波数', U('spec_json.frequency', 'Hz'), '動力', U('spec_json.voltage', 'V'),
+               '制御', U('spec_json.control_voltage', 'V'))
+        + spec_wide('ﾓｰﾀ', motor + '　　備考 ' + F('spec_json.motor_note'))
         + spec_wide('仕様', F('spec_json.spec_place') + '（屋内 / 屋外）※ご確認ください')
         + spec_wide('吸排気口',
                     '吸 φ' + F('spec_json.intake_dia') + '　' + F('spec_json.intake_flange')
@@ -1124,7 +1132,7 @@ def fan_order_pdf(order_id: str, format: str = "html", mode: str = "", db: Sessi
              '工事：井上工事】')
         + '</div>'
         + '<table style="margin-bottom:6px">'
-        + _fan_spec_rows(ftype, F, spec, spec_wide)
+        + _fan_spec_rows(ftype, F, spec, spec_wide, d, M == 'edit')
         + spec('指定色', F('spec_json.paint_color'), '色番号', F('spec_json.color_no'), '&nbsp;', '&nbsp;')
         + spec_wide('備考', F('notes', block=True))
         + '</table>'

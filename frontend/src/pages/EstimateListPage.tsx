@@ -70,14 +70,6 @@ export default function EstimateListPage() {
     window.open(url, '_blank');
   };
 
-  const handleFanInstruction = (id: string) => {
-    window.open(`${API_BASE}/estimate-quotations/${id}/fan-instruction-pdf?mode=edit`, '_blank');
-  };
-
-  const handleFanInspection = (id: string) => {
-    window.open(`${API_BASE}/estimate-quotations/${id}/fan-inspection-pdf?mode=edit`, '_blank');
-  };
-
   const handleControlPanel = (id: string) => {
     window.open(`${API_BASE}/estimate-quotations/${id}/control-panel-pdf?mode=edit`, '_blank');
   };
@@ -219,14 +211,6 @@ export default function EstimateListPage() {
                       </button>
                     </div>
                     <div className="flex gap-1">
-                      <button onClick={() => handleFanInstruction(q.id)}
-                        className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded hover:bg-blue-200">
-                        ファン指示書
-                      </button>
-                      <button onClick={() => handleFanInspection(q.id)}
-                        className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded hover:bg-orange-200">
-                        検査記録
-                      </button>
                       <button onClick={() => handleControlPanel(q.id)}
                         className="text-xs bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded hover:bg-gray-200">
                         制御盤

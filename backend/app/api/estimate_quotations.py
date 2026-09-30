@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc, or_, func
 from typing import Optional, List
 from pydantic import BaseModel
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import io, uuid, collections
 import re
 
@@ -2364,6 +2364,9 @@ def delete_order_ticket_file(file_id: str, db: Session = Depends(get_db)):
 SHIP_METHODS = ("トラック出荷", "宅配出荷", "井上納品", "引取")
 FORM_TITLES = {"fan-instruction": "ファン作業指示書", "fan-inspection": "ファン検査記録書",
                "control-panel": "制御盤作業指示書"}
+# 検査項目ごとの「出荷日の何日前に仕上げるか」。原紙（作業伝票シート）の逆算日数
+FAN_INSPECTION_LEAD = [28, 28, 19, 19, 19, 19, 19, 19, 17, 15, 15, 15, 14, 14, 14, 1, 1]
+
 FAN_INSPECTION_ITEMS = [
     ('切削', '羽根車ボス外形寸法'), ('切削', '羽根車ボス穴寸法'),
     ('切削', 'シャフト羽根車側寸法'), ('切削', 'シャフトプーリ側寸法'),
@@ -2516,7 +2519,14 @@ def _fan_defaults(q, db=None):
         volt = _pick_s(fsj.get("voltage"), volt)
         if fa.ship_date:
             ship = fa.ship_date
+    # 加工納期は出荷日からの逆算（原紙と同じ日数）。出荷日が無ければ空欄
+    due = {}
+    if ship:
+        for n, days in enumerate(FAN_INSPECTION_LEAD):
+            d = ship - timedelta(days=days)
+            due["insp_%d_due" % n] = f"{d.month}/{d.day}"
     return {
+        **due,
         "issue_date": q.issue_date.isoformat() if q.issue_date else "",
         "sales_person_name": q.sales_person_name or "",
         "creator_name": q.created_by_name or "",

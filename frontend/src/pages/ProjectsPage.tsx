@@ -449,6 +449,21 @@ export default function ProjectsPage() {
                             className="text-xs bg-teal-100 text-teal-700 px-1 py-0.5 rounded hover:bg-teal-200">排風機</button>
                           <button onClick={() => window.open(`${API_BASE}/arrangements/hotel/${o.id}/pdf?mode=edit`, '_blank')}
                             className="text-xs bg-green-100 text-green-700 px-1 py-0.5 rounded hover:bg-green-200">宿泊</button>
+                          {/* ファンの作業指示書・検査記録書は採用見積を元に作る（見積管理から案件管理へ移動） */}
+                          <button
+                            onClick={() => o.quotation_id
+                              ? window.open(`${API_BASE}/estimate-quotations/${o.quotation_id}/fan-instruction-pdf?mode=edit`, '_blank')
+                              : alert('先に見積を採用してください（採用見積の内容を元に作成します）')}
+                            className={`text-xs px-1 py-0.5 rounded ${o.quotation_id
+                              ? 'bg-sky-100 text-sky-700 hover:bg-sky-200' : 'bg-gray-100 text-gray-400'}`}
+                            title={o.quotation_id ? 'ファン作業指示書' : '採用見積がありません'}>ファン指示書</button>
+                          <button
+                            onClick={() => o.quotation_id
+                              ? window.open(`${API_BASE}/estimate-quotations/${o.quotation_id}/fan-inspection-pdf?mode=edit`, '_blank')
+                              : alert('先に見積を採用してください（採用見積の内容を元に作成します）')}
+                            className={`text-xs px-1 py-0.5 rounded ${o.quotation_id
+                              ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-gray-100 text-gray-400'}`}
+                            title={o.quotation_id ? 'ファン検査記録書' : '採用見積がありません'}>検査記録</button>
                           <button onClick={() => navigate('/procurement', { state: { childOrder: { id: o.id, child_no: o.child_no, project_name: o.project_name, customer_name: o.customer_name, sales_person_name: o.sales_person_name, sales_date: o.sales_date, status: o.status } } })}
                             className="text-xs bg-indigo-100 text-indigo-700 px-1 py-0.5 rounded hover:bg-indigo-200">発注</button>
                         </div>
