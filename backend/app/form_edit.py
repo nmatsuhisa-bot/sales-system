@@ -226,7 +226,6 @@ EDIT_JS = r"""
   document.addEventListener('change', function(e){
     if(e.target.closest && e.target.closest('[data-k]')) dirty = true;
   });
-  });
   document.querySelectorAll('[data-toggle]').forEach(function(el){
     el.addEventListener('click', function(){
       var o = el.getAttribute('data-toggle').split(',');
