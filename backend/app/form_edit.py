@@ -185,22 +185,26 @@ EDIT_JS = r"""
     else if(e.key==='Escape'){ efVClose(); e.target.blur(); }
   };
   window.efVClose = function(){ var b = document.getElementById('ef-vl'); if(b) b.style.display='none'; };
+  // 欄は帳票によって contenteditable だったり input だったりする。同じ項目が
+  // 複数あることもあるため、担当者の反映と同じやり方で全部に書き込む
+  function setField(k, val){
+    document.querySelectorAll('[data-k="'+k+'"]').forEach(function(el){
+      if(el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') el.value = val;
+      else el.innerText = val;
+    });
+  }
   // 自社担当者を選ぶ（クレーン依頼書の現地担当者欄など）
   window.efStaff = function(sel){
     var v = CFG.staff && CFG.staff[sel.value]; if(!v) return;
     Object.keys(CFG.staff_map||{}).forEach(function(k){
-      document.querySelectorAll('[data-k="'+k+'"]').forEach(function(el){
-        var val = v[CFG.staff_map[k]] || '';
-        if(el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') el.value = val;
-        else el.innerText = val;
-      });
+      setField(k, v[CFG.staff_map[k]] || '');
     });
     dirty = true; sel.selectedIndex = 0; msg('担当者を反映しました（未保存）');
   };
   window.efVendor = function(i){
     var v = CFG.vendors && CFG.vendors[i]; if(!v) return;
     Object.keys(CFG.vendor_map||{}).forEach(function(k){
-      var el = document.querySelector('[data-k="'+k+'"]'); if(el){ el.innerText = v[CFG.vendor_map[k]] || ''; }
+      setField(k, v[CFG.vendor_map[k]] || '');
     });
     var q = document.getElementById('ef-vq'); if(q){ q.value=''; q.blur(); }
     efVClose(); dirty = true; msg('業者を反映しました（未保存）');
