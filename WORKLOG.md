@@ -15,6 +15,10 @@
 
 ## 完了ログ（新しい順）
 
+### 2026-10-01 — Claude (Cowork) — ヘルプ（マニュアル）同期
+**触ったファイル**: `frontend/src/pages/HelpPage.tsx`, `WORKLOG.md`（機能コード変更なし）
+**反映**: 商社・納入先・仕入先マスタが「取引先マスタ」に統合（区分を複数持てる／仕入の種類／拠点＝営業所・工場・支店にコード・用途を持たせる）されたのに合わせ、マスタ管理の手順・マスタ説明・手配書の注記を更新。
+
 ### 2026-09-30 — Claude (Cowork) — /procurement 定期検証と修正
 **触ったファイル**: `backend/app/api/materials.py`, `WORKLOG.md`
 **ライブ検証**: 本番 API suppliers(150件超・P-14は 8177b5b で解消)/materials/material-orders(13件)/bom すべて 200、500 なし。
