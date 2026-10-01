@@ -1776,6 +1776,22 @@ def setup_arrangement_forms(db: Session = Depends(get_db)):
         "ALTER TABLE crane_arrangements ADD COLUMN IF NOT EXISTS site_staff_phone VARCHAR(50)",
         # 注文書の「ユニット/備考」欄
         "ALTER TABLE material_orders ADD COLUMN IF NOT EXISTS unit_label VARCHAR(200)",
+        # 取引先マスタ（商社・納入先を仕入先マスタへ統合し、役割で見分ける）
+        "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS is_supplier BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS is_agency BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS is_customer BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS trade_terms VARCHAR(200)",
+        "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS customer_rank VARCHAR(50)",
+        "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS prefecture VARCHAR(50)",
+        "UPDATE suppliers SET is_supplier = TRUE WHERE is_supplier IS NULL",
+        "UPDATE suppliers SET is_agency = FALSE WHERE is_agency IS NULL",
+        "UPDATE suppliers SET is_customer = FALSE WHERE is_customer IS NULL",
+        "ALTER TABLE supplier_branches ADD COLUMN IF NOT EXISTS code VARCHAR(50)",
+        "ALTER TABLE supplier_branches ADD COLUMN IF NOT EXISTS role VARCHAR(20)",
+        "CREATE INDEX IF NOT EXISTS ix_supplier_branches_code ON supplier_branches (code)",
+        # 手配業者から移した営業所は仕入・手配で使う拠点
+        "UPDATE supplier_branches SET role = 'supplier' "
+        "WHERE role IS NULL AND source_tag = 'arrangement_vendors'",
     ]
     done = []
     for sql in stmts:

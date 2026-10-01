@@ -105,6 +105,14 @@ class Supplier(Base):
     closing_day = Column(Integer)                    # 締め日
     tax_type = Column(String(50))                    # 税区分（外税/内税 等）
     notes = Column(Text)
+    # 役割（複数持てる）。同じ会社が「納入先であり商社」「納入先であり仕入先」になるため、
+    # 1社1行にして役割を立てる。旧・商社マスタ／納入先マスタはここへ統合した
+    is_supplier = Column(Boolean, default=True)      # 仕入先（発注・支払の相手）
+    is_agency = Column(Boolean, default=False)       # 商社（代理店）
+    is_customer = Column(Boolean, default=False)     # 納入先（お客様）
+    trade_terms = Column(String(200))                # 取引条件（商社マスタ由来）
+    customer_rank = Column(String(50))               # 顧客ランク（納入先マスタ由来）
+    prefecture = Column(String(50))
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -120,7 +128,13 @@ class SupplierBranch(Base):
     __tablename__ = "supplier_branches"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     supplier_id = Column(UUID(as_uuid=True), ForeignKey("suppliers.id"), index=True)
-    name = Column(String(100))                 # 営業所名（本社ならその旨）
+    # 拠点のコード（TECHSの仕入先CD・得意先CD等）。案件が拠点コードで納入先を
+    # 指しているため、統合後も同じコードで引けるようにする
+    code = Column(String(50), index=True)
+    name = Column(String(100))                 # 営業所・工場・支店の名前（本社ならその旨）
+    # その拠点をどの用途で選ぶか。supplier=仕入・手配 / customer=納入先 / agency=商社。
+    # 空なら用途を問わない（どの一覧にも出る）
+    role = Column(String(20))
     contact_person = Column(String(100))
     phone = Column(String(50))
     fax = Column(String(50))

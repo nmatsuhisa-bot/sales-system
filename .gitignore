@@ -28,3 +28,6 @@ backend/tests/_equipment*.db
 
 # テスト実行でできる一時DB
 backend/tests/_users.db
+
+# ローカル確認用（本番と無関係・共有しない）
+_dev/
