@@ -497,7 +497,22 @@ ROLE_COLUMN = {"supplier": Supplier.is_supplier, "agency": Supplier.is_agency,
                "customer": Supplier.is_customer}
 
 
-BRANCH_FIELDS = ("code", "name", "contact_person", "phone", "fax", "postal_code", "address", "notes")
+BRANCH_FIELDS = ("code", "name", "role", "contact_person", "phone", "fax", "postal_code", "address", "notes")
+BRANCH_ROLES = ("supplier", "agency", "customer")   # 空＝用途を問わない
+
+
+def _set_branch_fields(b: SupplierBranch, data: dict):
+    for f in BRANCH_FIELDS:
+        if f not in data:
+            continue
+        v = data[f]
+        if f == "role":
+            v = (v or "").strip() or None
+            if v is not None and v not in BRANCH_ROLES:
+                raise HTTPException(400, "拠点の用途は supplier / agency / customer のいずれかです")
+        elif isinstance(v, str):
+            v = nfkc(v)
+        setattr(b, f, v)
 
 
 def _branch_dict(b: SupplierBranch) -> dict:
@@ -582,9 +597,7 @@ def create_branch(supplier_id: str, data: dict, db: Session = Depends(get_db)):
     if not db.query(Supplier).filter(Supplier.id == supplier_id).first():
         raise HTTPException(404, "仕入先が見つかりません")
     b = SupplierBranch(supplier_id=supplier_id)
-    for f in BRANCH_FIELDS:
-        if f in data:
-            setattr(b, f, nfkc(data[f]) if isinstance(data[f], str) else data[f])
+    _set_branch_fields(b, data)
     db.add(b); db.commit(); db.refresh(b)
     return _branch_dict(b)
 
@@ -594,9 +607,7 @@ def update_branch(branch_id: str, data: dict, db: Session = Depends(get_db)):
     b = db.query(SupplierBranch).filter(SupplierBranch.id == branch_id).first()
     if not b:
         raise HTTPException(404, "営業所が見つかりません")
-    for f in BRANCH_FIELDS:
-        if f in data:
-            setattr(b, f, nfkc(data[f]) if isinstance(data[f], str) else data[f])
+    _set_branch_fields(b, data)
     db.commit(); db.refresh(b)
     return _branch_dict(b)
 

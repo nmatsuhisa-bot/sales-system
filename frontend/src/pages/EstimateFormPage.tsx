@@ -972,7 +972,7 @@ export default function EstimateFormPage() {
             {!bfq ? (
               <div className="text-sm text-gray-500 py-6 text-center">
                 BFQパターンマスタが未投入です。<br />
-                <span className="text-xs">管理者に <code>/setup-bfq-patterns</code> の実行を依頼してください。</span>
+                <span className="text-xs">システム管理者に BFQ パターンの登録（/setup-bfq-patterns、管理者ログインが必要）を依頼してください。</span>
               </div>
             ) : (
               <div className="space-y-3">

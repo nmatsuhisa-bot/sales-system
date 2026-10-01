@@ -1,6 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import auth, customers, products, quotations, orders, purchase_orders, inventory, reports, projects, masters, estimate_quotations, arrangements, materials as procurement_api, manufacturing, process_schedule, bom_master, team_schedule, costing, equipment
+# 業務データやアカウントを書き換える保守用の経路は管理者のログインを必須にする。
+# ログインなしでURLを開くだけで、既知の合言葉のアカウントが作られたり、金額が
+# 一括で再計算されたりしていた（列を足すだけの setup-* はそのまま）
+from app.api.auth import require_admin
 
 app = FastAPI(
     title="販売管理・見積管理システム API",
@@ -68,7 +72,7 @@ def start_weekly_schedule_digest():
 
 
 @app.get("/seed-users")
-def seed_users():
+def seed_users(_admin=Depends(require_admin)):
     """初期ユーザーを投入（後藤・國立・井上）"""
     import bcrypt
     from app.db.models import SessionLocal, User
@@ -116,7 +120,7 @@ def setup_add_is_active():
 
 
 @app.get("/setup-fix-duplicate-tickets")
-def setup_fix_duplicate_tickets():
+def setup_fix_duplicate_tickets(_admin=Depends(require_admin)):
     from app.db.models import engine
     from sqlalchemy import text
     with engine.connect() as conn:
@@ -139,7 +143,7 @@ def setup_fix_duplicate_tickets():
 
 
 @app.get("/sync-final-order-amounts")
-def sync_final_order_amounts():
+def sync_final_order_amounts(_admin=Depends(require_admin)):
     """全案件の最終受注金額を子ID.quotation_total の合計で一括再計算"""
     from app.db.models import SessionLocal, Project, ProjectOrder
     from sqlalchemy import func
@@ -324,7 +328,7 @@ def setup_order_ticket_shipping():
 
 
 @app.get("/migrate-amounts-to-net")
-def migrate_amounts_to_net(apply: bool = False):
+def migrate_amounts_to_net(apply: bool = False, _admin=Depends(require_admin)):
     """既存の案件金額・受注票金額を税込→税抜（見積の subtotal+labor_total）へ再計算する。
     見積書の総額(total_amount)は税込のまま。?apply=true で実行、既定はドライラン。
     見積明細を正とするため再実行しても同じ結果になる。"""
@@ -509,7 +513,7 @@ def setup_function_roles():
 
 
 @app.get("/recalc-without-labor")
-def recalc_without_labor():
+def recalc_without_labor(_admin=Depends(require_admin)):
     """社内工数を見積金額から除外する方針変更(2026-07-19)に伴う既存データの再計算。
 
     見積の total_amount / tax_amount を「機器・工事 − 出精値引」で計算し直し、
@@ -561,7 +565,7 @@ def setup_approval_tokens():
 
 
 @app.get("/setup-approver-users")
-def setup_approver_users():
+def setup_approver_users(_admin=Depends(require_admin)):
     """検印承認者3名（柴田・江里口・井上社長）をテスト用に登録する。
 
     メールは一意制約があるため、Gmailのエイリアス（+付き）で分けている。
@@ -640,7 +644,7 @@ def setup_project_ticket_type():
 
 
 @app.get("/setup-bfq-patterns")
-def setup_bfq_patterns():
+def setup_bfq_patterns(_admin=Depends(require_admin)):
     """BFQ見積パターン（系列/本体/排風型式/オプション）テーブル作成＋マスタ投入。
     出典: 「2026.2.9_BFQ見積パターン.xlsx」BFQシート。再実行時は洗い替え。"""
     from app.db.models import (
@@ -840,7 +844,7 @@ def setup_order_ticket_fields():
 
 
 @app.get("/setup-child-no-letters")
-def setup_child_no_letters():
+def setup_child_no_letters(_admin=Depends(require_admin)):
     """既存の子ID枝番 _01/_02… を _A/_B… に変換し、child_noを参照する全テーブルを一括更新"""
     from app.db.models import engine, SessionLocal, ProjectOrder
     from app.api.projects import _num_to_letters
