@@ -244,8 +244,10 @@ export const procurementApi = {
   updateMaterialOrder: (id: string, data: any) => api.put(`/procurement/material-orders/${id}`, data),
   deleteMaterialOrder: (id: string) => api.delete(`/procurement/material-orders/${id}`),
   // 仕入先
-  listSuppliers: (search?: string, category?: string, techsOnly?: boolean) =>
-    api.get('/procurement/suppliers', { params: { search, category, techs_only: techsOnly || undefined } }),
+  listSuppliers: (search?: string, category?: string, techsOnly?: boolean, role?: string) =>
+    api.get('/procurement/suppliers', {
+      params: { search, category, techs_only: techsOnly || undefined, role: role || undefined },
+    }),
   createSupplier: (data: any) => api.post('/procurement/suppliers', data),
   updateSupplier: (id: string, data: any) => api.put(`/procurement/suppliers/${id}`, data),
   deleteSupplier: (id: string) => api.delete(`/procurement/suppliers/${id}`),

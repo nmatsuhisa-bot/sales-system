@@ -85,9 +85,12 @@ def _vendor_entries(db: Session, category=None, search=None, limit=1000):
     sups = q.order_by(Supplier.name).limit(limit).all()
     branches = {}
     if sups:
+        # 納入先の工場など、手配では選ばない拠点は外す（用途が空の拠点は出す）
         for b in (db.query(SupplierBranch)
                     .filter(SupplierBranch.supplier_id.in_([s.id for s in sups]),
-                            SupplierBranch.is_active == True)  # noqa: E712
+                            SupplierBranch.is_active == True,  # noqa: E712
+                            or_(SupplierBranch.role.is_(None),
+                                SupplierBranch.role == "supplier"))
                     .order_by(SupplierBranch.name).all()):
             branches.setdefault(str(b.supplier_id), []).append(b)
     digits = lambda x: re.sub(r"[^0-9]", "", x or "")
@@ -140,6 +143,8 @@ def _same_contact(v: ArrangementVendor, s: Supplier) -> bool:
 
 MERGE_TAG = "arrangement_vendors"
 MERGE_NOTE = "手配業者マスタから移行"
+PARTNER_TAG = "masters_partners"
+PARTNER_NOTE = "商社・納入先マスタから移行"
 
 
 @router.post("/merge-vendors")
@@ -1713,6 +1718,123 @@ def edit_save(kind: str, order_id: str, body: dict, db: Session = Depends(get_db
         setattr(rec, k, v)
     db.commit()
     return {"ok": True, "items": len(data.get("items_json") or [])}
+
+
+@router.post("/merge-partners")
+def merge_partners(dry_run: bool = True, reset: bool = False, db: Session = Depends(get_db)):
+    """旧・商社マスタと納入先マスタを取引先マスタ（仕入先マスタ）へ寄せる。
+
+    同じ会社が「納入先であり商社」になりうるため、会社は1行にして役割を立てる。
+    工場・支店は拠点として会社にぶら下げ、元のコードを拠点に持たせる
+    （案件が納入先コードで拠点を指しているため、統合後も同じコードで引ける）。
+    何度実行しても結果は同じ。reset=true で前回の移行分を消してからやり直す。
+    """
+    from app.db.models import Agency, DeliveryDestination
+    undone = {}
+    if reset:
+        sup_ids = [s.id for s in db.query(Supplier)
+                   .filter(Supplier.notes == PARTNER_NOTE,
+                           Supplier.supplier_code.like("C%")).all()]
+        cond = SupplierBranch.source_tag == PARTNER_TAG
+        if sup_ids:
+            cond = or_(cond, SupplierBranch.supplier_id.in_(sup_ids))
+        nb = db.query(SupplierBranch).filter(cond).delete(synchronize_session=False)
+        db.flush()
+        ns = (db.query(Supplier).filter(Supplier.id.in_(sup_ids)).delete(synchronize_session=False)
+              if sup_ids else 0)
+        db.query(Supplier).filter(Supplier.is_agency == True).update(  # noqa: E712
+            {"is_agency": False}, synchronize_session=False)
+        db.query(Supplier).filter(Supplier.is_customer == True).update(  # noqa: E712
+            {"is_customer": False}, synchronize_session=False)
+        db.flush()
+        undone = {"branches_deleted": nb, "suppliers_deleted": ns}
+
+    sup_by_key = {}
+    for s in sorted(db.query(Supplier).all(), key=lambda x: x.supplier_code or ""):
+        for nm in (s.name, s.short_name):
+            k = _company_key(nm)
+            if k:
+                sup_by_key.setdefault(k, s)
+    have_branch = {(str(b.supplier_id), (b.name or "").strip()): b
+                   for b in db.query(SupplierBranch).all()}
+    used_codes = {c for (c,) in db.query(Supplier.supplier_code).all()}
+    seq = 0
+
+    def new_code():
+        nonlocal seq
+        while True:
+            seq += 1
+            c = "C%04d" % seq
+            if c not in used_codes:
+                used_codes.add(c)
+                return c
+
+    stat = {"agencies": 0, "destinations": 0, "companies_created": 0,
+            "roles_set": 0, "branches_created": 0, "branches_coded": 0}
+    samples = []
+
+    ROLE_OF = {"is_agency": "agency", "is_customer": "customer"}
+
+    def take(name, site, code, role, vals):
+        """1件を取引先マスタへ寄せる。拠点があれば拠点に元のコードを持たせる"""
+        key = _company_key(name)
+        if not key:
+            return
+        s = sup_by_key.get(key)
+        if s is None:
+            # 拠点つきなら会社のコードは採番し、元のコードは拠点に持たせる
+            s = Supplier(supplier_code=(new_code() if site else code),
+                         name=(name or "").strip(), notes=PARTNER_NOTE,
+                         is_supplier=False, is_agency=False, is_customer=False, is_active=True)
+            db.add(s)
+            db.flush()
+            sup_by_key[key] = s
+            stat["companies_created"] += 1
+            if len(samples) < 20:
+                samples.append("新規 %s / %s" % (s.supplier_code, s.name))
+        if not getattr(s, role):
+            setattr(s, role, True)
+            stat["roles_set"] += 1
+        for f, v in vals.items():          # 空欄だけ埋める
+            if (v or "") and not (getattr(s, f) or "").strip():
+                setattr(s, f, v)
+        if not site and (s.supplier_code or "") != code:
+            # 既にある会社に寄せたが、案件はこの役割の元コードで相手を指している。
+            # コードが引けなくなるので「本社」の拠点として残す
+            site = "本社"
+        if not site:
+            return
+        b = have_branch.get((str(s.id), site))
+        if b is None:
+            b = SupplierBranch(supplier_id=s.id, name=site, code=code,
+                               role=ROLE_OF[role], source_tag=PARTNER_TAG, is_active=True)
+            db.add(b)
+            db.flush()
+            have_branch[(str(s.id), site)] = b
+            stat["branches_created"] += 1
+        elif not (b.code or "").strip():
+            b.code = code                   # 既にある拠点に元のコードを与える
+            stat["branches_coded"] += 1
+
+    for a in db.query(Agency).filter(Agency.is_active == True).all():  # noqa: E712
+        stat["agencies"] += 1
+        take(a.agency_name, (a.branch_name or "").strip(), a.agency_code, "is_agency",
+             {"trade_terms": a.trade_terms, "address": a.address,
+              "contact_person": a.contact_person, "phone": a.phone})
+    for d in db.query(DeliveryDestination).filter(
+            DeliveryDestination.is_active == True).all():  # noqa: E712
+        stat["destinations"] += 1
+        take(d.company_name, (d.factory_name or "").strip(), d.customer_id, "is_customer",
+             {"address": d.address, "prefecture": d.prefecture, "postal_code": d.postal_code,
+              "phone": d.tel, "fax": d.fax, "contact_person": d.contact_person,
+              "customer_rank": d.customer_rank, "notes": d.notes})
+
+    result = dict(stat, dry_run=dry_run, reset=undone, samples=samples)
+    if dry_run:
+        db.rollback()
+    else:
+        db.commit()
+    return result
 
 
 # =============================================

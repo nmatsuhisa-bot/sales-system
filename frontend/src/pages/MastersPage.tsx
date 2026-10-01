@@ -1,14 +1,24 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { mastersApi, estimateApi, procurementApi } from '../api';
+import { estimateApi, procurementApi } from '../api';
 import UsersPage from './UsersPage';
-import { Plus, Edit2, Trash2, Search, Building2, MapPin, Users, FileText, ShoppingBag } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Building2, Users, FileText } from 'lucide-react';
 
-type Tab = 'agencies' | 'destinations' | 'suppliers' | 'users' | 'texts';
-const TAB_KEYS: Tab[] = ['agencies', 'destinations', 'suppliers', 'users', 'texts'];
-// 仕入先の区分（TECHSの支払先リストの備考に合わせる）
+type Tab = 'partners' | 'users' | 'texts';
+const TAB_KEYS: Tab[] = ['partners', 'users', 'texts'];
+// 取引先の役割。1社が複数持てる（納入先であり商社、納入先であり仕入先、など）
+const ROLES: [string, string][] = [
+  ['is_supplier', '仕入先'],
+  ['is_agency', '商社'],
+  ['is_customer', '納入先'],
+];
+// 仕入先の種類（TECHSの支払先リストの備考に合わせる）
 // クレーン業者・運送業者もここに含める（旧・手配業者マスタを統合した）
 const SUPPLIER_CATEGORIES = ['運送(トラック)', 'クレーン・作業車', '購入品'];
+// 拠点の用途。空なら用途を問わない
+const BRANCH_ROLES: [string, string][] = [
+  ['', 'すべて'], ['supplier', '仕入・手配'], ['agency', '商社'], ['customer', '納入先'],
+];
 
 // 見積書の定型文。キーと画面に出す名前
 const TEXT_LABELS: [string, string][] = [
@@ -34,22 +44,43 @@ const TEXT_LABELS: [string, string][] = [
   ['company_tel', 'TEL・FAX'],
   ['company_email', 'E-mail'],
 ];
-// 営業所の入力欄。仕入先と同じく外で定義する（中で定義するとフォーカスが飛ぶ）
+// 拠点（営業所・工場・支店）の入力欄。中で定義するとフォーカスが飛ぶので外に置く
 function BranchRow({ b, i, onChange, onRemove }: any) {
   const set = (k: string, v: string) => onChange(i, { ...b, [k]: v, _dirty: true });
   const cls = 'border border-gray-200 rounded px-2 py-1 text-sm';
   return (
     <div className="flex gap-2 items-center">
       <input value={b.name || ''} onChange={e => set('name', e.target.value)}
-        placeholder="営業所名" className={cls + ' w-32'} />
+        placeholder="営業所・工場名" className={cls + ' w-32'} />
+      <input value={b.code || ''} onChange={e => set('code', e.target.value)}
+        placeholder="コード" className={cls + ' w-24 font-mono text-xs'} />
+      <select value={b.role || ''} onChange={e => set('role', e.target.value)}
+        className={cls + ' w-28'}>
+        {BRANCH_ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
       <input value={b.contact_person || ''} onChange={e => set('contact_person', e.target.value)}
-        placeholder="担当" className={cls + ' w-24'} />
+        placeholder="担当" className={cls + ' w-20'} />
       <input value={b.phone || ''} onChange={e => set('phone', e.target.value)}
         placeholder="TEL" className={cls + ' flex-1 min-w-0'} />
       <input value={b.fax || ''} onChange={e => set('fax', e.target.value)}
         placeholder="FAX" className={cls + ' flex-1 min-w-0'} />
       <button onClick={() => onRemove(i)} className="text-red-300 hover:text-red-500 shrink-0"
-        title="この営業所を消す"><Trash2 size={14} /></button>
+        title="この拠点を消す"><Trash2 size={14} /></button>
+    </div>
+  );
+}
+
+// 役割のチェックボックス
+function RoleChecks({ form, setForm }: any) {
+  return (
+    <div className="flex gap-4 flex-wrap">
+      {ROLES.map(([k, label]) => (
+        <label key={k} className="flex items-center gap-1.5 text-sm cursor-pointer">
+          <input type="checkbox" checked={!!form[k]} className="rounded"
+            onChange={e => setForm((f: any) => ({ ...f, [k]: e.target.checked }))} />
+          {label}
+        </label>
+      ))}
     </div>
   );
 }
@@ -72,12 +103,11 @@ export default function MastersPage() {
   // ?tab=users のように URL で開くタブを指定できる（旧「ユーザー管理」メニューからの移動先）
   const [params] = useSearchParams();
   const initialTab = params.get('tab') as Tab | null;
-  const [tab, setTab] = useState<Tab>(initialTab && TAB_KEYS.includes(initialTab) ? initialTab : 'agencies');
+  const [tab, setTab] = useState<Tab>(initialTab && TAB_KEYS.includes(initialTab) ? initialTab : 'partners');
   const [usersOpenSignal, setUsersOpenSignal] = useState(0);
-  const [agencies, setAgencies] = useState<any[]>([]);
-  const [destinations, setDestinations] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [supplierCat, setSupplierCat] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');     // 役割での絞り込み
   // TECHS登録の有無での絞り込み（'' すべて / 'yes' 登録あり / 'no' 未登録）
   const [techsFilter, setTechsFilter] = useState('');
   const [search, setSearch] = useState('');
@@ -109,35 +139,29 @@ export default function MastersPage() {
   };
 
   const loadAll = () => {
-    mastersApi.listAgencies(search || undefined).then(r => setAgencies(r.data));
-    mastersApi.listDeliveryDestinations(search || undefined).then(r => setDestinations(r.data));
-    procurementApi.listSuppliers(search || undefined, supplierCat || undefined)
+    procurementApi.listSuppliers(search || undefined, supplierCat || undefined,
+                                 false, roleFilter || undefined)
       .then(r => setSuppliers(r.data)).catch(() => {});
   };
 
-  useEffect(() => { loadAll(); }, [search, supplierCat]);
+  useEffect(() => { loadAll(); }, [search, supplierCat, roleFilter]);
 
   const shownSuppliers = suppliers.filter(s =>
     techsFilter === '' || (techsFilter === 'yes' ? s.has_techs : !s.has_techs));
 
   const handleSave = async () => {
     try {
-      if (tab === 'agencies') {
-        if (modal.id) await mastersApi.updateAgency(modal.id, form);
-        else await mastersApi.createAgency(form);
-      } else if (tab === 'destinations') {
-        if (modal.id) await mastersApi.updateDeliveryDestination(modal.id, form);
-        else await mastersApi.createDeliveryDestination(form);
-      } else if (tab === 'suppliers') {
+      if (tab === 'partners') {
         const { branches = [], _removed = [], ...body } = form;
         const saved = modal.id
           ? (await procurementApi.updateSupplier(modal.id, body)).data
           : (await procurementApi.createSupplier(body)).data;
-        // 営業所は仕入先が確定してから。新規行・直した行・消した行だけを送る
+        // 拠点は取引先が確定してから。新規行・直した行・消した行だけを送る
         for (const id of _removed) await procurementApi.deleteBranch(id);
         for (const b of branches) {
           if (!(b.name || '').trim()) continue;
-          const body2 = { name: b.name, contact_person: b.contact_person, phone: b.phone, fax: b.fax };
+          const body2 = { name: b.name, code: b.code || null, role: b.role || null,
+                          contact_person: b.contact_person, phone: b.phone, fax: b.fax };
           if (b.id) { if (b._dirty) await procurementApi.updateBranch(b.id, body2); }
           else await procurementApi.createBranch(saved.id, body2);
         }
@@ -150,16 +174,14 @@ export default function MastersPage() {
   };
 
   const handleDelete = async (item: any) => {
-    if (!confirm('削除しますか？')) return;
-    if (tab === 'agencies') await mastersApi.deleteAgency(item.id);
-    else if (tab === 'destinations') await mastersApi.deleteDeliveryDestination(item.id);
-    else if (tab === 'suppliers') await procurementApi.deleteSupplier(item.id);
+    if (!confirm('この取引先を無効にします。よろしいですか？')) return;
+    await procurementApi.deleteSupplier(item.id);
     loadAll();
   };
 
   const openNew = () => {
     if (tab === 'users') { setUsersOpenSignal(n => n + 1); return; }
-    setForm(tab === 'suppliers' ? { branches: [], _removed: [] } : {});
+    setForm({ branches: [], _removed: [], is_supplier: true });
     setModal({});
   };
   const openEdit = (item: any) => {
@@ -167,7 +189,7 @@ export default function MastersPage() {
     setModal(item);
   };
 
-  // モーダル内の営業所の編集
+  // モーダル内の拠点の編集
   const setBranch = (i: number, b: any) =>
     setForm((f: any) => ({ ...f, branches: f.branches.map((x: any, n: number) => (n === i ? b : x)) }));
   const addBranch = () =>
@@ -180,9 +202,7 @@ export default function MastersPage() {
     });
 
   const tabs = [
-    { key: 'agencies', label: '商社マスタ', icon: Building2, count: agencies.length },
-    { key: 'destinations', label: '納入先マスタ', icon: MapPin, count: destinations.length },
-    { key: 'suppliers', label: '仕入先マスタ', icon: ShoppingBag, count: suppliers.length },
+    { key: 'partners', label: '取引先マスタ', icon: Building2, count: shownSuppliers.length },
     { key: 'users', label: '従業員・ユーザー', icon: Users, count: null },
     { key: 'texts', label: '見積書の文言', icon: FileText, count: TEXT_LABELS.length },
   ];
@@ -258,47 +278,19 @@ export default function MastersPage() {
         </div>
       )}
 
-      {/* 商社マスタ */}
-      {tab === 'agencies' && (
+      {/* 取引先マスタ（仕入先・商社・納入先を1つにまとめ、区分で見分ける） */}
+      {tab === 'partners' && (
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-100">
-              <tr>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">商社コード</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">商社名</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">支店名</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">担当者</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">電話番号</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">取引条件</th>
-                <th className="px-4 py-3 text-center font-medium text-gray-600">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {agencies.map(a => (
-                <tr key={a.id} className="hover:bg-blue-50">
-                  <td className="px-4 py-3 font-medium text-blue-600">{a.agency_code}</td>
-                  <td className="px-4 py-3 font-medium text-gray-800">{a.agency_name}</td>
-                  <td className="px-4 py-3 text-gray-500">{a.branch_name || '—'}</td>
-                  <td className="px-4 py-3 text-gray-500">{a.contact_person || '—'}</td>
-                  <td className="px-4 py-3 text-gray-500">{a.phone || '—'}</td>
-                  <td className="px-4 py-3 text-gray-500">{a.trade_terms || '—'}</td>
-                  <td className="px-4 py-3 text-center flex items-center justify-center gap-2">
-                    <button onClick={() => openEdit(a)} className="text-blue-400 hover:text-blue-600"><Edit2 size={14} /></button>
-                    <button onClick={() => handleDelete(a)} className="text-red-300 hover:text-red-500"><Trash2 size={14} /></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {agencies.length === 0 && <div className="text-center py-10 text-gray-400">データがありません</div>}
-        </div>
-      )}
-
-      {/* 仕入先マスタ（TECHSの仕入先CDで突合） */}
-      {tab === 'suppliers' && (
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 bg-gray-50">
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 bg-gray-50 flex-wrap">
             <span className="text-xs text-gray-500">区分</span>
+            <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)}
+              className="border border-gray-200 rounded px-2 py-1 text-xs">
+              <option value="">すべて</option>
+              <option value="supplier">仕入先</option>
+              <option value="agency">商社</option>
+              <option value="customer">納入先</option>
+            </select>
+            <span className="text-xs text-gray-500 ml-2">仕入の種類</span>
             <select value={supplierCat} onChange={e => setSupplierCat(e.target.value)}
               className="border border-gray-200 rounded px-2 py-1 text-xs">
               <option value="">すべて</option>
@@ -309,22 +301,22 @@ export default function MastersPage() {
               className="border border-gray-200 rounded px-2 py-1 text-xs">
               <option value="">すべて</option>
               <option value="yes">登録あり</option>
-              <option value="no">未登録（手配のみ）</option>
+              <option value="no">未登録</option>
             </select>
             <span className="text-xs text-gray-400">
-              コード・名称・略称・ふりがなで検索できます（TECHSコードでも可）。
-              クレーン業者・運送業者もこのマスタで管理します
+              1社が「納入先であり商社」のように複数の区分を持てます
             </span>
           </div>
           <div className="overflow-auto max-h-[70vh]">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-100 sticky top-0">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600">TECHSコード</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600">仕入先名</th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600">コード</th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600">取引先名</th>
                   <th className="px-3 py-2 text-left font-medium text-gray-600">略称</th>
                   <th className="px-3 py-2 text-left font-medium text-gray-600">区分</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600">営業所</th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600">仕入の種類</th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600">拠点</th>
                   <th className="px-3 py-2 text-left font-medium text-gray-600">担当者</th>
                   <th className="px-3 py-2 text-left font-medium text-gray-600">TEL</th>
                   <th className="px-3 py-2 text-left font-medium text-gray-600">FAX</th>
@@ -342,6 +334,15 @@ export default function MastersPage() {
                     </td>
                     <td className="px-3 py-2 text-gray-800">{s.name}</td>
                     <td className="px-3 py-2 text-gray-500 text-xs">{s.short_name || '—'}</td>
+                    <td className="px-3 py-2 text-xs whitespace-nowrap">
+                      {ROLES.filter(([k]) => s[k]).map(([k, label]) => (
+                        <span key={k} className={`mr-1 px-1.5 py-0.5 rounded ${
+                          k === 'is_supplier' ? 'bg-emerald-100 text-emerald-700'
+                          : k === 'is_agency' ? 'bg-sky-100 text-sky-700'
+                          : 'bg-violet-100 text-violet-700'}`}>{label}</span>
+                      ))}
+                      {!ROLES.some(([k]) => s[k]) && <span className="text-gray-300">—</span>}
+                    </td>
                     <td className="px-3 py-2 text-xs">
                       {s.category
                         ? <span className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">{s.category}</span>
@@ -362,43 +363,7 @@ export default function MastersPage() {
               </tbody>
             </table>
           </div>
-          {shownSuppliers.length === 0 && <div className="text-center py-10 text-gray-400">該当する仕入先がありません</div>}
-        </div>
-      )}
-
-      {/* 納入先マスタ */}
-      {tab === 'destinations' && (
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-100">
-              <tr>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">顧客ID</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">会社名</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">工場名</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">住所</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">TEL</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">ランク</th>
-                <th className="px-4 py-3 text-center font-medium text-gray-600">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {destinations.map(d => (
-                <tr key={d.id} className="hover:bg-blue-50">
-                  <td className="px-4 py-3 font-medium text-blue-600">{d.customer_id}</td>
-                  <td className="px-4 py-3 font-medium text-gray-800">{d.company_name}</td>
-                  <td className="px-4 py-3 text-gray-500">{d.factory_name || '—'}</td>
-                  <td className="px-4 py-3 text-gray-500 max-w-xs truncate">{d.address || '—'}</td>
-                  <td className="px-4 py-3 text-gray-500">{d.tel || '—'}</td>
-                  <td className="px-4 py-3 text-gray-500">{d.customer_rank || '—'}</td>
-                  <td className="px-4 py-3 text-center flex items-center justify-center gap-2">
-                    <button onClick={() => openEdit(d)} className="text-blue-400 hover:text-blue-600"><Edit2 size={14} /></button>
-                    <button onClick={() => handleDelete(d)} className="text-red-300 hover:text-red-500"><Trash2 size={14} /></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {destinations.length === 0 && <div className="text-center py-10 text-gray-400">データがありません</div>}
+          {shownSuppliers.length === 0 && <div className="text-center py-10 text-gray-400">該当する取引先がありません</div>}
         </div>
       )}
 
@@ -413,59 +378,46 @@ export default function MastersPage() {
               {modal.id ? '編集' : '新規登録'} — {tabs.find(t => t.key === tab)?.label}
             </h2>
             <div className="space-y-3">
-              {tab === 'agencies' && (<>
-                <F label="商社コード *" name="agency_code" form={form} setForm={setForm} />
-                <F label="商社名 *" name="agency_name" form={form} setForm={setForm} />
-                <F label="支店名" name="branch_name" form={form} setForm={setForm} />
-                <F label="取引条件" name="trade_terms" form={form} setForm={setForm} />
-                <F label="住所（請求先）" name="address" form={form} setForm={setForm} />
-                <F label="担当者名" name="contact_person" form={form} setForm={setForm} />
-                <F label="電話番号" name="phone" form={form} setForm={setForm} />
-              </>)}
-              {tab === 'destinations' && (<>
-                <F label="顧客ID *" name="customer_id" form={form} setForm={setForm} />
-                <F label="会社名 *" name="company_name" form={form} setForm={setForm} />
-                <F label="工場名" name="factory_name" form={form} setForm={setForm} />
-                <F label="会社名_工場名" name="company_factory_name" form={form} setForm={setForm} />
-                <F label="郵便番号" name="postal_code" form={form} setForm={setForm} />
-                <F label="都道府県" name="prefecture" form={form} setForm={setForm} />
-                <F label="住所" name="address" form={form} setForm={setForm} />
-                <F label="TEL" name="tel" form={form} setForm={setForm} />
-                <F label="FAX" name="fax" form={form} setForm={setForm} />
-                <F label="ご担当者（送り状・依頼書に出ます）" name="contact_person" form={form} setForm={setForm} />
-                <F label="顧客ランク" name="customer_rank" form={form} setForm={setForm} />
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">備考</label>
-                  <textarea value={form.notes || ''} rows={2}
-                    onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+              {tab === 'partners' && (<>
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <label className="block text-xs font-medium text-gray-600 mb-2">
+                    区分 *
+                    <span className="ml-2 font-normal text-gray-400">
+                      当てはまるものをすべて選びます（納入先であり商社、など）
+                    </span>
+                  </label>
+                  <RoleChecks form={form} setForm={setForm} />
                 </div>
-              </>)}
-              {tab === 'suppliers' && (<>
-                <F label="仕入先コード（TECHS仕入先CD）*" name="supplier_code" form={form} setForm={setForm} />
+                <F label="取引先コード *" name="supplier_code" form={form} setForm={setForm} />
                 <F label="TECHSコード" name="techs_code" form={form} setForm={setForm} />
-                <F label="仕入先名 *" name="name" form={form} setForm={setForm} />
+                <F label="取引先名 *" name="name" form={form} setForm={setForm} />
                 <F label="略称" name="short_name" form={form} setForm={setForm} />
                 <F label="ふりがな" name="name_kana" form={form} setForm={setForm} />
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">区分</label>
-                  <select value={form.category || ''} onChange={e => setForm((f: any) => ({ ...f, category: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                    <option value="">（なし）</option>
-                    {SUPPLIER_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
+                {form.is_supplier && (
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">仕入の種類</label>
+                    <select value={form.category || ''} onChange={e => setForm((f: any) => ({ ...f, category: e.target.value }))}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                      <option value="">（なし）</option>
+                      {SUPPLIER_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                )}
                 <F label="担当者" name="contact_person" form={form} setForm={setForm} />
                 <F label="郵便番号" name="postal_code" form={form} setForm={setForm} />
                 <F label="住所" name="address" form={form} setForm={setForm} />
                 <F label="TEL" name="phone" form={form} setForm={setForm} />
                 <F label="FAX" name="fax" form={form} setForm={setForm} />
-                <F label="工程（運賃/材料 等）" name="process" form={form} setForm={setForm} />
-                <F label="材料補助科目" name="material_account" form={form} setForm={setForm} />
-                <F label="支払(10万円未満)" name="payment_small" form={form} setForm={setForm} />
-                <F label="支払(10万円以上)" name="payment_large" form={form} setForm={setForm} />
-                <F label="締め日" name="closing_day" type="number" form={form} setForm={setForm} />
-                <F label="税区分" name="tax_type" form={form} setForm={setForm} />
+                {form.is_agency && <F label="取引条件" name="trade_terms" form={form} setForm={setForm} />}
+                {form.is_customer && <F label="顧客ランク" name="customer_rank" form={form} setForm={setForm} />}
+                {form.is_supplier && (<>
+                  <F label="工程（運賃/材料 等）" name="process" form={form} setForm={setForm} />
+                  <F label="材料補助科目" name="material_account" form={form} setForm={setForm} />
+                  <F label="支払(10万円未満)" name="payment_small" form={form} setForm={setForm} />
+                  <F label="支払(10万円以上)" name="payment_large" form={form} setForm={setForm} />
+                  <F label="締め日" name="closing_day" type="number" form={form} setForm={setForm} />
+                  <F label="税区分" name="tax_type" form={form} setForm={setForm} />
+                </>)}
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">備考</label>
                   <textarea value={form.notes || ''} rows={2}
@@ -475,14 +427,14 @@ export default function MastersPage() {
                 <div className="pt-3 border-t border-gray-100">
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-xs font-medium text-gray-600">
-                      営業所
+                      拠点（営業所・工場・支店）
                       <span className="ml-2 font-normal text-gray-400">
-                        営業所ごとに連絡先が違う場合に登録します。手配書ではここから選べます
+                        拠点ごとに連絡先が違う場合に登録します。手配書や納入先の選択に出ます
                       </span>
                     </label>
                     <button onClick={addBranch}
                       className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800">
-                      <Plus size={12} />営業所を追加
+                      <Plus size={12} />拠点を追加
                     </button>
                   </div>
                   <div className="space-y-2">
@@ -491,6 +443,9 @@ export default function MastersPage() {
                     ))}
                     {!(form.branches || []).length &&
                       <div className="text-xs text-gray-400">登録なし（会社のTEL・FAXを使います）</div>}
+                    <p className="text-xs text-gray-400 pt-1">
+                      コードはTECHSの仕入先CD・得意先CDなど。用途を選ぶと、その選択肢にだけ出ます
+                    </p>
                   </div>
                 </div>
               </>)}

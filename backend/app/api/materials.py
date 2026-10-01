@@ -486,12 +486,18 @@ def delete_material_order(mo_id: str, db: Session = Depends(get_db)):
     return {"ok": True}
 
 SUPPLIER_FIELDS = ("supplier_code", "techs_code", "name", "short_name", "name_kana",
-                   "postal_code", "address", "phone", "fax", "email", "contact_person",
-                   "payment_terms", "category", "process", "material_account",
+                   "postal_code", "prefecture", "address", "phone", "fax", "email",
+                   "contact_person", "payment_terms", "trade_terms", "customer_rank",
+                   "category", "process", "material_account",
                    "payment_small", "payment_large", "closing_day", "tax_type", "notes")
 
+# 役割（複数持てる）。同じ会社が「納入先であり商社」になりうるのでフラグで持つ
+ROLE_FIELDS = ("is_supplier", "is_agency", "is_customer")
+ROLE_COLUMN = {"supplier": Supplier.is_supplier, "agency": Supplier.is_agency,
+               "customer": Supplier.is_customer}
 
-BRANCH_FIELDS = ("name", "contact_person", "phone", "fax", "postal_code", "address", "notes")
+
+BRANCH_FIELDS = ("code", "name", "contact_person", "phone", "fax", "postal_code", "address", "notes")
 
 
 def _branch_dict(b: SupplierBranch) -> dict:
@@ -505,6 +511,8 @@ def _supplier_dict(s: Supplier, branches=None) -> dict:
     d = {"id": str(s.id), "is_active": bool(s.is_active)}
     for f in SUPPLIER_FIELDS:
         d[f] = getattr(s, f, None)
+    for f in ROLE_FIELDS:
+        d[f] = bool(getattr(s, f, False))
     # TECHSに無い先（手配だけで使う業者）を画面で見分けられるようにする
     d["has_techs"] = bool((s.techs_code or "").strip())
     d["branches"] = [_branch_dict(b) for b in (branches or [])]
@@ -528,12 +536,18 @@ def _branch_map(db: Session, supplier_ids) -> dict:
 @router.get("/suppliers")
 def list_suppliers(search: str = Query(None), category: str = Query(None),
                    include_inactive: bool = Query(False), techs_only: bool = Query(False),
-                   db: Session = Depends(get_db)):
-    """仕入先の一覧。コード・名称・略称・ふりがな・TECHSコードのどれでも検索できる。
-    techs_only=true でTECHSに登録のある先だけに絞る（注文書の発注先はこちら）"""
+                   role: str = Query(None), db: Session = Depends(get_db)):
+    """取引先の一覧。コード・名称・略称・ふりがな・TECHSコードのどれでも検索できる。
+    role=supplier/agency/customer でその役割を持つ先だけに絞る。
+    techs_only=true でTECHSに登録のある先だけ（注文書の発注先はこちら）"""
     q = db.query(Supplier)
     if not include_inactive:
         q = q.filter(Supplier.is_active == True)  # noqa: E712
+    if role:
+        col = ROLE_COLUMN.get(role)
+        if col is None:
+            raise HTTPException(400, "役割は supplier / agency / customer のいずれかです")
+        q = q.filter(col == True)  # noqa: E712
     if category:
         q = q.filter(Supplier.category == nfkc(category))
     if techs_only:
@@ -601,15 +615,19 @@ def delete_branch(branch_id: str, db: Session = Depends(get_db)):
 def create_supplier(data: dict, db: Session = Depends(get_db)):
     code = nfkc((data.get("supplier_code") or data.get("techs_code") or "").strip())
     if not code:
-        raise HTTPException(400, "仕入先コードを入力してください")
+        raise HTTPException(400, "取引先コードを入力してください")
     if db.query(Supplier).filter(Supplier.supplier_code == code).first():
-        raise HTTPException(400, f"仕入先コード {code} は既に登録されています")
+        raise HTTPException(400, f"取引先コード {code} は既に登録されています")
     if not (data.get("name") or "").strip():
-        raise HTTPException(400, "仕入先名を入力してください")
-    s = Supplier(supplier_code=code)
+        raise HTTPException(400, "取引先名を入力してください")
+    s = Supplier(supplier_code=code, is_supplier=False)
     for f in SUPPLIER_FIELDS:
         if f in data and f != "supplier_code":
             setattr(s, f, nfkc(data[f]) if isinstance(data[f], str) else data[f])
+    for f in ROLE_FIELDS:
+        setattr(s, f, bool(data.get(f)))
+    if not any(getattr(s, f) for f in ROLE_FIELDS):
+        raise HTTPException(400, "区分（仕入先／商社／納入先）を1つ以上選んでください")
     db.add(s); db.commit(); db.refresh(s)
     return _supplier_dict(s)
 
@@ -622,6 +640,12 @@ def update_supplier(supplier_id: str, data: dict, db: Session = Depends(get_db))
     for f in SUPPLIER_FIELDS:
         if f in data:
             setattr(s, f, nfkc(data[f]) if isinstance(data[f], str) else data[f])
+    if any(f in data for f in ROLE_FIELDS):
+        for f in ROLE_FIELDS:
+            if f in data:
+                setattr(s, f, bool(data[f]))
+        if not any(getattr(s, f) for f in ROLE_FIELDS):
+            raise HTTPException(400, "区分（仕入先／商社／納入先）を1つ以上選んでください")
     if "is_active" in data:
         s.is_active = bool(data["is_active"])
     db.commit(); db.refresh(s)

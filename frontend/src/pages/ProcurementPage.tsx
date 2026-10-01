@@ -194,8 +194,8 @@ function PurchaseOrdersTab({ initialOrder }: { initialOrder?: any }) {
 
       <table className="w-full text-sm border-collapse">
         <thead><tr className="bg-gray-50">
-          {['', '発注番号', '内訳', '案件子ID', '発注先', '注文日', '明細', '金額', 'ステータス', ''].map(h =>
-            <th key={h} className="border border-gray-200 px-2 py-2 text-left text-xs font-medium text-gray-600">{h}</th>)}
+          {['', '発注番号', '内訳', '案件子ID', '発注先', '注文日', '明細', '金額', 'ステータス', ''].map((h, i) =>
+            <th key={i} className="border border-gray-200 px-2 py-2 text-left text-xs font-medium text-gray-600">{h}</th>)}
         </tr></thead>
         <tbody>
           {pos.length === 0 ? <tr><td colSpan={10} className="text-center py-8 text-gray-400">発注書なし</td></tr>
