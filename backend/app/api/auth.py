@@ -224,7 +224,7 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), _: User = Depen
     hashed = bcrypt.hashpw(data.password.encode(), bcrypt.gensalt()).decode()
     user = User(email=data.email, hashed_password=hashed, full_name=data.full_name, role=data.role,
                 function_roles=normalize_roles(data.function_roles), department=data.department,
-                mobile=data.mobile,
+                mobile=(data.mobile or "").strip() or None,
                 employee_code=_check_employee_code(db, data.employee_code))
     db.add(user)
     db.commit()
@@ -268,6 +268,7 @@ def update_user(user_id: str, data: UserUpdate, db: Session = Depends(get_db), _
     if not u: raise HTTPException(404)
     if data.email: u.email = data.email
     if data.full_name: u.full_name = data.full_name
+    if data.mobile is not None: u.mobile = data.mobile.strip() or None   # 空文字＝消す
     if data.role: u.role = data.role
     if data.function_roles is not None:
         u.function_roles = normalize_roles(data.function_roles)

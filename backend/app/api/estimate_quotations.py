@@ -2256,8 +2256,15 @@ def order_ticket_pdf(ticket_id: str, with_quotation: int = 0, mode: str = "", db
         _qe = q_html.rfind("</body>")
         if _qs != -1 and _qe != -1:
             q_body = q_html[_qs + len("<body>"):_qe]
+            # 受注票はA4横だが、見積書はA4縦。@page は文書全体にかかるため、見積書の部分だけ
+            # 名前付きページで縦に戻す（これが無いと見積書まで横向きで印刷される）。
+            # 見積書の <head> にある表の余白指定も、見積書の部分に限って持ち込む
+            quote_css = ('<style>@page quotepage{size:A4 portrait;margin:12mm}'
+                         '.quote-part{page:quotepage}'
+                         '.quote-part .header-table td{padding:4px 8px}</style>')
             html = html.replace("</body></html>",
-                                f'<div style="page-break-before:always"></div>{q_body}</body></html>')
+                                f'{quote_css}<div class="quote-part" style="page-break-before:always">'
+                                f'{q_body}</div></body></html>')
 
     return StreamingResponse(
         io.BytesIO(html.encode("utf-8")), media_type="text/html",

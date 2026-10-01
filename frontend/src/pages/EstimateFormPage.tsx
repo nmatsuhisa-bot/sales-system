@@ -613,7 +613,7 @@ export default function EstimateFormPage() {
             <label className="block text-xs text-gray-500 mb-1">
               御見積除外事項（1行1項目・見積書に印字）
             </label>
-            <textarea value={header.exclusions} rows={4}
+            <textarea value={header.exclusions ?? ''} rows={4}
               onChange={e => setHeader(h => ({ ...h, exclusions: e.target.value }))}
               placeholder={'基礎工事:アンカーボルト並セット\n電気配線1次側:制御盤への電源配線\n既設ダクト処分'}
               className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
@@ -766,7 +766,7 @@ export default function EstimateFormPage() {
                         className="w-full border border-gray-200 rounded px-2 py-1 text-xs" placeholder="品名" />
                     </td>
                     <td className="px-2 py-1.5">
-                      <textarea value={item.spec_detail} rows={2}
+                      <textarea value={item.spec_detail ?? ''} rows={2}
                         onChange={e => setLineItems(prev => prev.map((i, j) => j === idx ? { ...i, spec_detail: e.target.value } : i))}
                         className="w-full border border-gray-200 rounded px-2 py-1 text-xs resize-none" placeholder="仕様詳細" />
                     </td>

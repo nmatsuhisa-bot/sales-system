@@ -47,7 +47,8 @@ export default function UsersPage({ search = '', openSignal = 0 }: { search?: st
     try {
       const roles = form.function_roles || [];
       const body = { email: form.email, full_name: form.full_name, role: form.role || 'user', function_roles: roles,
-                     department: form.department || null, mobile: (form.mobile || '').trim() || null,
+                     // 空文字のまま送る（更新では null＝「変えない」扱いになり、消せなくなるため）
+                     department: form.department || null, mobile: (form.mobile || '').trim(),
                      employee_code: (form.employee_code || '').trim() };
       if (modal.isNew) {
         await authApi.createUser({ ...body, password: form.password });

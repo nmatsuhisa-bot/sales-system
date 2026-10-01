@@ -8,7 +8,6 @@ import ProductsPage from './pages/ProductsPage';
 import QuotationsPage from './pages/QuotationsPage';
 import QuotationFormPage from './pages/QuotationFormPage';
 import OrdersPage from './pages/OrdersPage';
-import PurchaseOrdersPage from './pages/PurchaseOrdersPage';
 import InventoryPage from './pages/InventoryPage';
 import ProjectsPage from './pages/ProjectsPage';
 import MastersPage from './pages/MastersPage';
@@ -49,7 +48,8 @@ export default function App() {
           <Route path="quotations/new" element={<Navigate to="/estimates/new" replace />} />
           <Route path="quotations/:id/edit" element={<Navigate to="/estimates" replace />} />
           <Route path="orders" element={<OrdersPage />} />
-          <Route path="purchase-orders" element={<PurchaseOrdersPage />} />
+          {/* 旧「発注・仕入管理」は仕入（発注）管理に置き換え済み。旧画面のAPIは動かないため転送する */}
+          <Route path="purchase-orders" element={<Navigate to="/procurement" replace />} />
           <Route path="inventory" element={<InventoryPage />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="masters" element={<MastersPage />} />
