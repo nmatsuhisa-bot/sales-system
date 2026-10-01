@@ -1,0 +1,54 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "shinwa-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/nobuharu.matsuhisa2/Downloads/shinwa-system/frontend",
+        "run",
+        "dev"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "sales-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/nobuharu.matsuhisa2/sales-system-v2/frontend",
+        "run",
+        "dev"
+      ],
+      "port": 3000
+    },
+    {
+      "name": "sales-backend-local",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/nobuharu.matsuhisa2/sales-system-v2/backend && DATABASE_URL=postgresql://sales_user:sales_pass@localhost:5432/sales_dev SCHEDULE_DIGEST_ENABLED=0 python3 -m uvicorn app.main:app --port 8010 --reload"
+      ],
+      "port": 8010
+    },
+    {
+      "name": "sales-frontend-local",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "VITE_API_URL=http://localhost:8010/api npm --prefix /Users/nobuharu.matsuhisa2/sales-system-v2/frontend run dev -- --port 3002"
+      ],
+      "port": 3002
+    },
+    {
+      "name": "sales-frontend-prod-api",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "VITE_API_URL=https://sales-backend-7nzg.onrender.com/api npm --prefix /Users/nobuharu.matsuhisa2/sales-system-v2/frontend run dev -- --port 3001"
+      ],
+      "port": 3001
+    }
+  ]
+}
